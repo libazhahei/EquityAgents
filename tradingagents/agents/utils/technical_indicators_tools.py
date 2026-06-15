@@ -33,3 +33,30 @@ def get_indicators(
         except ValueError as e:
             results.append(str(e))
     return "\n\n".join(results)
+
+@tool
+def get_briefing_stock_info(
+    symbol: Annotated[str, "ticker symbol of the company"],
+    indicator: Annotated[str, "key indicator to get the analysis and report of"],
+    curr_date: Annotated[str, "The current trading date you are trading on, YYYY-mm-dd"],
+    look_back_days: Annotated[int, "how many days to look back"] = 30,
+) -> str:
+    """
+    Retrieve a brief description of the stock's recent performance and key stats.
+    Uses the configured get_briefing_stock_info vendor.
+    Args:
+        symbol (str): Ticker symbol of the company, e.g. AAPL, TSM
+        indicator (str): A single technical indicator name, e.g. 'basic_stats', 'volume_stats'. Call this tool once per indicator.
+        curr_date (str): The current trading date you are trading on, YYYY-mm-dd
+        look_back_days (int): How many days to look back, default is 30
+    Returns:
+        str: A formatted string containing the briefing information for the specified ticker symbol and indicator by given date and look-back period.
+    """
+    indicators = [i.strip().lower() for i in indicator.split(",") if i.strip()]
+    results = []
+    for ind in indicators:
+        try:
+            results.append(route_to_vendor("get_briefing_stock_info", symbol, ind, curr_date, look_back_days))
+        except ValueError as e:
+            results.append(str(e))
+    return "\n\n".join(results)

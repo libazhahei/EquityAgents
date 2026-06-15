@@ -8,11 +8,19 @@ from pathlib import Path
 from typing import Any
 
 import yfinance as yf
+
+
+logger = logging.getLogger(__name__)
+
 from langgraph.prebuilt import ToolNode
 
 # Import the abstract tool methods from agent_utils
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
+    get_stock_data,
+    get_indicators,
+    get_briefing_stock_info,
+    get_fundamentals,
     get_balance_sheet,
     get_cashflow,
     get_fundamentals,
@@ -63,6 +71,11 @@ class TradingAgentsGraph:
         """
         self.debug = debug
         self.config = config or DEFAULT_CONFIG
+        # Force-disable langgraph checkpointing to avoid serializing
+        # complex message objects into the sqlite checkpointer metadata.
+        # If you need checkpointing, ensure all state/metadata is JSON-serializable
+        # (e.g., convert messages to plain dicts) and enable explicitly.
+        self.config["checkpoint_enabled"] = False
         self.callbacks = callbacks or []
 
         # Update the interface's config
@@ -171,6 +184,7 @@ class TradingAgentsGraph:
                     # LLM and required by its prompt; must be executable here or
                     # the call fails and the model reports it "unavailable").
                     get_verified_market_snapshot,
+                    get_briefing_stock_info,
                 ]
             ),
             "social": ToolNode(
@@ -436,7 +450,7 @@ class TradingAgentsGraph:
                     "judge_decision"
                 ],
             },
-            "trader_investment_decision": final_state["trader_investment_plan"],
+            "trader_investment_decision": final_state.get("trader_investment_plan", ""),
             "risk_debate_state": {
                 "aggressive_history": final_state["risk_debate_state"]["aggressive_history"],
                 "conservative_history": final_state["risk_debate_state"]["conservative_history"],

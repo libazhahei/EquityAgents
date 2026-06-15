@@ -1,0 +1,23 @@
+**Rating**: Underweight
+
+**Executive Summary**: Reduce MU to an underweight allocation by trimming 25–35% of the position. Prioritize selling into strength in the $780–$800 zone; if no bounce materializes within 3–5 sessions, execute the trim at market. Place a hard stop-loss at $620 on the remaining position — a level below the VWMA ($622) and 10-day EMA ($664) that, if broken, would invalidate the intermediate uptrend. Monitor for re-entry in the $500–$550 zone once RSI resets below 50, MACD divergence turns bullish, and cyclical/macro pressures abate. Time horizon: 6–12 months.
+
+**Investment Thesis**: The bull case is anchored in a genuine structural transformation: HBM3E qualification moats, explosive AI-driven demand, Q2 FY2026 revenue of $23.86B, 74.4% gross margins, $11.9B operating cash flow, and a forward P/E of 7.5x with a 0.26 PEG. These are extraordinary numbers. However, the preponderance of evidence from the risk analysts' debate points to a cyclical peak, not a permanent plateau.
+
+**Technical exhaustion is overwhelming.** RSI hit 85.84 — a level seen only once every few years — and has begun rolling over (79.40) as the MACD histogram contracts for the first time. Price is 158% above the 200-day MA; historically, stocks with this extension and MU's beta have experienced a median peak-to-trough correction of 34%. May 12 printed a textbook distribution day: 73 million shares traded, a $76 intraday reversal from the high, on the second-highest volume of the period. Institutions are selling, not accumulating.
+
+**Sentiment confirms the crowded trade.** StockTwits reads 57% bullish and only 3% bearish — a euphoric extreme that is a classic contrarian sell signal. TheStreet flagged the RSI 85 reading as one that "rarely ends quietly." When retail is this one-sided and institutions are distributing, the setup favors a shakeout.
+
+**The 7.5x forward P/E is a cyclical trap.** It assumes $101.78 in forward EPS is sustainable. In every prior memory cycle, the CapEx arms race has competed away peak margins. Micron is spending $15.86B annually on CapEx, matched by Samsung and SK Hynix; this virtually guarantees that today's 74.4% gross margins will normalize. Even a reversion to $40–50 EPS — still excellent by historical standards — pushes the forward multiple to 15–19x, which is fair-to-expensive at a cyclical peak. The aggressive analyst correctly notes that when memory margins turn, they collapse fast: the 2018 cycle saw a 65% drawdown despite an "intact" long-term demand thesis.
+
+**Macro headwinds are emerging, not priced in.** The Iran conflict, oil rationing, and resurgent inflation raise the cost of capital and introduce genuine risk to AI capex timelines. MU's beta of 1.92 means a 10% S&P 500 correction translates to a 19% MU decline. The 9% drop on May 12 is the first inning, not the ninth.
+
+**The conservative counterargument has merit but is insufficient.** The conservative analyst correctly notes that the structural AI demand thesis, net cash balance sheet ($3.1B), and capacity-constrained supply side differentiate this cycle from 2018. Nvidia in 2023 digested a 200% extension above its 200-day MA with only a 15% pullback because forward earnings were exploding. However, MU's MACD histogram contraction signals momentum exhaustion, not acceleration — the comparison fails at the critical juncture. Holding the full position with only a $620 stop risks a 19% drawdown on 100% of the position, which is inconsistent with capital preservation.
+
+**The neutral analyst's balanced framework is the right synthesis.** Trimming 25–35% locks in a meaningful portion of the 160% parabolic gain. Selling into strength at $780–$800 (if the dead-cat bounce materializes) uses the next liquidity event as an exit window, rather than panicking into the distribution. A hard stop at $620 sits below the VWMA ($622) and 10-day EMA ($664) — structural support levels that, if broken, confirm the intermediate trend has failed and the next leg down toward the 50-SMA ($464) is in play. The trim proceeds provide dry powder to re-engage at $500–$550, where the forward P/E would compress below 5x on sustained AI data and the risk/reward would flip decisively bullish.
+
+This is not a Sell — the structural transformation in AI memory demand prevents that. But at $766, the asymmetric risk is to the downside. Reduce exposure, let the technical and cyclical pressures resolve, and be ready to re-engage at better risk/reward.
+
+**Price Target**: 550.0
+
+**Time Horizon**: 6-12 months

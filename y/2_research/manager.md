@@ -1,0 +1,17 @@
+**Recommendation**: Underweight
+
+**Rationale**: The bull correctly identifies a genuine structural transformation: HBM3E qualification moats, explosive AI-driven demand, and a Q2 FY2026 quarter that is historically unprecedented ($23.86B revenue, 74.4% gross margin, $11.9B operating cash flow). At a 7.5x forward P/E and 0.26 PEG, the stock screens absurdly cheap.
+
+But the bear wins on the preponderance of evidence pointing to a cyclical peak, not a permanent plateau. The technical picture is extreme—RSI hit 85.84, the stock trades 158% above its 200-day MA, the MACD histogram is contracting, and May 12 printed a textbook distribution day: 73M shares, a $76 intraday reversal on the second-highest volume of the period. Sentiment is euphoric (57% bullish, only 3% bearish on StockTwits), a classic crowded-trade signal. The forward P/E of 7.5x assumes $101.78 EPS persists; even a normalization to $40–50 EPS—still excellent by historical standards—pushes the multiple to 15–19x, which is fair-to-expensive for a cyclical at its peak. The macro backdrop of Iran conflict, rising oil, and resurgent inflation raises the cost of capital and introduces genuine risk to AI capex timelines. And the CapEx arms race ($15.86B at Micron alone, matched by Samsung and SK Hynix) virtually guarantees that today's 74.4% gross margins will be competed away, just as they have been in every prior memory cycle.
+
+The bull case is not broken long-term—AI memory demand is real and growing. But at $767, the risk of a 30–40% drawdown over the next 6–12 months outweighs the probability of another sustained leg higher from these levels. This is not a Sell—the structural transformation prevents that. But it is a clear Underweight: reduce exposure, let the technical and cyclical pressures resolve, and be ready to re-engage at better risk/reward.
+
+**Strategic Actions**: 1. **Reduce position size to an underweight allocation.** Target trimming 25–50% of the current MU position, prioritizing shares acquired at the highest cost basis. The goal is to lock in gains from the parabolic run while retaining exposure to the structural AI memory thesis.
+
+2. **Sell into strength, not panic.** Use any bounces toward the $780–$800 zone (the May 12 high area) as exit windows. Do not sell into waterfall declines; the bull case is strong enough that dip-buyers will provide exit liquidity on rebounds.
+
+3. **Set a hard stop on the remaining position.** Place a stop-loss at $620—roughly the volume-weighted moving average (VWMA ~$622) and a level that, if broken, would invalidate the intermediate uptrend. This protects against the 40%+ drawdown scenario the bear outlined.
+
+4. **Monitor the re-entry triggers.** Prepare to reverse the underweight stance if any of the following occur: (a) MU pulls back to the $500–$550 zone (roughly the 200-day MA converging toward prior support), (b) the forward P/E compresses below 5x on sustained AI demand data, (c) the RSI resets below 50 with bullish MACD divergence, or (d) a resolution of the Iran/oil macro shock that removes the cost-of-capital overhang.
+
+5. **Avoid adding on dips at current levels.** The 9% drop on May 12 is not yet a buyable dip—it is more likely the first shot in a mean-reversion process. Patience is the edge here. Let the cycle do its work.

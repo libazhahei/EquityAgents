@@ -308,3 +308,9 @@ Please reference our work if you find *TradingAgents* provides you with some hel
       url={https://arxiv.org/abs/2412.20138}, 
 }
 ```
+
+
+----
+./cloud-sql-proxy gen-lang-client-0768097937:australia-southeast1:genai-rag-db-b931fbe0 --port 5433
+
+psql "host=127.0.0.1 port=5433 dbname=seeking_alpha user=retrieval-service"

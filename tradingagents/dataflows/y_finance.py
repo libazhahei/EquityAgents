@@ -14,6 +14,10 @@ from .stockstats_utils import (
 )
 from .symbol_utils import NoMarketDataError, normalize_symbol
 
+import os
+
+from tradingagents.dataflows.utils import market_briefing
+from .stockstats_utils import StockstatsUtils, _clean_dataframe, yf_retry, load_ohlcv, filter_financials_by_date
 
 def get_YFin_data_online(
     symbol: Annotated[str, "ticker symbol of the company"],
@@ -68,6 +72,84 @@ def get_YFin_data_online(
     header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
 
     return header + csv_string
+
+def get_YFin_brief_stock_data_description(
+    symbol: Annotated[str, "ticker symbol of the company"],
+    indicator: Annotated[str, "technical indicator to get the analysis and report of"],
+    curr_date: Annotated[
+        str, "The current trading date you are trading on, YYYY-mm-dd"
+    ],
+    look_back_days: Annotated[int, "how many days to look back"],
+):
+    """
+    Retrieve a brief description of the stock data for a given ticker symbol and date range.
+    This includes the number of records, date range covered, and basic statistics.
+    Args:
+        symbol (str): Ticker symbol of the company, e.g. AAPL, TSM
+        indicator (str): Technical indicator to get the analysis and report of
+        curr_date (str): The current trading date you are trading on, YYYY-mm-dd
+        look_back_days (int): How many days to look back
+    Returns:
+        str: A brief description of the stock data for the specified ticker symbol and date range.
+    """
+
+    best_ind_params = {
+        "basic_stats": (
+            "Basic Stats: Provides an overview of the stock's historical performance. "
+            "Usage: Use this as a quick reference to understand the stock's price range, volatility"
+            "and average performance over the specified period. "
+            "Tips: Look for trends in the data, such as increasing volatility or a narrowing price range, which may indicate upcoming price movements."
+        ),
+        "volume_stats": (
+            "Volume Stats: Summarizes trading text-art volume profile. "
+            "Usage: Analyze the average daily volume and identify any spikes in trading activity, including Point of Control, Value Area High / Low, High Volume Nodes, Low Volume Nodes. "
+            "Tips: Unusual volume can signal significant news or a potential breakout; always investigate the context behind volume changes."
+        ),
+        "structure_stats": (
+            "Structure Stats: Analyzes the stock's price structure, including support and resistance levels by Dow Theory, Price Action, and ICT-SMC. "
+            "Usage: Identify key price levels where the stock has historically found support or resistance, as well as any emerging patterns. "
+            "Tips: Use this information to anticipate potential price reactions at these levels, and consider combining with other indicators for confirmation."
+        ),
+        "resistance_stats": (
+            "Resistance Stats: Focuses on identifying resistance levels and patterns in the stock's price history by Local Extrema + K-Means Clustering. "
+            "Usage: Pinpoint price levels where the stock has historically struggled to move above, and analyze any patterns that may indicate strong resistance. "
+            "Tips: Resistance levels can act as barriers to price increases; watch for multiple tests of these levels, which may weaken them and lead to break outs."
+        ),
+        "pattern_stats": (
+            "Pattern Stats: Detects common price patterns in the stock's historical data, such as head and shoulders, double tops/bottoms, and triangles. "
+            "Usage: Recognizeing these patterns can provide insights into potential future price movements and trend reversals. "
+            "Tips: Look for patterns that have formed over a significant number of trading days, as these tend to be more reliable; always confirm pattern signals with volume and other indicators."
+        ),
+    }
+
+    if indicator not in best_ind_params:
+        raise ValueError(
+            f"Indicator {indicator} is not supported. Please choose from: {list(best_ind_params.keys())}"
+        )
+
+    end_date = curr_date
+    curr_date_dt = datetime.strptime(curr_date, "%Y-%m-%d")
+    before = curr_date_dt - relativedelta(days=look_back_days)
+    try:
+        data = load_ohlcv(symbol, curr_date)
+        filtered_data = data[(data["Date"] >= before) & (data["Date"] < curr_date_dt)]
+        if filtered_data.empty:
+            return f"No trading data available for {symbol} between {before.strftime('%Y-%m-%d')} and {curr_date}."
+        market_brief = market_briefing(indicator, filtered_data)
+        ind_string = market_brief
+    except Exception as e:
+        print(f"Error getting bulk stockstats data: {e}")
+        # Fallback to original implementation if bulk method fails
+        ind_string = "Error generating market briefing: " + str(e)
+
+    result_str = (
+        f"## {indicator} values from {before.strftime('%Y-%m-%d')} to {end_date}:\n\n"
+        + ind_string
+        + "\n\n"
+        + best_ind_params.get(indicator, "No description available.")
+    )
+    return result_str
+    
 
 def get_stock_stats_indicators_window(
     symbol: Annotated[str, "ticker symbol of the company"],
@@ -162,6 +244,7 @@ def get_stock_stats_indicators_window(
 
     # Optimized: Get stock data once and calculate indicators for all dates
     try:
+
         indicator_data = _get_stock_stats_bulk(symbol, indicator, curr_date)
 
         # Generate the date range we need
