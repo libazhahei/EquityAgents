@@ -1,0 +1,1143 @@
+{
+  "ticker": "NVDA",
+  "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+  "company_name": "NVDA",
+  "sector": "",
+  "industry": "",
+  "report_type": "initiation",
+  "time_horizon": "12m",
+  "current_price": 100.0,
+  "currency": "USD",
+  "instrument_context": "The instrument to analyze is `NVDA`. Use this exact ticker in every tool call, report, and recommendation, preserving any exchange suffix (e.g. `.TO`, `.L`, `.HK`, `.T`, `-USD`).",
+  "report_template": [
+    {
+      "section_id": "2_company_overview",
+      "title": "\u516c\u53f8\u7b80\u4ecb\u4e0e\u53d1\u5c55\u5386\u7a0b",
+      "required_outputs": [
+        "ownership_structure",
+        "management_background",
+        "historical_transformation_nodes",
+        "business_segment_breakdown"
+      ],
+      "required_evidence_min": 2
+    },
+    {
+      "section_id": "3_industry_and_competition",
+      "title": "\u884c\u4e1a\u5206\u6790\u4e0e\u7ade\u4e89\u683c\u5c40",
+      "required_outputs": [
+        "tam_estimate",
+        "industry_growth_rate",
+        "value_chain_analysis",
+        "competitor_comparison_table",
+        "competitive_position_assessment"
+      ],
+      "required_evidence_min": 4
+    },
+    {
+      "section_id": "5_earnings_forecast",
+      "title": "\u76c8\u5229\u9884\u6d4b\u4e0e\u5173\u952e\u5047\u8bbe",
+      "required_outputs": [
+        "segment_revenue_forecast_3y",
+        "gross_margin_forecast",
+        "opex_forecast",
+        "eps_forecast_3y",
+        "key_assumptions_table"
+      ],
+      "required_evidence_min": 3,
+      "blocking_conditions": [
+        "forecast_assumptions_lack_citations"
+      ]
+    },
+    {
+      "section_id": "6_valuation",
+      "title": "\u4f30\u503c\u5206\u6790\u4e0e\u6295\u8d44\u5efa\u8bae",
+      "required_outputs": [
+        "valuation_method_rationale",
+        "peer_comparison_table",
+        "target_price_calculation",
+        "rating_explanation"
+      ],
+      "required_evidence_min": 2,
+      "blocking_conditions": [
+        "valuation_method_not_justified",
+        "target_price_missing",
+        "rating_inconsistent_with_upside"
+      ],
+      "is_mock": true
+    },
+    {
+      "section_id": "7_risks",
+      "title": "\u98ce\u9669\u63d0\u793a",
+      "required_outputs": [
+        "company_specific_risks",
+        "industry_risks",
+        "macro_risks",
+        "risk_mitigation_discussion"
+      ],
+      "required_evidence_min": 2,
+      "blocking_conditions": [
+        "no_counter_evidence_for_thesis",
+        "risks_are_generic_only"
+      ]
+    },
+    {
+      "section_id": "1_investment_focus",
+      "title": "\u6295\u8d44\u805a\u7126",
+      "required_outputs": [
+        "investment_rating",
+        "target_price",
+        "key_financial_summary_table",
+        "core_thesis_bullet_points",
+        "catalyst_timeline"
+      ],
+      "required_evidence_min": 3,
+      "blocking_conditions": [
+        "rating missing",
+        "target_price missing",
+        "rating_upside_mismatch"
+      ],
+      "rating_thresholds": {
+        "Buy": {
+          "min_upside_pct": 0.15
+        },
+        "Overweight": {
+          "min_upside_pct": 0.1
+        },
+        "Hold": {
+          "min_upside_pct": -0.1,
+          "max_upside_pct": 0.15
+        },
+        "Underperform": {
+          "max_upside_pct": -0.05
+        },
+        "Sell": {
+          "max_upside_pct": -0.1
+        }
+      }
+    }
+  ],
+  "active_section_id": null,
+  "section_coverage": {
+    "2_company_overview": {
+      "section_id": "2_company_overview",
+      "required_outputs": [
+        "ownership_structure",
+        "management_background",
+        "historical_transformation_nodes",
+        "business_segment_breakdown"
+      ],
+      "completed_outputs": [
+        "ownership_structure",
+        "management_background"
+      ],
+      "coverage_score": 0.5
+    },
+    "3_industry_and_competition": {
+      "section_id": "3_industry_and_competition",
+      "required_outputs": [
+        "tam_estimate",
+        "industry_growth_rate",
+        "value_chain_analysis",
+        "competitor_comparison_table",
+        "competitive_position_assessment"
+      ],
+      "completed_outputs": [
+        "industry_growth_rate"
+      ],
+      "coverage_score": 0.2
+    },
+    "5_earnings_forecast": {
+      "section_id": "5_earnings_forecast",
+      "required_outputs": [
+        "segment_revenue_forecast_3y",
+        "gross_margin_forecast",
+        "opex_forecast",
+        "eps_forecast_3y",
+        "key_assumptions_table"
+      ],
+      "completed_outputs": [
+        "segment_revenue_forecast_3y"
+      ],
+      "coverage_score": 0.2
+    },
+    "6_valuation": {
+      "section_id": "6_valuation",
+      "required_outputs": [
+        "valuation_method_rationale",
+        "peer_comparison_table",
+        "target_price_calculation",
+        "rating_explanation"
+      ],
+      "completed_outputs": [
+        "rating_explanation"
+      ],
+      "coverage_score": 0.25
+    },
+    "7_risks": {
+      "section_id": "7_risks",
+      "required_outputs": [
+        "company_specific_risks",
+        "industry_risks",
+        "macro_risks",
+        "risk_mitigation_discussion"
+      ],
+      "completed_outputs": [
+        "company_specific_risks",
+        "industry_risks"
+      ],
+      "coverage_score": 0.5
+    },
+    "1_investment_focus": {
+      "section_id": "1_investment_focus",
+      "required_outputs": [
+        "investment_rating",
+        "target_price",
+        "key_financial_summary_table",
+        "core_thesis_bullet_points",
+        "catalyst_timeline"
+      ],
+      "completed_outputs": [
+        "investment_rating",
+        "core_thesis_bullet_points"
+      ],
+      "coverage_score": 0.4
+    }
+  },
+  "completed_sections": [
+    "2_company_overview",
+    "3_industry_and_competition",
+    "5_earnings_forecast",
+    "6_valuation",
+    "7_risks",
+    "1_investment_focus"
+  ],
+  "consensus_view": [
+    {
+      "summary": "NVDA is a leading AI chip company.\n\nYahoo Finance data: {\"sector\": null, \"industry\": null, \"market_cap\": null, \"trailing_pe\": null, \"forward_pe\": null, \"revenue_growth\": null}",
+      "analyst_consensus": "NVDA is a leading AI chip company.\n\nYahoo Finance data: {\"sector\": null, \"industry\": null, \"market_cap\": null, \"trailing_pe\": null, \"forward_pe\": null, \"revenue_growth\": null}",
+      "implied_growth": "None",
+      "price_implied_expectations": "",
+      "source_doc_ids": [
+        "45bec46b-b5d0-4e48-b9c3-6fd75a4aa04a"
+      ]
+    }
+  ],
+  "expectation_gaps": [
+    {
+      "gap_id": "8ec2b92f-e7b6-44ab-97a4-5264e36ff96a",
+      "description": "",
+      "alpha_source": "",
+      "materiality": 0.5,
+      "verifiability": 0.5,
+      "related_metrics": []
+    }
+  ],
+  "hypothesis_nodes": {
+    "a36112c8-cefb-4309-b89e-3fb2ebfdf081": {
+      "hypothesis_id": "a36112c8-cefb-4309-b89e-3fb2ebfdf081",
+      "parent_id": null,
+      "children_ids": [],
+      "ticker": "NVDA",
+      "section_targets": [
+        "2_company_overview"
+      ],
+      "statement": "Growth thesis",
+      "consensus_view": "moderate",
+      "variant_view": "accelerating",
+      "key_value_drivers": [],
+      "required_evidence": [
+        "revenue"
+      ],
+      "required_computation": [],
+      "valuation_link": "",
+      "status": "in_research",
+      "scores": {
+        "materiality": 0.5,
+        "variant_perception": 0.5,
+        "model_linkage": 0.0,
+        "verifiability": 0.5,
+        "evidence_availability": 0.5,
+        "novelty": 0.0,
+        "research_cost": 0.0,
+        "priority": 0.5
+      },
+      "evidence_strength": 0.0,
+      "contradiction_risk": 0.0,
+      "research_iterations": 1,
+      "max_iterations": 1,
+      "supporting_evidence_ids": [],
+      "contradicting_evidence_ids": [],
+      "computation_results": null,
+      "created_at": "2026-06-22T04:22:38.342622",
+      "updated_at": "2026-06-22T04:22:38.342628"
+    },
+    "d1de0540-bfa3-45e7-91fe-a3a4a6e69abb": {
+      "hypothesis_id": "d1de0540-bfa3-45e7-91fe-a3a4a6e69abb",
+      "parent_id": null,
+      "children_ids": [],
+      "ticker": "NVDA",
+      "section_targets": [
+        "3_industry_and_competition"
+      ],
+      "statement": "Growth thesis",
+      "consensus_view": "moderate",
+      "variant_view": "accelerating",
+      "key_value_drivers": [],
+      "required_evidence": [
+        "revenue"
+      ],
+      "required_computation": [],
+      "valuation_link": "",
+      "status": "in_research",
+      "scores": {
+        "materiality": 0.5,
+        "variant_perception": 0.5,
+        "model_linkage": 0.0,
+        "verifiability": 0.5,
+        "evidence_availability": 0.5,
+        "novelty": 0.0,
+        "research_cost": 0.0,
+        "priority": 0.5
+      },
+      "evidence_strength": 0.0,
+      "contradiction_risk": 0.0,
+      "research_iterations": 0,
+      "max_iterations": 1,
+      "supporting_evidence_ids": [],
+      "contradicting_evidence_ids": [],
+      "computation_results": null,
+      "created_at": "2026-06-22T04:22:38.347774",
+      "updated_at": "2026-06-22T04:22:38.347779"
+    },
+    "da733ddf-785f-4bc0-9ce0-9d973fd52388": {
+      "hypothesis_id": "da733ddf-785f-4bc0-9ce0-9d973fd52388",
+      "parent_id": null,
+      "children_ids": [],
+      "ticker": "NVDA",
+      "section_targets": [
+        "7_risks"
+      ],
+      "statement": "Growth thesis",
+      "consensus_view": "moderate",
+      "variant_view": "accelerating",
+      "key_value_drivers": [],
+      "required_evidence": [
+        "revenue"
+      ],
+      "required_computation": [],
+      "valuation_link": "",
+      "status": "in_research",
+      "scores": {
+        "materiality": 0.5,
+        "variant_perception": 0.5,
+        "model_linkage": 0.0,
+        "verifiability": 0.5,
+        "evidence_availability": 0.5,
+        "novelty": 0.0,
+        "research_cost": 0.0,
+        "priority": 0.5
+      },
+      "evidence_strength": 0.0,
+      "contradiction_risk": 0.0,
+      "research_iterations": 0,
+      "max_iterations": 1,
+      "supporting_evidence_ids": [],
+      "contradicting_evidence_ids": [],
+      "computation_results": null,
+      "created_at": "2026-06-22T04:22:38.356524",
+      "updated_at": "2026-06-22T04:22:38.356529"
+    }
+  },
+  "active_hypothesis_ids": [
+    "da733ddf-785f-4bc0-9ce0-9d973fd52388"
+  ],
+  "pruned_hypothesis_ids": [],
+  "verified_hypothesis_ids": [],
+  "research_phase": "late",
+  "research_budget": {
+    "max_search_queries": 1,
+    "max_extraction_docs": 1,
+    "max_hypothesis_iterations": 1,
+    "max_llm_tokens": 200000,
+    "remaining_search_queries": 0,
+    "remaining_extraction_docs": 1
+  },
+  "documents": [
+    {
+      "doc_id": "45bec46b-b5d0-4e48-b9c3-6fd75a4aa04a"
+    },
+    {
+      "doc_id": "18b9c73c-0356-4c1b-aab2-7c4c07282f80",
+      "ticker": "NVDA",
+      "source_type": "web",
+      "title": "NVDA revenue",
+      "published_date": null,
+      "fiscal_period": null,
+      "source_url": "https://example.com/nvda",
+      "access_path": null,
+      "file_hash": null,
+      "doc_fingerprint": "52ac9fba35bf665b91a7bf2b91e61746a6d07af0f35ed0535303fc76ce787705",
+      "processing_status": "registered"
+    }
+  ],
+  "evidence_fragments": [],
+  "contradiction_fragments": [],
+  "structured_facts": [],
+  "fact_conflicts": [],
+  "business_drivers": [
+    {
+      "statement": "Growth thesis",
+      "consensus_view": "moderate",
+      "variant_view": "accelerating",
+      "required_evidence": [
+        "revenue"
+      ]
+    }
+  ],
+  "forecast_model": {
+    "computation_id": "798d551e-93cf-4cc1-8f18-445c8b39d527",
+    "ticker": "NVDA",
+    "base_eps": 1.0,
+    "eps_forecast_3y": [
+      1.12,
+      1.23,
+      1.33
+    ],
+    "revenue_growth_assumptions": [
+      0.12,
+      0.1,
+      0.08
+    ],
+    "assumptions": [
+      {
+        "assumption": "revenue_growth_fy1",
+        "value": "12%",
+        "source": "business_drivers"
+      },
+      {
+        "assumption": "revenue_growth_fy2",
+        "value": "10%",
+        "source": "business_drivers"
+      },
+      {
+        "assumption": "revenue_growth_fy3",
+        "value": "8%",
+        "source": "business_drivers"
+      },
+      {
+        "assumption": "base_eps",
+        "value": "1.0",
+        "source": "structured_facts"
+      }
+    ],
+    "gross_margin_forecast": [
+      0.45,
+      0.46,
+      0.47
+    ],
+    "opex_forecast": [
+      "stable",
+      "stable",
+      "stable"
+    ],
+    "method": "simplified_growth_model"
+  },
+  "model_assumptions": [
+    {
+      "assumption": "revenue_growth_fy1",
+      "value": "12%",
+      "source": "business_drivers"
+    },
+    {
+      "assumption": "revenue_growth_fy2",
+      "value": "10%",
+      "source": "business_drivers"
+    },
+    {
+      "assumption": "revenue_growth_fy3",
+      "value": "8%",
+      "source": "business_drivers"
+    },
+    {
+      "assumption": "base_eps",
+      "value": "1.0",
+      "source": "structured_facts"
+    }
+  ],
+  "valuation_method": "pe_ev_multiples_mock",
+  "valuation_model": {
+    "method": "pe_ev_multiples_mock",
+    "current_price": 100.0,
+    "target_price": 27.93,
+    "upside_pct": -0.7207,
+    "rating": "Sell",
+    "peer_median_pe": 20.0,
+    "implied_pe": 21.0,
+    "notes": "MVP1 mock PE multiple valuation \u2014 not a DCF model.",
+    "is_mock": true
+  },
+  "target_price": 27.93,
+  "rating": "Sell",
+  "sensitivity_results": [],
+  "claims": [
+    {
+      "claim_id": "bf078401-93b8-48f6-854d-5f0aff3349e9",
+      "hypothesis_id": "a36112c8-cefb-4309-b89e-3fb2ebfdf081",
+      "section_id": "2_company_overview",
+      "claim_type": "descriptive_claim",
+      "text": "Growth thesis",
+      "status": "unsupported",
+      "confidence": 0.0,
+      "supporting_evidence_ids": [],
+      "supporting_computation_ids": [],
+      "supporting_fact_ids": [],
+      "contradicting_evidence_ids": [],
+      "is_core_thesis": false,
+      "created_at": "2026-06-22T04:22:38.345192"
+    },
+    {
+      "claim_id": "bca4390d-c937-4440-ad18-b194f85f9080",
+      "hypothesis_id": "d1de0540-bfa3-45e7-91fe-a3a4a6e69abb",
+      "section_id": "3_industry_and_competition",
+      "claim_type": "industry_claim",
+      "text": "Growth thesis",
+      "status": "unsupported",
+      "confidence": 0.0,
+      "supporting_evidence_ids": [],
+      "supporting_computation_ids": [],
+      "supporting_fact_ids": [],
+      "contradicting_evidence_ids": [],
+      "is_core_thesis": false,
+      "created_at": "2026-06-22T04:22:38.349696"
+    },
+    {
+      "claim_id": "1628fb24-3465-40d1-890a-ab63d0458571",
+      "hypothesis_id": "forecast",
+      "section_id": "5_earnings_forecast",
+      "claim_type": "forecast_claim",
+      "text": "EPS forecast: [1.12, 1.23, 1.33]",
+      "status": "verified",
+      "confidence": 0.7,
+      "supporting_evidence_ids": [],
+      "supporting_computation_ids": [
+        "798d551e-93cf-4cc1-8f18-445c8b39d527"
+      ],
+      "supporting_fact_ids": [],
+      "contradicting_evidence_ids": [],
+      "is_core_thesis": false,
+      "created_at": "2026-06-22T04:22:38.352567"
+    },
+    {
+      "claim_id": "f978a2c2-293e-449e-9978-473787142214",
+      "hypothesis_id": "valuation",
+      "section_id": "6_valuation",
+      "claim_type": "valuation_claim",
+      "text": "Mock valuation target 27.93 (Sell)",
+      "status": "verified",
+      "confidence": 0.6,
+      "supporting_evidence_ids": [],
+      "supporting_computation_ids": [
+        "valuation_mock"
+      ],
+      "supporting_fact_ids": [],
+      "contradicting_evidence_ids": [],
+      "is_core_thesis": false,
+      "created_at": "2026-06-22T04:22:38.354499"
+    },
+    {
+      "claim_id": "a4f96b82-8859-40ca-9b5e-206a6b44e4c4",
+      "hypothesis_id": "da733ddf-785f-4bc0-9ce0-9d973fd52388",
+      "section_id": "7_risks",
+      "claim_type": "risk_claim",
+      "text": "Growth thesis",
+      "status": "unsupported",
+      "confidence": 0.0,
+      "supporting_evidence_ids": [],
+      "supporting_computation_ids": [],
+      "supporting_fact_ids": [],
+      "contradicting_evidence_ids": [],
+      "is_core_thesis": false,
+      "created_at": "2026-06-22T04:22:38.359013"
+    }
+  ],
+  "section_drafts": {
+    "2_company_overview": {
+      "section_id": "2_company_overview",
+      "title": "\u516c\u53f8\u7b80\u4ecb\u4e0e\u53d1\u5c55\u5386\u7a0b",
+      "body_markdown": "[{\"statement\": \"Growth thesis\", \"consensus_view\": \"moderate\", \"variant_view\": \"accelerating\", \"required_evidence\": [\"revenue\"]}]",
+      "claim_ids": [],
+      "completed_outputs": [
+        "ownership_structure",
+        "management_background"
+      ],
+      "review_passed": false,
+      "review_feedback": "Missing outputs: ['historical_transformation_nodes', 'business_segment_breakdown']; Insufficient verified claims: 0 < 2"
+    },
+    "3_industry_and_competition": {
+      "section_id": "3_industry_and_competition",
+      "title": "\u884c\u4e1a\u5206\u6790\u4e0e\u7ade\u4e89\u683c\u5c40",
+      "body_markdown": "[{\"statement\": \"Growth thesis\", \"consensus_view\": \"moderate\", \"variant_view\": \"accelerating\", \"required_evidence\": [\"revenue\"]}]",
+      "claim_ids": [],
+      "completed_outputs": [
+        "industry_growth_rate"
+      ],
+      "review_passed": false,
+      "review_feedback": "Missing outputs: ['tam_estimate', 'value_chain_analysis', 'competitor_comparison_table', 'competitive_position_assessment']; Insufficient verified claims: 0 < 4"
+    },
+    "5_earnings_forecast": {
+      "section_id": "5_earnings_forecast",
+      "title": "\u76c8\u5229\u9884\u6d4b\u4e0e\u5173\u952e\u5047\u8bbe",
+      "body_markdown": "[{\"statement\": \"Growth thesis\", \"consensus_view\": \"moderate\", \"variant_view\": \"accelerating\", \"required_evidence\": [\"revenue\"]}]",
+      "claim_ids": [
+        "1628fb24-3465-40d1-890a-ab63d0458571"
+      ],
+      "completed_outputs": [
+        "segment_revenue_forecast_3y"
+      ],
+      "review_passed": false,
+      "review_feedback": "Missing outputs: ['gross_margin_forecast', 'opex_forecast', 'eps_forecast_3y', 'key_assumptions_table']"
+    },
+    "6_valuation": {
+      "section_id": "6_valuation",
+      "title": "\u4f30\u503c\u5206\u6790\u4e0e\u6295\u8d44\u5efa\u8bae",
+      "body_markdown": "[{\"statement\": \"Growth thesis\", \"consensus_view\": \"moderate\", \"variant_view\": \"accelerating\", \"required_evidence\": [\"revenue\"]}]",
+      "claim_ids": [
+        "f978a2c2-293e-449e-9978-473787142214"
+      ],
+      "completed_outputs": [
+        "rating_explanation"
+      ],
+      "review_passed": false,
+      "review_feedback": "Missing outputs: ['valuation_method_rationale', 'peer_comparison_table', 'target_price_calculation']"
+    },
+    "7_risks": {
+      "section_id": "7_risks",
+      "title": "\u98ce\u9669\u63d0\u793a",
+      "body_markdown": "[{\"statement\": \"Growth thesis\", \"consensus_view\": \"moderate\", \"variant_view\": \"accelerating\", \"required_evidence\": [\"revenue\"]}]",
+      "claim_ids": [],
+      "completed_outputs": [
+        "company_specific_risks",
+        "industry_risks"
+      ],
+      "review_passed": false,
+      "review_feedback": "Missing outputs: ['macro_risks', 'risk_mitigation_discussion']; Insufficient verified claims: 0 < 2"
+    },
+    "1_investment_focus": {
+      "section_id": "1_investment_focus",
+      "title": "\u6295\u8d44\u805a\u7126",
+      "body_markdown": "[{\"statement\": \"Growth thesis\", \"consensus_view\": \"moderate\", \"variant_view\": \"accelerating\", \"required_evidence\": [\"revenue\"]}]",
+      "claim_ids": [
+        "1628fb24-3465-40d1-890a-ab63d0458571",
+        "f978a2c2-293e-449e-9978-473787142214"
+      ],
+      "completed_outputs": [
+        "investment_rating",
+        "core_thesis_bullet_points"
+      ],
+      "review_passed": false,
+      "review_feedback": "Missing outputs: ['target_price', 'key_financial_summary_table', 'catalyst_timeline']; Insufficient verified claims: 0 < 3"
+    }
+  },
+  "final_report": "# Equity Research Report: NVDA (NVDA)\n**Rating**: Sell | **Target**: 27.93 | **Current**: 100.0\n**Report ID**: 71b71ab8-1873-4901-ad96-881f7b8110fd | **Generated**: 2026-06-22T04:22:38.364671\n\n## \u6295\u8d44\u805a\u7126\n[{\"statement\": \"Growth thesis\", \"consensus_view\": \"moderate\", \"variant_view\": \"accelerating\", \"required_evidence\": [\"revenue\"]}]\n\n## \u516c\u53f8\u7b80\u4ecb\u4e0e\u53d1\u5c55\u5386\u7a0b\n[{\"statement\": \"Growth thesis\", \"consensus_view\": \"moderate\", \"variant_view\": \"accelerating\", \"required_evidence\": [\"revenue\"]}]\n\n## \u884c\u4e1a\u5206\u6790\u4e0e\u7ade\u4e89\u683c\u5c40\n[{\"statement\": \"Growth thesis\", \"consensus_view\": \"moderate\", \"variant_view\": \"accelerating\", \"required_evidence\": [\"revenue\"]}]\n\n## \u76c8\u5229\u9884\u6d4b\u4e0e\u5173\u952e\u5047\u8bbe\n[{\"statement\": \"Growth thesis\", \"consensus_view\": \"moderate\", \"variant_view\": \"accelerating\", \"required_evidence\": [\"revenue\"]}]\n\n## \u4f30\u503c\u5206\u6790\u4e0e\u6295\u8d44\u5efa\u8bae\n[{\"statement\": \"Growth thesis\", \"consensus_view\": \"moderate\", \"variant_view\": \"accelerating\", \"required_evidence\": [\"revenue\"]}]\n\n## \u98ce\u9669\u63d0\u793a\n[{\"statement\": \"Growth thesis\", \"consensus_view\": \"moderate\", \"variant_view\": \"accelerating\", \"required_evidence\": [\"revenue\"]}]\n",
+  "cross_branch_discoveries": [],
+  "research_traces": [
+    {
+      "trace_id": "4e8f2359-4610-4708-8871-e182b4cc1570",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "initialize_state",
+      "payload": {
+        "ticker": "NVDA"
+      },
+      "hypothesis_id": null,
+      "section_id": null
+    },
+    {
+      "trace_id": "6e39fbf8-0ddf-4c26-bf2e-dbfd85a17595",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "load_report_template",
+      "payload": {},
+      "hypothesis_id": null,
+      "section_id": null
+    },
+    {
+      "trace_id": "a204be71-4ec0-4994-981b-6ac3f41c507a",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "discover_consensus",
+      "payload": {},
+      "hypothesis_id": null,
+      "section_id": null
+    },
+    {
+      "trace_id": "ae725f8e-7da0-4fe1-be84-a85c30d625dd",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "find_expectation_gaps",
+      "payload": {
+        "count": 1
+      },
+      "hypothesis_id": null,
+      "section_id": null
+    },
+    {
+      "trace_id": "c25b200d-e23a-4be5-b9fd-02efea1b8a8a",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "generate_hypotheses",
+      "payload": {
+        "section_id": "2_company_overview"
+      },
+      "hypothesis_id": "a36112c8-cefb-4309-b89e-3fb2ebfdf081",
+      "section_id": "2_company_overview"
+    },
+    {
+      "trace_id": "22f84935-2e41-4928-8bf9-ee1cd620cb2d",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "virtual_evaluate",
+      "payload": {},
+      "hypothesis_id": "a36112c8-cefb-4309-b89e-3fb2ebfdf081",
+      "section_id": "2_company_overview"
+    },
+    {
+      "trace_id": "22143c2d-1a3d-4547-a84d-99f5e8667ba9",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "allocate_budget",
+      "payload": {},
+      "hypothesis_id": "a36112c8-cefb-4309-b89e-3fb2ebfdf081",
+      "section_id": "2_company_overview"
+    },
+    {
+      "trace_id": "05bd9068-b46b-4243-8dd6-4d1fcbdeccc0",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "retrieve_evidence",
+      "payload": {
+        "queries": 1
+      },
+      "hypothesis_id": "a36112c8-cefb-4309-b89e-3fb2ebfdf081",
+      "section_id": "2_company_overview"
+    },
+    {
+      "trace_id": "4bddcec1-eff2-412b-8135-e3f470980466",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "extract_facts",
+      "payload": {
+        "count": 0
+      },
+      "hypothesis_id": "a36112c8-cefb-4309-b89e-3fb2ebfdf081",
+      "section_id": "2_company_overview"
+    },
+    {
+      "trace_id": "75d1f926-cffd-49c6-b337-3d2c9fba40fe",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "verify_claims",
+      "payload": {
+        "status": "unsupported"
+      },
+      "hypothesis_id": "a36112c8-cefb-4309-b89e-3fb2ebfdf081",
+      "section_id": "2_company_overview"
+    },
+    {
+      "trace_id": "fe2d5d63-8cd9-4958-9f11-d301923379a3",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "evaluate_stop_condition",
+      "payload": {
+        "route": "write_section"
+      },
+      "hypothesis_id": "a36112c8-cefb-4309-b89e-3fb2ebfdf081",
+      "section_id": "2_company_overview"
+    },
+    {
+      "trace_id": "00da6965-6623-434d-a21b-ce04b9115652",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "write_section",
+      "payload": {
+        "section_id": "2_company_overview"
+      },
+      "hypothesis_id": "a36112c8-cefb-4309-b89e-3fb2ebfdf081",
+      "section_id": "2_company_overview"
+    },
+    {
+      "trace_id": "38bbc814-8cd3-40f8-8dd0-11609eecb429",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "review_section",
+      "payload": {
+        "passed": false
+      },
+      "hypothesis_id": "a36112c8-cefb-4309-b89e-3fb2ebfdf081",
+      "section_id": null
+    },
+    {
+      "trace_id": "b4f580fc-7553-49d7-a737-6e7d68e8d7a5",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "generate_hypotheses",
+      "payload": {
+        "section_id": "3_industry_and_competition"
+      },
+      "hypothesis_id": "d1de0540-bfa3-45e7-91fe-a3a4a6e69abb",
+      "section_id": "3_industry_and_competition"
+    },
+    {
+      "trace_id": "93e8d593-2645-4368-9f7b-b74e2306bce0",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "virtual_evaluate",
+      "payload": {},
+      "hypothesis_id": "d1de0540-bfa3-45e7-91fe-a3a4a6e69abb",
+      "section_id": "3_industry_and_competition"
+    },
+    {
+      "trace_id": "bb1de42f-441c-4736-9c7d-3a4fa7213071",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "allocate_budget",
+      "payload": {},
+      "hypothesis_id": "d1de0540-bfa3-45e7-91fe-a3a4a6e69abb",
+      "section_id": "3_industry_and_competition"
+    },
+    {
+      "trace_id": "88b8e98a-3bce-4e59-aa50-63afc4e05755",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "retrieve_evidence",
+      "payload": {
+        "budget_exhausted": true
+      },
+      "hypothesis_id": "d1de0540-bfa3-45e7-91fe-a3a4a6e69abb",
+      "section_id": "3_industry_and_competition"
+    },
+    {
+      "trace_id": "5145e9d3-2221-40bf-937c-b9b45c192b87",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "extract_facts",
+      "payload": {
+        "count": 0
+      },
+      "hypothesis_id": "d1de0540-bfa3-45e7-91fe-a3a4a6e69abb",
+      "section_id": "3_industry_and_competition"
+    },
+    {
+      "trace_id": "d77f0f3a-5ebb-49a5-9a1b-90be4beae3bd",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "verify_claims",
+      "payload": {
+        "status": "unsupported"
+      },
+      "hypothesis_id": "d1de0540-bfa3-45e7-91fe-a3a4a6e69abb",
+      "section_id": "3_industry_and_competition"
+    },
+    {
+      "trace_id": "cf4115cf-cb1d-41ba-8e36-d23608937b3a",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "evaluate_stop_condition",
+      "payload": {
+        "route": "write_section"
+      },
+      "hypothesis_id": "d1de0540-bfa3-45e7-91fe-a3a4a6e69abb",
+      "section_id": "3_industry_and_competition"
+    },
+    {
+      "trace_id": "d03bac99-2327-4838-9452-2d667337b9af",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "write_section",
+      "payload": {
+        "section_id": "3_industry_and_competition"
+      },
+      "hypothesis_id": "d1de0540-bfa3-45e7-91fe-a3a4a6e69abb",
+      "section_id": "3_industry_and_competition"
+    },
+    {
+      "trace_id": "05748b28-1c3c-43a6-8be7-96af3df1ec4c",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "review_section",
+      "payload": {
+        "passed": false
+      },
+      "hypothesis_id": "d1de0540-bfa3-45e7-91fe-a3a4a6e69abb",
+      "section_id": null
+    },
+    {
+      "trace_id": "3867a94c-2962-4c8f-aba1-2075d3236385",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "business_driver_decomp",
+      "payload": {},
+      "hypothesis_id": "d1de0540-bfa3-45e7-91fe-a3a4a6e69abb",
+      "section_id": "5_earnings_forecast"
+    },
+    {
+      "trace_id": "49e56eda-737f-4bd5-ab1c-66832ab21e89",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "financial_forecast",
+      "payload": {},
+      "hypothesis_id": "d1de0540-bfa3-45e7-91fe-a3a4a6e69abb",
+      "section_id": "5_earnings_forecast"
+    },
+    {
+      "trace_id": "e1e78212-c98f-4f7f-af22-ed1db72146a8",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "write_section",
+      "payload": {
+        "section_id": "5_earnings_forecast"
+      },
+      "hypothesis_id": "d1de0540-bfa3-45e7-91fe-a3a4a6e69abb",
+      "section_id": "5_earnings_forecast"
+    },
+    {
+      "trace_id": "4c03ca44-fc7f-43ec-a342-645d52c799ef",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "review_section",
+      "payload": {
+        "passed": false
+      },
+      "hypothesis_id": "d1de0540-bfa3-45e7-91fe-a3a4a6e69abb",
+      "section_id": null
+    },
+    {
+      "trace_id": "598edcf2-120f-4541-b258-394b69579c5c",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "valuation_mock",
+      "payload": {},
+      "hypothesis_id": "d1de0540-bfa3-45e7-91fe-a3a4a6e69abb",
+      "section_id": "6_valuation"
+    },
+    {
+      "trace_id": "26d3e45d-ccca-495c-a556-66edd2cdd358",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "write_section",
+      "payload": {
+        "section_id": "6_valuation"
+      },
+      "hypothesis_id": "d1de0540-bfa3-45e7-91fe-a3a4a6e69abb",
+      "section_id": "6_valuation"
+    },
+    {
+      "trace_id": "9e6b4023-db01-45c3-8e57-6792febd5ae2",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "review_section",
+      "payload": {
+        "passed": false
+      },
+      "hypothesis_id": "d1de0540-bfa3-45e7-91fe-a3a4a6e69abb",
+      "section_id": null
+    },
+    {
+      "trace_id": "5a6f44cd-52da-4eb0-83f3-30ffde89411f",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "generate_hypotheses",
+      "payload": {
+        "section_id": "7_risks"
+      },
+      "hypothesis_id": "da733ddf-785f-4bc0-9ce0-9d973fd52388",
+      "section_id": "7_risks"
+    },
+    {
+      "trace_id": "ba1d9f48-8c9d-48c5-adb4-6523b9d6489c",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "virtual_evaluate",
+      "payload": {},
+      "hypothesis_id": "da733ddf-785f-4bc0-9ce0-9d973fd52388",
+      "section_id": "7_risks"
+    },
+    {
+      "trace_id": "ca68c6b5-9ced-4b5d-b382-6a585558c410",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "allocate_budget",
+      "payload": {},
+      "hypothesis_id": "da733ddf-785f-4bc0-9ce0-9d973fd52388",
+      "section_id": "7_risks"
+    },
+    {
+      "trace_id": "096cfb52-b969-4821-b184-5b046a1f6ff9",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "retrieve_evidence",
+      "payload": {
+        "budget_exhausted": true
+      },
+      "hypothesis_id": "da733ddf-785f-4bc0-9ce0-9d973fd52388",
+      "section_id": "7_risks"
+    },
+    {
+      "trace_id": "f0a0d80b-168d-44a2-8352-ac5e6359a6e5",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "extract_facts",
+      "payload": {
+        "count": 0
+      },
+      "hypothesis_id": "da733ddf-785f-4bc0-9ce0-9d973fd52388",
+      "section_id": "7_risks"
+    },
+    {
+      "trace_id": "cdd34c5f-53c4-4016-861f-ba5d69f98739",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "verify_claims",
+      "payload": {
+        "status": "unsupported"
+      },
+      "hypothesis_id": "da733ddf-785f-4bc0-9ce0-9d973fd52388",
+      "section_id": "7_risks"
+    },
+    {
+      "trace_id": "b352cee3-502b-4a50-b8ef-ba49efa6bd52",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "evaluate_stop_condition",
+      "payload": {
+        "route": "write_section"
+      },
+      "hypothesis_id": "da733ddf-785f-4bc0-9ce0-9d973fd52388",
+      "section_id": "7_risks"
+    },
+    {
+      "trace_id": "445ad1b2-aefa-4f02-a9ee-502d0195332e",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "write_section",
+      "payload": {
+        "section_id": "7_risks"
+      },
+      "hypothesis_id": "da733ddf-785f-4bc0-9ce0-9d973fd52388",
+      "section_id": "7_risks"
+    },
+    {
+      "trace_id": "b6fc61c1-3219-4bab-90b5-aed0f58884f5",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "review_section",
+      "payload": {
+        "passed": false
+      },
+      "hypothesis_id": "da733ddf-785f-4bc0-9ce0-9d973fd52388",
+      "section_id": null
+    },
+    {
+      "trace_id": "84681f78-bae7-4769-a206-84a0f69e5d16",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "write_investment_focus",
+      "payload": {},
+      "hypothesis_id": "da733ddf-785f-4bc0-9ce0-9d973fd52388",
+      "section_id": "1_investment_focus"
+    },
+    {
+      "trace_id": "03bcaba4-6db1-40e3-bba7-21a8df7bee0f",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "review_section",
+      "payload": {
+        "passed": false
+      },
+      "hypothesis_id": "da733ddf-785f-4bc0-9ce0-9d973fd52388",
+      "section_id": null
+    },
+    {
+      "trace_id": "ea7a8a7a-e63e-46b6-b13d-dcad13582832",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "investment_committee_review",
+      "payload": {},
+      "hypothesis_id": "da733ddf-785f-4bc0-9ce0-9d973fd52388",
+      "section_id": null
+    },
+    {
+      "trace_id": "ad666380-1595-485f-95b4-9d22b6058bf3",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "assemble_report",
+      "payload": {},
+      "hypothesis_id": "da733ddf-785f-4bc0-9ce0-9d973fd52388",
+      "section_id": null
+    },
+    {
+      "trace_id": "6ccff9a2-8d68-468f-a55d-79c958f63f60",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "chart_generation",
+      "payload": {},
+      "hypothesis_id": "da733ddf-785f-4bc0-9ce0-9d973fd52388",
+      "section_id": null
+    },
+    {
+      "trace_id": "840b6b58-f499-44ad-9ec7-4e8e36cbf62b",
+      "report_id": "71b71ab8-1873-4901-ad96-881f7b8110fd",
+      "ticker": "NVDA",
+      "node_name": "markdown_memory_export",
+      "payload": {
+        "path": "/home/shilong/.tradingagents/equity_research/NVDA/71b71ab8-1873-4901-ad96-881f7b8110fd/research_memory.md"
+      },
+      "hypothesis_id": "da733ddf-785f-4bc0-9ce0-9d973fd52388",
+      "section_id": null
+    }
+  ],
+  "warnings": [
+    "Missing outputs: ['target_price', 'key_financial_summary_table', 'catalyst_timeline']",
+    "Insufficient verified claims: 0 < 3"
+  ],
+  "errors": [],
+  "chart_placeholders": [
+    {
+      "chart_id": "6e911104-7291-4d58-9514-f898cc56f7bb",
+      "title": "NVDA EPS Forecast (3Y)",
+      "time_range": "FY+1 to FY+3",
+      "x_axis": "Fiscal Year",
+      "y_axis": "EPS (USD)",
+      "data_source": "financial_forecast agent / structured_facts",
+      "processing_method": "LLM-assisted growth assumptions applied to base EPS",
+      "file_path": null,
+      "notes": "Data points: [1.12, 1.23, 1.33]"
+    },
+    {
+      "chart_id": "2ff9cb67-401c-499b-977c-196747c13a92",
+      "title": "NVDA Revenue Trend",
+      "time_range": "Historical 3Y + Forecast 3Y",
+      "x_axis": "Fiscal Year",
+      "y_axis": "Revenue (USD millions)",
+      "data_source": "yfinance fundamentals + forecast_model",
+      "processing_method": "YoY growth extrapolation from business drivers",
+      "file_path": null
+    }
+  ],
+  "ic_review": {
+    "passed": true,
+    "score": 0.95,
+    "blocking_issues": [],
+    "warnings": [
+      "No verified expectation-gap hypothesis"
+    ],
+    "rating": "Sell",
+    "target_price": 27.93
+  },
+  "started_at": "2026-06-22T04:22:38.339610",
+  "last_updated": "2026-06-22T04:22:38.367630",
+  "tokens_consumed": 0,
+  "api_calls": 2,
+  "_route": "",
+  "_hypothesis_route": "write_section"
+}

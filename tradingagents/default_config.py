@@ -18,6 +18,9 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_CHECKPOINT_ENABLED":   "checkpoint_enabled",
     "TRADINGAGENTS_BENCHMARK_TICKER":     "benchmark_ticker",
     "TRADINGAGENTS_TEMPERATURE":          "temperature",
+    "TRADINGAGENTS_POSTGRES_URL":         "postgres_url",
+    "TRADINGAGENTS_REDIS_URL":            "redis_url",
+    "PERPLEXITY_API_KEY":                 "perplexity_api_key",
 }
 
 
@@ -131,5 +134,31 @@ DEFAULT_CONFIG = _apply_env_overrides({
         ".SS":  "000001.SS",   # Shanghai (SSE Composite)
         ".SZ":  "399001.SZ",   # Shenzhen (SZSE Component)
         "":     "SPY",         # default for US-listed tickers (no suffix)
+    },
+    # Deep Equity Research (optional feature)
+    "postgres_url": os.getenv(
+        "TRADINGAGENTS_POSTGRES_URL",
+        "postgresql+psycopg://localhost/tradingagents_equity",
+    ),
+    "redis_url": os.getenv("TRADINGAGENTS_REDIS_URL", "redis://localhost:6379/0"),
+    "perplexity_api_key": os.getenv("PERPLEXITY_API_KEY"),
+    "equity_research_results_dir": os.getenv(
+        "TRADINGAGENTS_EQUITY_RESEARCH_DIR",
+        os.path.join(_TRADINGAGENTS_HOME, "equity_research"),
+    ),
+    "equity_research": {
+        "report_type": "initiation",
+        "time_horizon": "12m",
+        "max_hypotheses_per_section": 5,
+        "max_hypothesis_iterations": 3,
+        "max_recur_limit": 200,
+        "perplexity_rate_limit": 20,
+        "embedding_provider": "hash",
+        "embedding_model": "text-embedding-3-small",
+        "embedding_dim": 1024,
+        "budget": {
+            "max_search_queries": 5,
+            "max_extraction_docs": 8,
+        },
     },
 })
