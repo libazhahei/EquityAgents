@@ -12,7 +12,7 @@ def test_rating_from_upside_thresholds():
     assert _rating_from_upside(0.20) == PortfolioRating.BUY
     assert _rating_from_upside(0.12) == PortfolioRating.OVERWEIGHT
     assert _rating_from_upside(0.0) == PortfolioRating.HOLD
-    assert _rating_from_upside(-0.08) == PortfolioRating.UNDERWEIGHT
+    assert _rating_from_upside(-0.08) == PortfolioRating.HOLD
     assert _rating_from_upside(-0.03) == PortfolioRating.HOLD
     assert _rating_from_upside(-0.15) == PortfolioRating.SELL
 

@@ -1,4 +1,4 @@
-"""Mock PE/EV valuation for MVP1."""
+"""Mock PE/EV valuation for equity research."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from typing import Any
 
 from tradingagents.agents.schemas import PortfolioRating
 from tradingagents.equity_research.state.schemas import ValuationMockResult
+from tradingagents.equity_research.templates.report_template import get_investment_summary_template
 
 
 def compute_valuation_mock(
@@ -35,7 +36,7 @@ def compute_valuation_mock(
         rating=rating,
         peer_median_pe=peer_median_pe,
         implied_pe=implied_pe,
-        notes="MVP1 mock PE multiple valuation — not a DCF model.",
+        notes="Trading multiple valuation from forecast EPS and peer median P/E.",
         is_mock=True,
     )
 
@@ -50,30 +51,37 @@ def _fact_value(facts: list[dict], metric_name: str) -> float | None:
 
 
 def _rating_from_upside(upside: float) -> PortfolioRating:
-    if upside >= 0.15:
+    thresholds = get_investment_summary_template().get("rating_thresholds", {})
+    buy_min = thresholds.get("Buy", {}).get("min_upside_pct", 0.15)
+    ow_min = thresholds.get("Overweight", {}).get("min_upside_pct", 0.10)
+    sell_max = thresholds.get("Sell", {}).get("max_upside_pct", -0.10)
+    if upside >= buy_min:
         return PortfolioRating.BUY
-    if upside >= 0.10:
+    if upside >= ow_min:
         return PortfolioRating.OVERWEIGHT
-    if upside >= -0.05:
+    if upside >= sell_max:
         return PortfolioRating.HOLD
-    if upside >= -0.10:
-        return PortfolioRating.UNDERWEIGHT
+    if upside >= -0.05:
+        return PortfolioRating.UNDERPERFORM
     return PortfolioRating.SELL
 
 
-def check_rating_upside_consistency(rating: str, upside: float) -> list[str]:
+def check_rating_upside_consistency(
+    rating: str,
+    upside: float,
+    dividend_yield_pct: float = 0.0,
+) -> list[str]:
     issues = []
-    thresholds = {
-        PortfolioRating.BUY.value: 0.15,
-        PortfolioRating.OVERWEIGHT.value: 0.10,
-        PortfolioRating.HOLD.value: -0.10,
-        PortfolioRating.UNDERWEIGHT.value: -0.05,
-        PortfolioRating.SELL.value: -0.10,
-    }
-    min_up = thresholds.get(rating)
-    if min_up is not None and rating in (PortfolioRating.BUY.value, PortfolioRating.OVERWEIGHT.value):
-        if upside < min_up:
-            issues.append("rating_upside_mismatch")
-    if rating == PortfolioRating.SELL.value and upside > -0.10:
+    total_return = upside + dividend_yield_pct
+    thresholds = get_investment_summary_template().get("rating_thresholds", {})
+    buy_min = thresholds.get("Buy", {}).get("min_upside_pct", 0.15)
+    ow_min = thresholds.get("Overweight", {}).get("min_upside_pct", 0.10)
+    sell_max = thresholds.get("Sell", {}).get("max_upside_pct", -0.10)
+
+    if rating in (PortfolioRating.BUY.value,) and total_return < buy_min:
+        issues.append("rating_upside_mismatch")
+    if rating == PortfolioRating.OVERWEIGHT.value and total_return < ow_min:
+        issues.append("rating_upside_mismatch")
+    if rating == PortfolioRating.SELL.value and total_return > sell_max:
         issues.append("rating_upside_mismatch")
     return issues

@@ -224,3 +224,6 @@ reports/
 
 .cursor
 
+# 
+# NVDA test reports
+NVDA/

@@ -2101,6 +2101,19 @@ wheels = [
 ]
 
 [[package]]
+name = "langchain-perplexity"
+version = "1.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langchain-core" },
+    { name = "perplexityai" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f6/57/50df1767176b2ce6397efbd6cf1ced957eea3ec771cb1092c6976773aeb7/langchain_perplexity-1.4.0.tar.gz", hash = "sha256:c39458651dfbb5d9925275ba119050d5660b0946ecfa2aa770eeda298d83ed71", size = 165752, upload-time = "2026-06-09T21:21:50.242Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7a/46/c9efacd486c5e5c301ef46b8e03095cdab8e16d1c3a57cfbfcc253f3369d/langchain_perplexity-1.4.0-py3-none-any.whl", hash = "sha256:bfde8a61326257a47a35697908ae7f72ab49d6d887894d1da0e08007b6182602", size = 27508, upload-time = "2026-06-09T21:21:49.102Z" },
+]
+
+[[package]]
 name = "langchain-protocol"
 version = "0.0.15"
 source = { registry = "https://pypi.org/simple" }
@@ -3186,6 +3199,23 @@ name = "peewee"
 version = "3.18.1"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/1e/ce/c2bb58d00cb12d19dea28d5a98d05a14350197a3d03eba60be9bae708bac/peewee-3.18.1.tar.gz", hash = "sha256:a76a694b3b3012ce22f00d51fd83e55bf80b595275a90ed62cd36eb45496cf1d", size = 3026130, upload-time = "2025-04-30T15:40:35.06Z" }
+
+[[package]]
+name = "perplexityai"
+version = "0.38.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9d/2d/bb6a272565ebba9358da88d01e3f9e743bce35dcb8820a6a1baf42e466b3/perplexityai-0.38.0.tar.gz", hash = "sha256:580a000bcd7b78becb90e04863e365f06cbe0687a76509fee014e87a12fcae89", size = 142226, upload-time = "2026-06-08T18:04:09.949Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f0/cb/d9ea7faf592d02cfac6a68e9c26d72f82494ba52aff8ec98d00b1a2ea78d/perplexityai-0.38.0-py3-none-any.whl", hash = "sha256:fdfd8047415d1a7e647946d065e32fb88ef91c7553c8c283a38a83753f089ba2", size = 137357, upload-time = "2026-06-08T18:04:08.738Z" },
+]
 
 [[package]]
 name = "pexpect"
@@ -5179,11 +5209,14 @@ dependencies = [
     { name = "langchain-experimental" },
     { name = "langchain-google-genai" },
     { name = "langchain-openai" },
+    { name = "langchain-perplexity" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-sqlite" },
     { name = "matplotlib-inline" },
+    { name = "openai" },
     { name = "pandas" },
     { name = "parsel" },
+    { name = "pytest" },
     { name = "python-dotenv" },
     { name = "pytz" },
     { name = "questionary" },
@@ -5240,13 +5273,16 @@ requires-dist = [
     { name = "langchain-experimental", specifier = ">=0.3.4" },
     { name = "langchain-google-genai", specifier = ">=4.0.0" },
     { name = "langchain-openai", specifier = ">=0.3.23" },
+    { name = "langchain-perplexity", specifier = ">=1.4.0" },
     { name = "langgraph", specifier = ">=0.4.8" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=2.0.0" },
     { name = "matplotlib", marker = "extra == 'equity-research'", specifier = ">=3.8" },
     { name = "matplotlib-inline", specifier = ">=0.2.2" },
+    { name = "openai", specifier = ">=2.36.0" },
     { name = "pandas", specifier = ">=2.3.0" },
     { name = "parsel", specifier = ">=1.10.0" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'equity-research'", specifier = ">=3.2" },
+    { name = "pytest", specifier = ">=9.0.3" },
     { name = "pytest", marker = "extra == 'bedrock'", specifier = ">=9.0.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-subtests", marker = "extra == 'dev'", specifier = ">=0.13" },

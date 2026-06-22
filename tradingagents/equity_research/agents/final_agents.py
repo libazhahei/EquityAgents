@@ -1,18 +1,19 @@
-"""Final review, report assembly, and markdown export."""
 
 from __future__ import annotations
 
-import json
-import os
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.computation.valuation_mock import check_rating_upside_consistency
+from tradingagents.equity_research.evaluation.aggregators import aggregate_ic_scores
 from tradingagents.equity_research.export.markdown_memory import export_research_memory
+from tradingagents.equity_research.state.ledgers import IssueLedgerEntry, sync_ledgers_from_legacy
 from tradingagents.equity_research.state.schemas import ClaimStatus, ClaimType, InvestmentCommitteeReview
-from tradingagents.equity_research.templates.report_template import MVP1_SECTION_ORDER
+from tradingagents.equity_research.templates.report_template import (
+    MVP1_DISPLAY_ORDER,
+    get_investment_summary_template,
+)
 
 
 def create_investment_committee_review(deps: EquityResearchDeps):
@@ -20,18 +21,18 @@ def create_investment_committee_review(deps: EquityResearchDeps):
         rating = state.get("rating")
         target_price = state.get("target_price")
         current_price = float(state.get("current_price") or 0)
+        dividend_yield = float(state.get("dividend_yield_pct") or 0)
         upside = 0.0
         if current_price > 0 and target_price:
             upside = (float(target_price) - current_price) / current_price
 
-        blocking = []
-        warnings = []
-        if not rating:
-            blocking.append("rating missing")
-        if not target_price:
-            blocking.append("target_price missing")
+        # Aggregated evaluation
+        eval_result = aggregate_ic_scores(state)
+        blocking = list(eval_result.blocking_issues)
+        warnings = list(eval_result.warnings)
+
         if rating:
-            blocking.extend(check_rating_upside_consistency(rating, upside))
+            blocking.extend(check_rating_upside_consistency(rating, upside, dividend_yield))
 
         unsupported_rec = [
             c for c in state.get("claims", [])
@@ -39,22 +40,21 @@ def create_investment_committee_review(deps: EquityResearchDeps):
             and c.get("status") == ClaimStatus.UNSUPPORTED.value
         ]
         if unsupported_rec:
-            blocking.append("unsupported recommendation claim")
+            blocking.append("unsupported_recommendation_claim")
 
-        verified_hypotheses = state.get("verified_hypothesis_ids", [])
-        if not verified_hypotheses:
-            warnings.append("No verified expectation-gap hypothesis")
+        graph = state.get("research_graph", {})
+        if not graph.get("best_node_id"):
+            warnings.append("no_best_thesis_node")
 
-        # Optional Perplexity finance verification on rating claim
-        if rating and deps.perplexity.api_key:
+        if rating and deps.perplexity and deps.perplexity.api_key:
             verify = deps.perplexity.finance_verify(
                 state["ticker"],
                 f"Rating {rating} with target price {target_price}",
             )
             if not verify.get("answer"):
-                warnings.append("Finance search verification inconclusive")
+                warnings.append("finance_search_verification_inconclusive")
 
-        score = 1.0 - 0.2 * len(blocking) - 0.05 * len(warnings)
+        score = eval_result.aggregate_score
         review = InvestmentCommitteeReview(
             passed=len(blocking) == 0,
             score=max(0.0, score),
@@ -63,12 +63,25 @@ def create_investment_committee_review(deps: EquityResearchDeps):
             rating=rating,
             target_price=target_price,
         )
+
+        issue_ledger = list(state.get("issue_ledger", []))
+        for b in blocking:
+            issue_ledger.append(IssueLedgerEntry(
+                issue_id=f"ic_{b}",
+                gate="investment_committee_review",
+                message=b,
+                severity="blocking",
+            ).model_dump())
+
         updates = {
             "ic_review": review.model_dump(),
+            "issue_ledger": issue_ledger,
+            "review_findings": state.get("review_findings", []) + blocking,
             "last_updated": datetime.utcnow().isoformat(),
         }
         if blocking:
             updates.setdefault("errors", []).extend(blocking)
+        updates.update(sync_ledgers_from_legacy({**state, **updates}))
         updates.update(deps.trace({**state, **updates}, "investment_committee_review"))
         return updates
 
@@ -78,18 +91,16 @@ def create_investment_committee_review(deps: EquityResearchDeps):
 def create_assemble_report(deps: EquityResearchDeps):
     def assemble_report(state: dict[str, Any]) -> dict[str, Any]:
         drafts = state.get("section_drafts", {})
-        order = ["1_investment_focus"] + [s for s in MVP1_SECTION_ORDER if s != "1_investment_focus"]
-        # Reorder: investment focus first in final doc
-        display_order = ["1_investment_focus", "2_company_overview", "3_industry_and_competition",
-                         "5_earnings_forecast", "6_valuation", "7_risks"]
+        template_summary = get_investment_summary_template()
         parts = [
             f"# Equity Research Report: {state.get('company_name', state['ticker'])} ({state['ticker']})",
             f"**Rating**: {state.get('rating', 'N/A')} | **Target**: {state.get('target_price', 'N/A')} "
             f"| **Current**: {state.get('current_price', 'N/A')}",
             f"**Report ID**: {state.get('report_id')} | **Generated**: {datetime.utcnow().isoformat()}",
+            f"**Rating basis**: {template_summary.get('rating_basis', '12_month_total_return')}",
             "",
         ]
-        for sid in display_order:
+        for sid in MVP1_DISPLAY_ORDER:
             draft = drafts.get(sid, {})
             if draft:
                 parts.append(f"## {draft.get('title', sid)}")
@@ -101,10 +112,14 @@ def create_assemble_report(deps: EquityResearchDeps):
             parts.append("## Chart Placeholders")
             for ch in charts:
                 parts.append(
-                    f"- **{ch.get('title')}**: {ch.get('time_range')} | "
-                    f"x={ch.get('x_axis')} y={ch.get('y_axis')} | "
-                    f"source={ch.get('data_source')} | method={ch.get('processing_method')}"
+                    f"- **{ch.get('title')}**: {ch.get('time_range', 'N/A')} | "
+                    f"source={ch.get('data_source', 'N/A')}"
                 )
+
+        if state.get("compliance_flags"):
+            parts.append("## Compliance")
+            for flag in state["compliance_flags"]:
+                parts.append(f"- {flag.get('message', flag)}")
 
         final_report = "\n".join(parts)
         updates = {

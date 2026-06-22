@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
-from tradingagents.equity_research.integrations.perplexity import SearchMode
+from tradingagents.llm_clients.perplexity_client import SearchMode
 from tradingagents.equity_research.integrations.info_sources import default_registry
 from tradingagents.equity_research.state.schemas import ConsensusView, ExpectationGap
 

@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
-from tradingagents.equity_research.integrations.perplexity import SearchMode, generate_search_plan
+from tradingagents.llm_clients.perplexity_client import SearchMode, generate_search_plan
 from tradingagents.equity_research.state.schemas import Claim, ClaimStatus, ClaimType, claim_to_dict
 
 
@@ -27,7 +27,7 @@ def create_retrieve_evidence(deps: EquityResearchDeps):
             return deps.trace(state, "retrieve_evidence", {"budget_exhausted": True})
 
         section_id = state.get("active_section_id", "")
-        mode = SearchMode.CONTRADICTION if section_id == "7_risks" else SearchMode.TARGETED
+        mode = SearchMode.CONTRADICTION if section_id == "9_risks" else SearchMode.TARGETED
         plans = generate_search_plan(ticker, hypothesis, mode, min(remaining, budget.get("max_search_queries", 3)))
 
         documents = list(state.get("documents", []))
@@ -241,12 +241,16 @@ def _parse_facts(text: str) -> list[dict]:
 
 def _section_claim_type(section_id: str) -> ClaimType:
     mapping = {
+        "1_investment_summary": ClaimType.RECOMMENDATION,
         "2_company_overview": ClaimType.DESCRIPTIVE,
-        "3_industry_and_competition": ClaimType.INDUSTRY,
-        "5_earnings_forecast": ClaimType.FORECAST,
-        "6_valuation": ClaimType.VALUATION,
-        "7_risks": ClaimType.RISK,
-        "1_investment_focus": ClaimType.RECOMMENDATION,
+        "3_business_model": ClaimType.DRIVER,
+        "4_industry_and_competition": ClaimType.INDUSTRY,
+        "5_historical_financials": ClaimType.DESCRIPTIVE,
+        "6_earnings_forecast": ClaimType.FORECAST,
+        "7_valuation": ClaimType.VALUATION,
+        "8_scenario_and_sensitivity": ClaimType.VALUATION,
+        "9_risks": ClaimType.RISK,
+        "10_appendix": ClaimType.DESCRIPTIVE,
     }
     return mapping.get(section_id, ClaimType.DESCRIPTIVE)
 

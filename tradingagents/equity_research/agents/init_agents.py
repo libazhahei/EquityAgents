@@ -52,6 +52,7 @@ def create_initialize_state(deps: EquityResearchDeps):
             "report_type": state.get("report_type") or er_cfg.get("report_type", "initiation"),
             "time_horizon": state.get("time_horizon") or er_cfg.get("time_horizon", "12m"),
             "research_budget": budget.model_dump(),
+            "max_research_iterations": er_cfg.get("max_research_iterations", 2),
             "started_at": datetime.utcnow().isoformat(),
             "last_updated": datetime.utcnow().isoformat(),
         }

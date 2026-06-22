@@ -1,4 +1,4 @@
-"""Business driver, forecast, valuation mock, and chart placeholder agents."""
+"""Business driver, forecast, valuation, and chart agents."""
 
 from __future__ import annotations
 
@@ -7,21 +7,22 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from tradingagents.agents.schemas import PortfolioRating
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.computation.forecast import build_simple_forecast
-from tradingagents.equity_research.computation.valuation_mock import compute_valuation_mock
+from tradingagents.equity_research.tools.calculators import calculate_trading_multiple_valuation
 from tradingagents.equity_research.state.schemas import ChartPlaceholder, Claim, ClaimStatus, ClaimType, claim_to_dict
 
 
-def create_business_driver_decomp(deps: EquityResearchDeps):
-    def business_driver_decomp(state: dict[str, Any]) -> dict[str, Any]:
+def create_forecast_assumptions(deps: EquityResearchDeps):
+    def forecast_assumptions(state: dict[str, Any]) -> dict[str, Any]:
         facts = state.get("structured_facts", [])
+        kpis = state.get("operating_kpis", {})
         prompt = (
-            f"Decompose business drivers for {state['ticker']} from facts:\n"
-            f"{json.dumps(facts[:15], default=str)}\n"
-            f"Instrument: {state.get('instrument_context', '')[:1000]}\n"
-            "Return JSON array with driver_name, segment, impact, metric_link."
+            f"Decompose forecast assumptions for {state['ticker']} from facts and KPIs:\n"
+            f"Facts: {json.dumps(facts[:15], default=str)}\n"
+            f"KPIs: {json.dumps(kpis, default=str)}\n"
+            f"Drivers: {json.dumps(state.get('business_drivers', []), default=str)}\n"
+            "Return JSON array with driver_name, segment, impact, metric_link, assumption."
         )
         response = deps.quick_llm.invoke(prompt)
         text = response.content if hasattr(response, "content") else str(response)
@@ -31,15 +32,26 @@ def create_business_driver_decomp(deps: EquityResearchDeps):
                 {"driver_name": "core_revenue", "segment": "total", "impact": "high", "metric_link": "revenue"},
                 {"driver_name": "operating_margin", "segment": "total", "impact": "medium", "metric_link": "margin"},
             ]
+        assumptions = [
+            {
+                "assumption_id": f"asm_{uuid.uuid4().hex[:8]}",
+                "metric": d.get("metric_link", "revenue"),
+                "our_assumption": d.get("assumption", d.get("driver_name", "")),
+                "rationale": d.get("driver_name", ""),
+                "used_in": ["financial_forecast"],
+            }
+            for d in drivers
+        ]
         updates = {
             "business_drivers": drivers,
-            "active_section_id": "5_earnings_forecast",
+            "model_assumptions": assumptions,
+            "active_section_id": "6_earnings_forecast",
             "last_updated": datetime.utcnow().isoformat(),
         }
-        updates.update(deps.trace({**state, **updates}, "business_driver_decomp"))
+        updates.update(deps.trace({**state, **updates}, "forecast_assumptions"))
         return updates
 
-    return business_driver_decomp
+    return forecast_assumptions
 
 
 def create_financial_forecast(deps: EquityResearchDeps):
@@ -53,7 +65,7 @@ def create_financial_forecast(deps: EquityResearchDeps):
         claim = Claim(
             claim_id=str(uuid.uuid4()),
             hypothesis_id="forecast",
-            section_id="5_earnings_forecast",
+            section_id="6_earnings_forecast",
             claim_type=ClaimType.FORECAST,
             text=f"EPS forecast: {model.get('eps_forecast_3y', [])}",
             status=ClaimStatus.VERIFIED,
@@ -64,9 +76,9 @@ def create_financial_forecast(deps: EquityResearchDeps):
         claims.append(claim_to_dict(claim))
         updates = {
             "forecast_model": model,
-            "model_assumptions": model.get("assumptions", []),
+            "model_assumptions": model.get("assumptions", state.get("model_assumptions", [])),
             "claims": claims,
-            "active_section_id": "5_earnings_forecast",
+            "active_section_id": "6_earnings_forecast",
             "last_updated": datetime.utcnow().isoformat(),
         }
         updates.update(deps.trace({**state, **updates}, "financial_forecast"))
@@ -75,9 +87,9 @@ def create_financial_forecast(deps: EquityResearchDeps):
     return financial_forecast
 
 
-def create_valuation_mock(deps: EquityResearchDeps):
-    def valuation_mock(state: dict[str, Any]) -> dict[str, Any]:
-        result = compute_valuation_mock(
+def create_valuation_engine(deps: EquityResearchDeps):
+    def valuation(state: dict[str, Any]) -> dict[str, Any]:
+        result = calculate_trading_multiple_valuation(
             ticker=state["ticker"],
             current_price=float(state.get("current_price") or 0),
             forecast_model=state.get("forecast_model"),
@@ -86,28 +98,33 @@ def create_valuation_mock(deps: EquityResearchDeps):
         claim = Claim(
             claim_id=str(uuid.uuid4()),
             hypothesis_id="valuation",
-            section_id="6_valuation",
+            section_id="7_valuation",
             claim_type=ClaimType.VALUATION,
-            text=f"Mock valuation target {result.target_price} ({result.rating.value})",
+            text=f"Valuation target {result.get('target_price')} ({result.get('rating')})",
             status=ClaimStatus.VERIFIED,
-            confidence=0.6,
-            supporting_computation_ids=["valuation_mock"],
+            confidence=0.7,
+            supporting_computation_ids=["valuation_engine"],
         )
         claims = list(state.get("claims", []))
         claims.append(claim_to_dict(claim))
         updates = {
-            "valuation_method": result.method,
-            "valuation_model": result.model_dump(),
-            "target_price": result.target_price,
-            "rating": result.rating.value,
+            "valuation_method": result.get("method", "pe_ev_multiples"),
+            "valuation_model": result,
+            "target_price": result.get("target_price"),
+            "rating": result.get("rating"),
             "claims": claims,
-            "active_section_id": "6_valuation",
+            "active_section_id": "7_valuation",
             "last_updated": datetime.utcnow().isoformat(),
         }
-        updates.update(deps.trace({**state, **updates}, "valuation_mock"))
+        updates.update(deps.trace({**state, **updates}, "valuation"))
         return updates
 
-    return valuation_mock
+    return valuation
+
+
+# Backward-compatible alias
+create_valuation_mock = create_valuation_engine
+create_business_driver_decomp = create_forecast_assumptions
 
 
 def create_chart_generation(deps: EquityResearchDeps):
@@ -135,6 +152,15 @@ def create_chart_generation(deps: EquityResearchDeps):
         ]
         if forecast.get("eps_forecast_3y"):
             placeholders[0]["notes"] = f"Data points: {forecast['eps_forecast_3y']}"
+        scenario = state.get("scenario_analysis", {})
+        if scenario.get("valuation_sensitivity_table"):
+            placeholders.append({
+                "chart_id": str(uuid.uuid4()),
+                "title": f"{state['ticker']} Valuation Sensitivity",
+                "time_range": "Bull/Base/Bear",
+                "data_source": "scenario_sensitivity",
+                "processing_method": "multiple scenario target prices",
+            })
         updates = {
             "chart_placeholders": placeholders,
             "last_updated": datetime.utcnow().isoformat(),

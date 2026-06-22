@@ -20,12 +20,35 @@ def empty_equity_research_state() -> dict[str, Any]:
         "current_price": 0.0,
         "currency": "USD",
         "instrument_context": "",
+        "mandate": {},
         "report_template": [],
         "active_section_id": None,
         "section_coverage": {},
         "completed_sections": [],
+        "source_index": [],
+        "broker_views": [],
         "consensus_view": [],
         "expectation_gaps": [],
+        "research_plan": {},
+        "active_objective": "",
+        "completed_objectives": [],
+        "research_gaps": [],
+        "research_status": "pending",
+        "research_iterations": 0,
+        "max_research_iterations": 5,
+        "thesis_ledger": [],
+        "evidence_ledger": [],
+        "claim_ledger": [],
+        "assumption_ledger": [],
+        "consensus_ledger": [],
+        "broker_view_ledger": [],
+        "forecast_ledger": [],
+        "valuation_ledger": [],
+        "issue_ledger": [],
+        "research_graph": {"nodes": {}, "edges": [], "best_node_id": None, "branches": {}},
+        "research_strategy": {},
+        "task_analysis": {},
+        "metric_store": {},
         "hypothesis_nodes": {},
         "active_hypothesis_ids": [],
         "pruned_hypothesis_ids": [],
@@ -38,18 +61,27 @@ def empty_equity_research_state() -> dict[str, Any]:
         "structured_facts": [],
         "fact_conflicts": [],
         "business_drivers": [],
+        "historical_financials": {},
+        "operating_kpis": {},
         "forecast_model": None,
         "model_assumptions": [],
         "valuation_method": None,
         "valuation_model": None,
+        "scenario_analysis": {},
         "target_price": None,
         "rating": None,
+        "dividend_yield_pct": 0.0,
         "sensitivity_results": [],
+        "risk_map": [],
+        "catalyst_calendar": [],
         "claims": [],
         "section_drafts": {},
         "final_report": None,
         "cross_branch_discoveries": [],
         "research_traces": [],
+        "review_findings": [],
+        "data_quality_flags": [],
+        "compliance_flags": [],
         "warnings": [],
         "errors": [],
         "chart_placeholders": [],
@@ -58,6 +90,7 @@ def empty_equity_research_state() -> dict[str, Any]:
         "last_updated": now,
         "tokens_consumed": 0,
         "api_calls": 0,
+        "next_route": "",
         "_route": "",
         "_hypothesis_route": "",
     }
@@ -74,12 +107,35 @@ class EquityResearchState(TypedDict, total=False):
     current_price: float
     currency: str
     instrument_context: str
+    mandate: dict
     report_template: list[dict]
     active_section_id: str | None
     section_coverage: dict[str, dict]
     completed_sections: list[str]
+    source_index: list[dict]
+    broker_views: list[dict]
     consensus_view: list[dict]
     expectation_gaps: list[dict]
+    research_plan: dict
+    active_objective: str
+    completed_objectives: list[str]
+    research_gaps: list[dict]
+    research_status: str
+    research_iterations: int
+    max_research_iterations: int
+    thesis_ledger: list[dict]
+    evidence_ledger: list[dict]
+    claim_ledger: list[dict]
+    assumption_ledger: list[dict]
+    consensus_ledger: list[dict]
+    broker_view_ledger: list[dict]
+    forecast_ledger: list[dict]
+    valuation_ledger: list[dict]
+    issue_ledger: list[dict]
+    research_graph: dict
+    research_strategy: dict
+    task_analysis: dict
+    metric_store: dict
     hypothesis_nodes: dict[str, dict]
     active_hypothesis_ids: list[str]
     pruned_hypothesis_ids: list[str]
@@ -92,18 +148,27 @@ class EquityResearchState(TypedDict, total=False):
     structured_facts: list[dict]
     fact_conflicts: list[dict]
     business_drivers: list[dict]
+    historical_financials: dict
+    operating_kpis: dict
     forecast_model: dict | None
     model_assumptions: list[dict]
     valuation_method: str | None
     valuation_model: dict | None
+    scenario_analysis: dict
     target_price: float | None
     rating: str | None
+    dividend_yield_pct: float
     sensitivity_results: list[dict]
+    risk_map: list[dict]
+    catalyst_calendar: list[dict]
     claims: list[dict]
     section_drafts: dict[str, dict]
     final_report: str | None
     cross_branch_discoveries: list[dict]
     research_traces: list[dict]
+    review_findings: list[dict]
+    data_quality_flags: list[dict]
+    compliance_flags: list[dict]
     warnings: list[str]
     errors: list[str]
     chart_placeholders: list[dict]
@@ -112,5 +177,6 @@ class EquityResearchState(TypedDict, total=False):
     last_updated: str
     tokens_consumed: int
     api_calls: int
+    next_route: str
     _route: str
     _hypothesis_route: str

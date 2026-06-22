@@ -466,13 +466,67 @@ print(rating)  # Buy / Overweight / Hold / Underweight / Sell
 
 ---
 
-## 13. 可选功能：Deep Equity Research
+## 13. 可选功能：Equity R&D-Agent
 
-除默认交易分析流水线外，项目提供独立的 **Deep Equity Research** 工作流（MVP1），用于假设驱动的 mini 研报生成。
+除默认交易分析流水线外，项目提供独立的 **Equity R&D-Agent** 工作流（由原 Hybrid Equity Research 演进而来）：
+
+```text
+Research Phase  →  thesis graph 探索、证据链、Quick Diligence
+Development Phase →  建模、估值、章节草稿
+Evaluation Phase  →  聚合评分、IC 审查、Final QA
+```
+
+核心范式：**先围绕投资问题 / thesis branch 研究，再写章节**；不让 agent 一次性生成报告。
 
 - 入口类：`tradingagents.equity_research.EquityResearchGraph`
 - 文档：[EQUITY_RESEARCH.md](EQUITY_RESEARCH.md)
 - 与 `TradingAgentsGraph` 并行，共享 LLM 工厂、dataflows、配置系统
+- 外层 LangGraph **15 个 phase nodes**；内层 `research_loop` 封装 9 步 R&D 迭代
+- 核心目录：`agents/research_loop.py`、`agents/domain/`、`state/research_graph.py`、`state/ledgers.py`、`skills/`、`evaluation/`、`memory/`、`prompts/rd_agent.py`
+
+### 外层 Graph（phase nodes）
+
+```text
+initialize_state → analyze_research_task → dynamic_planning → research_loop
+  ↺ continue → dynamic_planning
+  → modeling_workflow → valuation_workflow → branch_merge
+  → risk_mapping → investment_committee_review
+  → write_investment_focus → … → assemble_report → final_qa → export_report
+```
+
+IC / Final QA / 建模门控均可通过 `issue_ledger` 打回研究或建模阶段。
+
+### 内层 Research Loop（单轮 9 步）
+
+```text
+Dynamic Planning → Select Parents → Memory Context → Problem ID
+→ Scientific Hypotheses → Virtual IC → Quick Diligence → Full Development
+→ Evaluate → Update Research Graph
+```
+
+### 记忆与 Ledger
+
+| Ledger | 用途 |
+|--------|------|
+| Evidence / Claim / Assumption | 证据链与观点、预测假设 |
+| Consensus / Broker View | 市场共识与券商观点 |
+| Forecast / Valuation | 预测与估值版本历史 |
+| Issue | Gate 打回与 blocking issues |
+| Research Graph | Thesis 分支探索 DAG（`state/research_graph.py`） |
+
+### 领域 Agent（逻辑角色，非全局 node）
+
+`LeadAnalystAgent` 调度 `agents/domain/` 下 9 个薄封装 Agent（Evidence、Consensus、Business、Industry、Forecast、Valuation、Risk、IC、Writing），各自绑定 Skills + Tools。
+
+### 外部集成
+
+| 集成 | 用途 |
+|------|------|
+| Perplexity | 探索性检索、共识发现 |
+| EDGAR | 年报/季报 ingest |
+| FMP | Earnings call 转录（**不用于 quote**） |
+| Redis | 检索预算与 rate limit |
+| PostgreSQL + pgvector | 证据存储（可 in-memory 降级） |
 
 ---
 
@@ -490,4 +544,9 @@ print(rating)  # Buy / Overweight / Hold / Underweight / Sell
 | CLI | `cli/main.py` |
 | 测试 | `tests/` |
 | Deep Equity Research | `tradingagents/equity_research/` |
+| Equity R&D Graph 装配 | `tradingagents/equity_research/graph/setup.py` |
+| Research Loop 运行时 | `tradingagents/equity_research/agents/research_loop.py` |
+| Research Graph 模型 | `tradingagents/equity_research/state/research_graph.py` |
+| 聚合评估 | `tradingagents/equity_research/evaluation/aggregators.py` |
+| Prompt Pack | `tradingagents/equity_research/prompts/rd_agent.py` |
 | Equity Research 文档 | `docs/EQUITY_RESEARCH.md` |

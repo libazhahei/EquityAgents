@@ -1,29 +1,53 @@
-"""Unit tests for section and hypothesis routers."""
+"""Unit tests for Equity R&D-Agent workflow routers."""
 
-from tradingagents.equity_research.graph.routers import hypothesis_loop_router, section_loop_router
+from tradingagents.equity_research.graph.routers import (
+    final_qa_router,
+    ic_router,
+    modeling_router,
+    research_loop_router,
+    valuation_router,
+)
 from tradingagents.equity_research.state.equity_research_state import empty_equity_research_state
 
 
-def test_section_loop_router_priority():
+def test_research_loop_router_ready_for_modeling():
     state = empty_equity_research_state()
-    assert section_loop_router(state) == "generate_hypotheses"
-
-    state["completed_sections"] = [
-        "2_company_overview",
-        "3_industry_and_competition",
-    ]
-    assert section_loop_router(state) == "business_driver_decomp"
-
-    state["completed_sections"].extend(["5_earnings_forecast", "6_valuation", "7_risks"])
-    assert section_loop_router(state) == "write_investment_focus"
-
-    state["completed_sections"].append("1_investment_focus")
-    assert section_loop_router(state) == "investment_committee_review"
+    state["research_status"] = "sufficient"
+    assert research_loop_router(state) == "ready_for_modeling"
 
 
-def test_hypothesis_loop_router_uses_route_flag():
+def test_research_loop_router_continues():
     state = empty_equity_research_state()
-    state["_hypothesis_route"] = "retrieve_evidence"
-    assert hypothesis_loop_router(state) == "retrieve_evidence"
-    state["_hypothesis_route"] = "write_section"
-    assert hypothesis_loop_router(state) == "write_section"
+    state["research_status"] = "continue"
+    state["research_iterations"] = 1
+    assert research_loop_router(state) == "continue_research"
+
+
+def test_modeling_router_pass():
+    state = empty_equity_research_state()
+    state["next_route"] = "pass"
+    assert modeling_router(state) == "pass"
+
+
+def test_valuation_router_revise():
+    state = empty_equity_research_state()
+    state["next_route"] = "revise_valuation"
+    assert valuation_router(state) == "revise_valuation"
+
+
+def test_ic_router_approve():
+    state = empty_equity_research_state()
+    state["ic_review"] = {"passed": True, "blocking_issues": []}
+    assert ic_router(state) == "approve"
+
+
+def test_ic_router_revise_research():
+    state = empty_equity_research_state()
+    state["ic_review"] = {"passed": False, "blocking_issues": ["no_variant_view"]}
+    assert ic_router(state) == "revise_research"
+
+
+def test_final_qa_router_pass():
+    state = empty_equity_research_state()
+    state["next_route"] = "pass"
+    assert final_qa_router(state) == "pass"

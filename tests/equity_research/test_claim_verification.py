@@ -35,7 +35,7 @@ def test_unsupported_recommendation_without_evidence():
     claim = Claim(
         claim_id="c2",
         hypothesis_id="h2",
-        section_id="1_investment_focus",
+        section_id="1_investment_summary",
         claim_type=ClaimType.RECOMMENDATION,
         text="Buy the stock",
     )
@@ -44,5 +44,5 @@ def test_unsupported_recommendation_without_evidence():
 
 
 def test_section_claim_type_mapping():
-    assert _section_claim_type("7_risks") == ClaimType.RISK
-    assert _section_claim_type("6_valuation") == ClaimType.VALUATION
+    assert _section_claim_type("9_risks") == ClaimType.RISK
+    assert _section_claim_type("7_valuation") == ClaimType.VALUATION

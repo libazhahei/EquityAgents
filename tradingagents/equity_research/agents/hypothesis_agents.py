@@ -15,7 +15,7 @@ from tradingagents.equity_research.templates.report_template import MVP1_REPORT_
 
 def create_generate_hypotheses(deps: EquityResearchDeps):
     def generate_hypotheses(state: dict[str, Any]) -> dict[str, Any]:
-        section_id = state.get("active_section_id", "2_company_overview")
+        section_id = state.get("active_section_id") or "1_investment_summary"
         ticker = state["ticker"]
         gaps = state.get("expectation_gaps", [])
         template = MVP1_REPORT_TEMPLATE.get(section_id, {})

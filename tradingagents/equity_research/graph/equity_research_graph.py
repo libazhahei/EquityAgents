@@ -68,7 +68,7 @@ class EquityResearchGraph:
         self.deps = EquityResearchDeps(
             config=self.config,
             deep_llm=deep_client.get_llm(),
-            quick_llm=quick_client.get_llm(),
+            quick_llm=quick_client.get_llm()
         )
         self.propagator = EquityPropagator(
             max_recur_limit=self.config.get("equity_research", {}).get("max_recur_limit", 200),

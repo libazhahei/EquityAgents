@@ -194,6 +194,20 @@ MODEL_OPTIONS: ProviderModeOptions = {
     "nvidia": _CUSTOM_ONLY,
     # Bedrock model IDs / cross-region inference profile IDs are user-specified.
     "bedrock": _CUSTOM_ONLY,
+    # Perplexity Sonar models — web-grounded chat via OpenAI-compatible API.
+    "perplexity": {
+        "quick": [
+            ("Sonar - Fast, lightweight search", "sonar"),
+            ("Sonar Pro - Balanced quality and speed", "sonar-pro"),
+            ("Custom model ID", "custom"),
+        ],
+        "deep": [
+            ("Sonar Pro - Best general-purpose Sonar model", "sonar-pro"),
+            ("Sonar Reasoning Pro - Deeper reasoning with search", "sonar-reasoning-pro"),
+            ("Sonar Deep Research - Multi-step research", "sonar-deep-research"),
+            ("Custom model ID", "custom"),
+        ],
+    },
 }
 
 
