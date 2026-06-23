@@ -21,7 +21,7 @@ def create_discover_consensus(deps: EquityResearchDeps):
         yf_results = default_registry().fetch_all(ticker, "consensus")
         yf_data = yf_results[0] if yf_results else {}
         doc_ids = []
-        for url in result.get("citations", [])[:5]:
+        for url in result.get("citations", [])[]:
             doc = deps.documents.register(
                 ticker=ticker,
                 source_type="news",

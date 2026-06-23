@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Annotated
-
+import functools
 import pandas as pd
 import yfinance as yf
 from dateutil.relativedelta import relativedelta
@@ -31,7 +31,7 @@ def get_YFin_data_online(
     # Resolve broker/forex symbols to Yahoo's convention (XAUUSD+ -> GC=F).
     canonical = normalize_symbol(symbol)
     ticker = yf.Ticker(canonical)
-
+    currency = yf_retry(lambda: ticker.info.get("currency", "USD"))
     # yfinance treats ``end`` as EXCLUSIVE, so it would drop the requested
     # end_date row (and the current day when end_date is today). Request one day
     # past end_date so the requested range is actually inclusive (#986/#987).
@@ -69,6 +69,7 @@ def get_YFin_data_online(
     label = canonical if canonical == symbol.upper() else f"{canonical} (from {symbol})"
     header = f"# Stock data for {label} from {start_date} to {end_date}\n"
     header += f"# Total records: {len(data)}\n"
+    header += f"# Trading currency: {currency}\n"
     header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
 
     return header + csv_string

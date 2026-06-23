@@ -21,6 +21,7 @@ from tradingagents.equity_research.agents.workflow_agents import (
     create_ingest_documents,
 )
 from tradingagents.equity_research.prompts.rd_agent import research_task_analysis_prompt
+from tradingagents.equity_research.state.equity_research_state import EquityResearchState
 from tradingagents.equity_research.state.ledgers import sync_ledgers_from_legacy
 from tradingagents.equity_research.state.research_graph import init_research_graph_from_gaps
 
@@ -37,7 +38,7 @@ def create_analyze_research_task(deps: EquityResearchDeps):
     _gaps = create_find_expectation_gaps(deps)
     _plan = create_generate_research_plan(deps)
 
-    def analyze_research_task(state: dict[str, Any]) -> dict[str, Any]:
+    def analyze_research_task(state: EquityResearchState) -> dict[str, Any]:
         working = dict(state)
         working.update(_template(working))
         working.update(_mandate(working))

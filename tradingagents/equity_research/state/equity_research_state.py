@@ -100,6 +100,7 @@ class EquityResearchState(TypedDict, total=False):
     ticker: str
     report_id: str
     company_name: str
+    trade_date: str
     sector: str
     industry: str
     report_type: str

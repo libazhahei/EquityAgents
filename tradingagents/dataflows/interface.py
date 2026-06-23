@@ -50,7 +50,7 @@ TOOLS_CATEGORIES = {
         "description": "OHLCV stock price data",
         "tools": [
             "get_stock_data",
-            "get_briefing_stock_info"
+            "get_briefing_stock_info",
         ]
     },
     "technical_indicators": {

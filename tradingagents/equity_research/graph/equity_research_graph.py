@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from langgraph.prebuilt import ToolNode
+
 from tradingagents.dataflows.config import set_config
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
@@ -71,7 +73,7 @@ class EquityResearchGraph:
             quick_llm=quick_client.get_llm()
         )
         self.propagator = EquityPropagator(
-            max_recur_limit=self.config.get("equity_research", {}).get("max_recur_limit", 200),
+            max_recur_limit=self.config.get("equity_research", {}).get("max_recur_limit", 100),
         )
         workflow = EquityGraphSetup(self.deps).setup_graph()
         self.graph = workflow.compile()
@@ -79,26 +81,38 @@ class EquityResearchGraph:
         self.ticker = None
 
     def _get_provider_kwargs(self) -> dict[str, Any]:
-        kwargs: dict[str, Any] = {}
+        """Get provider-specific kwargs for LLM client creation."""
+        kwargs = {}
         provider = self.config.get("llm_provider", "").lower()
+
         if provider == "google":
-            if self.config.get("google_thinking_level"):
-                kwargs["thinking_level"] = self.config["google_thinking_level"]
+            thinking_level = self.config.get("google_thinking_level")
+            if thinking_level:
+                kwargs["thinking_level"] = thinking_level
+
         elif provider == "openai":
-            if self.config.get("openai_reasoning_effort"):
-                kwargs["reasoning_effort"] = self.config["openai_reasoning_effort"]
+            reasoning_effort = self.config.get("openai_reasoning_effort")
+            if reasoning_effort:
+                kwargs["reasoning_effort"] = reasoning_effort
+
         elif provider == "anthropic":
-            if self.config.get("anthropic_effort"):
-                kwargs["effort"] = self.config["anthropic_effort"]
+            effort = self.config.get("anthropic_effort")
+            if effort:
+                kwargs["effort"] = effort
+
+        # Sampling temperature is cross-provider: forward it whenever set.
+        # float() here so a value coming from a TRADINGAGENTS_TEMPERATURE env
+        # string ("0.2") works the same as a programmatic float.
         temperature = self.config.get("temperature")
         if temperature is not None and temperature != "":
             kwargs["temperature"] = float(temperature)
+
         return kwargs
 
-    def propagate(self, ticker: str, **kwargs: Any) -> tuple[dict[str, Any], str]:
+    def propagate(self, ticker: str, trade_date: str, **kwargs: Any) -> tuple[dict[str, Any], str]:
         """Run full equity research pipeline for a ticker."""
         self.ticker = ticker.upper()
-        init_state = self.propagator.create_initial_state(self.ticker, **kwargs)
+        init_state = self.propagator.create_initial_state(self.ticker, trade_date=trade_date, **kwargs)
         args = self.propagator.get_graph_args(self.callbacks)
 
         if self.debug:
@@ -131,3 +145,8 @@ class EquityResearchGraph:
                 json.dump(state, f, indent=2, default=str)
         except Exception as exc:
             logger.warning("Failed to save state log: %s", exc)
+
+    def _create_tool_nodes(self) -> dict[str, ToolNode]:
+        """Create tool nodes for the graph."""
+        # Placeholder for any future tool nodes (e.g., data retrieval, charting)
+        return {}

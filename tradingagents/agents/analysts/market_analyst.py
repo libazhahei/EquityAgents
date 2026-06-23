@@ -7,6 +7,7 @@ from langgraph.managed import RemainingSteps
 from langgraph.prebuilt import create_react_agent
 
 from tradingagents.agents.utils.agent_utils import (
+    build_instrument_context,
     get_indicators,
     get_instrument_context_from_state,
     get_language_instruction,

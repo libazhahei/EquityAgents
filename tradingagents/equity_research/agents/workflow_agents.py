@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
+from tradingagents.equity_research.state.equity_research_state import EquityResearchState
 from tradingagents.equity_research.state.ledgers import ResearchMandate, ResearchPlan, ResearchPlanQuestion
 from tradingagents.equity_research.tools.data_retrieval import get_financial_statements
 
@@ -33,8 +34,8 @@ def create_define_research_mandate(deps: EquityResearchDeps):
 
 
 def create_ingest_documents(deps: EquityResearchDeps):
-    def ingest_documents(state: dict[str, Any]) -> dict[str, Any]:
-        ticker = state["ticker"]
+    def ingest_documents(state: EquityResearchState) -> dict[str, Any]:
+        ticker = state.get("ticker", "")
         documents = list(state.get("documents", []))
         for filing in deps.edgar.fetch_recent_filings(ticker)[:3]:
             doc = deps.documents.register(
