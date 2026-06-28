@@ -1,4 +1,4 @@
-"""Structured LLM invocation with LangChain retry for consensus nodes."""
+"""Structured LLM invocation with LangChain retry for research nodes."""
 
 from __future__ import annotations
 

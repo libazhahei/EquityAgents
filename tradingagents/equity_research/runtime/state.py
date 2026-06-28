@@ -1,24 +1,31 @@
-"""State types for the consensus subgraph."""
+"""Generic agent state for research subgraphs."""
 
 from __future__ import annotations
 
 from typing import Any, TypedDict
 
 
-class ConsensusSubgraphState(TypedDict, total=False):
+class AgentState(TypedDict, total=False):
     ticker: str
     sector: str
     report_type: str
     instrument_context: str
     report_id: str
+    research_objective: str
     documents: list[dict]
     api_calls: int
 
-    messages: list[Any]
+    task_profile: dict[str, Any]
+    parent_context: dict[str, Any]
 
+    exploration_graph: dict[str, Any]
+    current_node_id: str
+
+    messages: list[Any]
     active_skills: list[str]
     active_skill_context: dict[str, Any]
     skill_catalog: list[dict]
+    loaded_skills: list[str]
 
     query_queue: list[dict]
     executed_queries: list[str]
@@ -26,13 +33,13 @@ class ConsensusSubgraphState(TypedDict, total=False):
     pending_evidence: list[dict]
     search_memory: list[dict]
 
-    consensus_view: dict
-    consensus_assumptions: dict
-    consensus_report: str
+    structured_view: dict
+    assumptions: dict
+    final_report: str
     coverage_report: dict
     coverage_history: list[dict]
-    consensus_iterations: int
-    max_consensus_iterations: int
+    iterations: int
+    max_iterations: int
 
     assumption_probe_completed: bool
     assumption_pending_evidence: list[dict]
@@ -43,25 +50,34 @@ class ConsensusSubgraphState(TypedDict, total=False):
     _pending_human_followup: bool
 
     compliance_flags: list[dict]
-
     errors: list[str]
     research_traces: list[dict]
     last_updated: str
 
 
-def empty_consensus_subgraph_state(
+def empty_agent_state(
     parent: dict[str, Any],
     *,
+    task_profile: dict[str, Any] | None = None,
     max_iterations: int = 5,
-) -> ConsensusSubgraphState:
+) -> AgentState:
+    search_memory_key = "consensus_search_memory"
+    if task_profile and task_profile.get("task_id") != "consensus":
+        search_memory_key = f"{task_profile['task_id']}_search_memory"
+
     return {
         "ticker": parent.get("ticker", ""),
         "sector": parent.get("sector", ""),
         "report_type": parent.get("report_type", "initiation"),
         "instrument_context": parent.get("instrument_context", ""),
         "report_id": parent.get("report_id", ""),
+        "research_objective": parent.get("research_objective", ""),
         "documents": list(parent.get("documents", [])),
         "api_calls": int(parent.get("api_calls", 0)),
+        "task_profile": task_profile or {},
+        "parent_context": dict(parent.get("parent_context", {})),
+        "exploration_graph": {},
+        "current_node_id": "",
         "messages": [],
         "active_skills": [],
         "active_skill_context": {},
@@ -70,14 +86,14 @@ def empty_consensus_subgraph_state(
         "executed_queries": [],
         "evidence_buffer": [],
         "pending_evidence": [],
-        "search_memory": list(parent.get("consensus_search_memory", [])),
-        "consensus_view": {},
-        "consensus_assumptions": {},
-        "consensus_report": "",
+        "search_memory": list(parent.get(search_memory_key, parent.get("search_memory", []))),
+        "structured_view": {},
+        "assumptions": {},
+        "final_report": "",
         "coverage_report": {},
         "coverage_history": [],
-        "consensus_iterations": 0,
-        "max_consensus_iterations": max_iterations,
+        "iterations": 0,
+        "max_iterations": max_iterations,
         "assumption_probe_completed": False,
         "assumption_pending_evidence": [],
         "human_followup_query": "",

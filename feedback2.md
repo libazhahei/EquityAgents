@@ -1,1940 +1,555 @@
-可以。你的目标其实不是“把 LangGraph 节点换成 Agent”，而是要把系统升级成一个 **Hybrid Research System**：
-
-> **Workflow 负责研究流程的确定性、质量门控和交付顺序；Agent 负责开放式研究、假设探索、证据发现和推理；Tools 负责可验证的数据获取、计算、检索和制图；Skills 负责把某类专业研究能力封装成可复用模块。**
-
-也就是说，你未来的系统应该长这样：
-
-```text
-User Mandate
-   ↓
-Research Workflow Spine
-   ↓
-Lead Analyst Agent
-   ↓
-Skill Registry
-   ↓
-Tools / Data APIs / Search / Calculators / Models
-   ↓
-Evidence / Claim / Assumption Ledgers
-   ↓
-Quality Gates
-   ↓
-Professional Equity Report
-```
-
-下面我给你一个完整的设计建议。
+好的，我仔细读完了你的代码库和论文。让我梳理一下核心设计思路。
 
 ---
 
-# 1. 先明确几个概念
+## 当前问题诊断
 
-你现在的系统里有很多 `create_xxx_agent`，但它们其实更像 workflow node。未来建议区分四层：
+你的 `consensus_subgraph` 本质上是一个**硬编码的单任务 DAG**：
 
----
-
-## 1.1 Workflow：确定性流程
-
-Workflow 适合处理：
-
-- 初始化；
-- 加载模板；
-- 文档 ingestion；
-- 共识提取；
-- 研究计划生成；
-- 财务模型构建；
-- 估值计算；
-- 投委会审查；
-- 最终 QA；
-- 导出。
-
-这些地方有明确顺序、明确输入输出、明确质量门槛。
-
-例如：
-
-```text
-discover_consensus → find_expectation_gaps → generate_research_plan
-```
-
-这就是 workflow。
+- 节点名称全是 `consensus_*` 前缀，业务逻辑和框架逻辑完全耦合
+- Skills、Planner、Executor、Reflector 都是为 consensus 定制的，无法复用到 `fundamental_analysis`、`risk_assessment` 等其他研究环节
+- 没有树状探索，只有线性 loop（coverage_reflector → gap_planner → executor 的单链）
+- ExplorationGraph 概念缺失，每次 loop 的历史状态只是简单的 `search_memory` list
 
 ---
 
-## 1.2 Agent：自主研究者
-
-Agent 适合处理：
-
-- 根据问题自主制定检索策略；
-- 发现预期差；
-- 生成投资假设；
-- 找支持证据和反证；
-- 判断哪些数据更重要；
-- 追问“为什么市场错了”；
-- 决定是否需要继续研究；
-- 对 thesis 进行自我批判。
-
-Agent 不应该只是“写一段文本”，而应该像 analyst 一样：
-
-```text
-提出假设 → 找证据 → 找反证 → 修改假设 → 形成判断
-```
 
 ---
 
-## 1.3 Tools：低层工具
+## 核心抽象层设计
 
-Tools 应该尽量 deterministic，职责单一。
-
-例如：
-
-- `search_sec_filings`
-- `retrieve_annual_report`
-- `extract_table_from_pdf`
-- `get_market_price`
-- `get_consensus_estimates`
-- `calculate_ev_ebitda`
-- `run_dcf`
-- `plot_revenue_margin_chart`
-- `store_evidence`
-- `fetch_broker_report_metadata`
-
-Tools 不应该自己做复杂投资判断。
-
----
-
-## 1.4 Skills：专业能力模块
-
-Skill 介于 Agent 和 Tool 之间。
-
-它不是单个工具，而是一套“专业研究动作”。
-
-比如：
-
-- `BrokerConsensusMiningSkill`
-- `VariantViewDiscoverySkill`
-- `BusinessModelAnalysisSkill`
-- `HistoricalFinancialAnalysisSkill`
-- `ForecastAssumptionBuilderSkill`
-- `ValuationSkill`
-- `RiskToThesisMappingSkill`
-
-Skill 可以调用多个 tools，也可以包含 LLM reasoning，但必须有：
-
-- 输入 schema；
-- 输出 schema；
-- 工具权限；
-- 停止条件；
-- 质量检查；
-- 可追踪证据。
-
----
-
-# 2. 推荐总体架构
-
-我建议你设计成下面这种架构。
-
-```text
-┌────────────────────────────────────────────┐
-│                 User Request                │
-│  ticker, company, scope, report_type, style │
-└─────────────────────┬──────────────────────┘
-                      ↓
-┌────────────────────────────────────────────┐
-│              Workflow Spine                 │
-│  deterministic orchestration and gates       │
-└─────────────────────┬──────────────────────┘
-                      ↓
-┌────────────────────────────────────────────┐
-│              Lead Analyst Agent             │
-│  plans research, invokes skills, critiques   │
-└─────────────────────┬──────────────────────┘
-                      ↓
-┌────────────────────────────────────────────┐
-│                Skill Registry               │
-│  reusable professional research capabilities │
-└─────────────────────┬──────────────────────┘
-                      ↓
-┌────────────────────────────────────────────┐
-│                 Tool Layer                  │
-│ search, data, parser, calculator, charting   │
-└─────────────────────┬──────────────────────┘
-                      ↓
-┌────────────────────────────────────────────┐
-│         Research Memory / Ledgers           │
-│ claims, evidence, assumptions, metrics       │
-└─────────────────────┬──────────────────────┘
-                      ↓
-┌────────────────────────────────────────────┐
-│           Report Assembly + QA              │
-└────────────────────────────────────────────┘
-```
-
----
-
-# 3. 核心思想：Workflow 是骨架，Agent 是研究大脑，Skills 是专业能力，Tools 是手脚
-
-你的目标是“研报尽可能专业以及有深度”，所以不要把每个章节写死成简单 workflow。
-
-更好的方式是：
-
-```text
-Workflow 决定必须完成哪些研究阶段
-Agent 决定每个阶段怎么研究
-Skill 提供专业研究方法
-Tool 提供数据和计算能力
-Quality Gate 决定是否允许进入下一阶段
-```
-
----
-
-# 4. 哪些地方应该继续用 Workflow？
-
-我建议这些地方保留 workflow。
-
----
-
-## 4.1 初始化与任务定义
-
-```text
-initialize_state
-→ load_report_template
-→ define_research_mandate
-```
-
-这里要明确：
-
-- 股票代码；
-- 市场；
-- 货币；
-- 当前价格日期；
-- 报告类型：initiation / update / earnings preview / earnings review；
-- 投资周期：6 个月 / 12 个月；
-- 目标读者；
-- 输出格式；
-- 允许的数据源；
-- 是否允许使用 broker reports；
-- 是否需要 human approval。
-
----
-
-## 4.2 数据 ingestion
-
-```text
-ingest_documents
-→ parse_documents
-→ build_source_index
-```
-
-这是确定性强的部分。
-
-输入包括：
-
-- 年报；
-- 季报；
-- 电话会 transcript；
-- investor presentation；
-- broker reports；
-- 行业报告；
-- 新闻；
-- 市场数据；
-- 财务数据库。
-
-输出应该是 source index：
+### Layer 0：TaskProfile（任务描述，纯数据）
 
 ```python
-{
-    "source_id": "SRC_001",
-    "source_type": "10-K",
-    "title": "FY2025 Annual Report",
-    "date": "2026-02-15",
-    "publisher": "Company",
-    "reliability": 0.95,
-    "path": "...",
-}
+@dataclass
+class TaskProfile:
+    task_id: str               # "consensus", "fundamental", "risk"
+    objective: str             # 自然语言目标
+    dimensions: list[str]      # 需要覆盖的维度
+    output_schema: type        # Pydantic model，定义结构化输出
+    default_queries_fn: callable  # 冷启动 query 生成器
+    coverage_threshold: float  # 何时认为"足够好"
+    max_iterations: int
+    skill_objective: str       # 传给 SkillSelector 的 objective hint
 ```
+
+`ConsensusTaskProfile` 只是 `TaskProfile` 的一个实例，不再是硬编码节点。
 
 ---
 
-## 4.3 共识和预期差
+### Layer 2：AgentState（通用状态，不含业务字段）
 
-```text
-extract_broker_views
-→ discover_consensus
-→ find_expectation_gaps
-```
+这是最关键的解耦点。现在你的 `ConsensusSubgraphState` 里有大量 `consensus_*` 字段，未来会有 `fundamental_*`、`risk_*`……
 
-这是 equity research 的核心起点。
-
-你不是在写百科，而是在回答：
-
-> 市场现在怎么看？  
-> 我们和市场哪里不一样？  
-> 市场可能错在哪里？
-
----
-
-## 4.4 财务模型和估值
-
-这里也应该 workflow 化，因为它有强计算约束。
-
-```text
-historical_financials
-→ normalize_financials
-→ operating_kpi_extraction
-→ forecast_assumption_building
-→ financial_forecast
-→ valuation
-→ sensitivity_analysis
-→ rating_target_price_check
-```
-
-LLM 可以解释逻辑，但数字最好由 deterministic Python 完成。
-
----
-
-## 4.5 投委会审核与最终 QA
-
-```text
-investment_committee_review
-→ final_consistency_check
-→ compliance_check
-→ export
-```
-
-这些是 gate，不应该完全自由发挥。
-
----
-
-# 5. 哪些地方应该让 Agent 自主研究？
-
-下面这些地方应该 agentic。
-
----
-
-## 5.1 投资假设生成
-
-不要让系统直接按模板写：
-
-```text
-Company Overview
-Industry
-Forecast
-Valuation
-Risk
-```
-
-而是先让 Agent 做：
-
-```text
-What could matter for the stock?
-```
-
-例如：
-
-- 市场是否低估新业务增长？
-- 毛利率是否可能超预期修复？
-- 行业价格战是否被高估？
-- 管理层指引是否保守？
-- 估值折价是否合理？
-- 资产负债表风险是否被忽略？
-- 政策变化是否形成 catalyst？
-
----
-
-## 5.2 证据探索
-
-Agent 应该能自主决定：
-
-- 去查年报还是电话会？
-- 去查行业数据还是竞品数据？
-- 是否需要 broker reports 对比？
-- 是否需要找反证？
-- 当前证据是否足够？
-- 哪个假设更值得深入？
-
----
-
-## 5.3 反证搜索
-
-专业研报一定要有 skeptical thinking。
-
-Agent 应该主动问：
-
-```text
-What would prove this thesis wrong?
-```
-
-例如：
-
-- 如果我们的 margin expansion thesis 是错的，最可能因为什么？
-- 是否有管理层表述反驳？
-- 是否有竞品降价迹象？
-- 是否有库存或订单数据恶化？
-- 是否有 sell-side analyst 持相反观点？
-
----
-
-## 5.4 章节研究
-
-每个章节不是直接写，而是一个研究 loop：
-
-```text
-section objective
-→ generate sub-questions
-→ retrieve evidence
-→ extract facts
-→ verify claims
-→ write section
-→ review section
-→ if fail, research more
-```
-
----
-
-# 6. 推荐的新版 Workflow Spine
-
-你可以把主流程改成这样：
-
-```text
-initialize_state
-→ load_report_template
-→ define_research_mandate
-→ ingest_documents
-→ build_source_index
-
-→ extract_broker_views
-→ discover_consensus
-→ find_expectation_gaps
-
-→ generate_research_plan
-→ autonomous_research_loop
-
-→ historical_financial_workflow
-→ forecast_workflow
-→ valuation_workflow
-→ scenario_sensitivity_workflow
-
-→ risk_to_thesis_mapping
-→ catalyst_monitor
-
-→ investment_committee_review
-    ↳ if fail: back to research / forecast / valuation
-
-→ write_investment_focus
-→ plan_tables_and_charts
-→ generate_charts
-→ assemble_report
-→ final_consistency_check
-→ compliance_check
-→ export_report
-```
-
-重点是中间这块：
-
-```text
-generate_research_plan → autonomous_research_loop
-```
-
-不要写死所有研究动作，而是让 Lead Analyst Agent 调用 skills。
-
----
-
-# 7. Agent 设计：建议先做一个 Lead Analyst Agent，而不是一堆 Agent
-
-你现在可能会想做很多 agent：
-
-- industry agent；
-- valuation agent；
-- risk agent；
-- writer agent；
-- reviewer agent。
-
-但我建议 MVP 阶段先不要过度 multi-agent。先做一个强的：
-
-```text
-LeadAnalystAgent
-```
-
-它可以调用不同 skills。
-
-原因：
-
-1. 多 agent 容易产生状态不一致；
-2. 多 agent 会增加 routing 复杂度；
-3. 专业研报最怕 thesis 不统一；
-4. 一个 Lead Analyst 更容易维持统一投资判断。
-
-未来可以逐步拆成：
-
-- Lead Analyst；
-- Evidence Analyst；
-- Financial Modeling Analyst；
-- Valuation Analyst；
-- Skeptic Analyst；
-- Editor / Compliance Analyst。
-
-但初期推荐：
-
-```text
-One Lead Agent + Skill Registry + Tool Layer
-```
-
----
-
-# 8. Lead Analyst Agent 的职责
-
-Lead Analyst Agent 应该做这些事：
+重构成：
 
 ```python
-LeadAnalystAgent:
-    - understand mandate
-    - generate research plan
-    - prioritize research questions
-    - select skills
-    - call tools through skills
-    - maintain thesis ledger
-    - update evidence ledger
-    - challenge its own thesis
-    - decide when evidence is sufficient
-    - request deterministic financial modeling
-    - synthesize report sections
-    - respond to IC review feedback
+class AgentState(TypedDict):
+    # === 任务描述 ===
+    task_profile: dict              # TaskProfile.model_dump()
+    ticker: str
+    
+    # === 探索图 ===
+    exploration_graph: dict         # ExplorationGraph 序列化
+    current_branch_id: str
+    
+    # === 通用 loop 状态 ===
+    active_skill_context: dict
+    query_queue: list[dict]         # 待执行的 QueryItem list
+    pending_evidence: list[dict]    # 本轮执行结果
+    search_memory: list[dict]       # 全量历史（跨 loop）
+    
+    # === 结构化输出（由 output_schema 决定）===
+    structured_view: dict           # StructuredConsensusView / StructuredFundamentalView
+    coverage_report: dict
+    coverage_history: list[dict]
+    
+    # === 假设层（可选，由 TaskProfile 控制是否启用）===
+    assumptions: dict
+    
+    # === 最终产物 ===
+    final_report: str
+    
+    # === 系统字段 ===
+    iterations: int
+    max_iterations: int
+    errors: list[str]
+    compliance_flags: list[dict]
+    human_review_payload: dict
 ```
 
-它不应该直接伪造数字，也不应该自己算复杂估值。
+`consensus_view`、`consensus_report` 统一变成 `structured_view`、`final_report`。
 
 ---
 
-# 9. Tools 设计
+### Layer 3：ExplorationGraph（参照 R&D-Agent 的 G）
 
-Tools 应该是低层能力，尽量小而确定。
-
----
-
-## 9.1 Data Retrieval Tools
+论文里最核心的数据结构，对应 Algorithm 1 中的 `G`：
 
 ```python
-search_web
-search_company_filings
-search_transcripts
-search_broker_reports
-search_news
-search_industry_reports
-search_internal_vector_db
+@dataclass
+class ExplorationNode:
+    node_id: str
+    parent_id: str | None
+    branch_id: str
+    
+    # Research 产物
+    query_plan: list[dict]
+    evidence: list[dict]
+    
+    # Development 产物（对你来说是 synthesis 结果，以及可能搜索的结构，以及根据研究得到的数据预测）
+    structured_view_snapshot: dict
+    coverage_score: float
+    
+    # 元数据
+    iteration: int
+    created_at: str
+
+class ExplorationGraph:
+    nodes: dict[str, ExplorationNode]
+    
+    def select_parents(self, strategy="greedy") -> list[str]:
+        """对应论文 SelectParents，greedy = 取最高 coverage_score"""
+    
+    def add_node(self, node: ExplorationNode): ...
+    
+    def best_node(self) -> ExplorationNode:
+        """最终选 submit 哪个 branch"""
+    
+    def to_chain(self) -> list[ExplorationNode]:
+        """退化成线性 loop，向后兼容"""
+```
+
+当前你只需要 chain，但这个抽象让你后续可以切换到 tree search（多个 branch 并行，分别从不同 parent 出发）。
+
+---
+
+### Layer 4：通用节点工厂（Plan / Execute / Reflect）
+
+六个通用节点，全部接受 `TaskProfile` 作为参数：
+
+```python
+# 1. PlannerNode —— 对应 R&D-Agent FC-Planning + FC-ReasoningPipeline
+def create_planner_node(deps, task_profile: TaskProfile, mode="initial|loop"):
+    """
+    mode=initial: 冷启动，生成全量 query
+    mode=loop:    gap planning，生成 ≤2 个补充 query
+    
+    prompt 里用 task_profile.dimensions / objective 替代硬编码
+    """
+
+# 2. ExecutorNode —— 对应 FC-CodingWorkflow（你的场景是 search + tool calling）
+def create_executor_node(deps, batch_size=5):
+    """完全通用，只看 query_queue，不关心任务类型"""
+
+# 3. SynthesizerNode —— 把 evidence 合并进 structured_view
+def create_synthesizer_node(deps, task_profile: TaskProfile):
+    """
+    用 task_profile.output_schema 决定结构化输出类型
+    merge 逻辑通过 task_profile 的 merge_fn 或 generic merge_view_update
+    """
+
+# 4. ReflectorNode —— 对应 FC-ReasoningPipeline + FC-EvaluationStrategy
+def create_reflector_node(deps, task_profile: TaskProfile):
+    """
+    评估 structured_view 的覆盖度
+    路由决策：exit / run_existing_queue / plan_more
+    
+    关键：routing_decision 写进 ExplorationGraph.current_node
+    """
+
+# 5. AssumptionProbeNode —— 可选，由 TaskProfile.enable_assumption_probe 控制
+def create_assumption_probe_node(deps, task_profile: TaskProfile): ...
+
+# 6. FinalizerNode —— 生成 final_report
+def create_finalizer_node(deps, task_profile: TaskProfile):
+    """prompt 模板 + task_profile.output_schema 决定报告格式"""
 ```
 
 ---
 
-## 9.2 Document Parsing Tools
+### Layer 5：GenericResearchSubgraph（通用图构建器）
 
 ```python
-parse_pdf
-extract_tables
-extract_financial_statements
-extract_management_guidance
-extract_segment_breakdown
-extract_kpi_mentions
-```
-
----
-
-## 9.3 Market and Financial Data Tools
-
-```python
-get_current_price
-get_market_cap
-get_share_count
-get_enterprise_value
-get_historical_prices
-get_financial_statements
-get_consensus_estimates
-get_peer_multiples
-get_ownership_data
-```
-
----
-
-## 9.4 Calculation Tools
-
-```python
-calculate_cagr
-calculate_margin
-calculate_roic
-calculate_wacc
-calculate_dcf
-calculate_trading_multiple_valuation
-calculate_sotp
-calculate_sensitivity_table
-calculate_total_return
-```
-
----
-
-## 9.5 Evidence and Memory Tools
-
-```python
-store_evidence
-store_claim
-store_assumption
-link_evidence_to_claim
-link_assumption_to_forecast
-retrieve_claims_by_section
-retrieve_contradictory_evidence
-```
-
----
-
-## 9.6 Charting Tools
-
-```python
-plot_revenue_by_segment
-plot_margin_trend
-plot_peer_multiple_comparison
-plot_dcf_sensitivity
-plot_consensus_bridge
-```
-
----
-
-# 10. Skill 设计
-
-Skill 是你未来扩展系统的关键。
-
-建议每个 Skill 都有统一接口。
-
----
-
-## 10.1 Skill Interface
-
-可以设计成这样：
-
-```python
-from typing import Protocol, Any
-from pydantic import BaseModel
-
-class SkillInput(BaseModel):
-    mandate: dict
-    state_snapshot: dict
-    objective: str
-    constraints: dict | None = None
-
-class SkillOutput(BaseModel):
-    summary: str
-    claims: list[dict]
-    evidence_ids: list[str]
-    assumptions: list[dict] = []
-    confidence: float
-    data_quality_flags: list[str] = []
-    next_questions: list[str] = []
-
-class Skill(Protocol):
-    name: str
-    description: str
-    allowed_tools: list[str]
-    output_schema: type[SkillOutput]
-
-    def run(self, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
+class GenericResearchSubgraph:
+    def __init__(self, deps, task_profile: TaskProfile): 
+        self.deps = deps
+        self.tp = task_profile
+    
+    def build(self) -> StateGraph:
+        graph = StateGraph(AgentState)
+        
+        # 通用节点，全部通过 task_profile 参数化
+        graph.add_node("skill_selector", create_skill_selector_node(self.deps, self.tp))
+        graph.add_node("initial_planner", create_planner_node(self.deps, self.tp, mode="initial"))
+        graph.add_node("executor", create_executor_node(self.deps))
+        graph.add_node("synthesizer", create_synthesizer_node(self.deps, self.tp))
+        graph.add_node("reflector", create_reflector_node(self.deps, self.tp))
+        graph.add_node("loop_planner", create_planner_node(self.deps, self.tp, mode="loop"))
+        
+        # 可选节点，由 TaskProfile 控制
+        if self.tp.enable_assumption_probe:
+            graph.add_node("assumption_probe", create_assumption_probe_node(self.deps, self.tp))
+        
+        graph.add_node("finalizer", create_finalizer_node(self.deps, self.tp))
+        graph.add_node("human_review", create_human_review_node(self.deps))
+        
+        # 边的拓扑结构是固定的 Plan→Execute→Reflect loop
+        # 不依赖任务类型
+        self._wire_edges(graph)
+        return graph
+    
+    def _wire_edges(self, graph):
+        # START → skill_selector → initial_planner → executor → synthesizer → reflector
+        # reflector → (exit → assumption_probe → finalizer) | (continue → loop_planner → executor)
         ...
 ```
 
+**关键洞察**：图的**拓扑结构**（哪些节点、怎么连线）是固定的通用框架；**节点行为**通过 `TaskProfile` 参数化。未来换一个研究阶段，只需要换 `TaskProfile`，不需要重写图。
+
 ---
 
-## 10.2 Skill Manifest
-
-每个 skill 还应该有 manifest：
+## Consensus 的变化：从子图变成 TaskProfile 实例
 
 ```python
-{
-    "name": "broker_consensus_mining",
-    "description": "Extract and compare sell-side broker views.",
-    "trigger": [
-        "consensus needed",
-        "variant view needed",
-        "broker reports available"
-    ],
-    "required_inputs": [
-        "ticker",
-        "broker_reports",
-        "current_price"
-    ],
-    "outputs": [
-        "rating_distribution",
-        "target_price_range",
-        "eps_consensus",
-        "key_debate_points",
-        "bull_bear_split"
-    ],
-    "allowed_tools": [
-        "search_broker_reports",
-        "parse_pdf",
-        "extract_tables",
-        "store_evidence"
-    ],
-    "quality_gates": [
-        "at least 3 broker reports if available",
-        "target price date required",
-        "rating date required",
-        "source citation required"
-    ]
-}
-```
-
-这样以后你加 skill 很容易。
-
----
-
-# 11. 第一批应该实现的 Skills
-
-我建议先做下面这些。
-
----
-
-## 11.1 `CompanyUnderstandingSkill`
-
-目标：理解公司是谁、怎么赚钱。
-
-输出：
-
-- business description；
-- segment breakdown；
-- geography breakdown；
-- revenue model；
-- key products；
-- customer base；
-- management；
-- ownership。
-
----
-
-## 11.2 `BrokerConsensusMiningSkill`
-
-目标：看市场怎么看。
-
-输出：
-
-- broker rating distribution；
-- target price range；
-- consensus EPS；
-- consensus revenue；
-- most bullish view；
-- most bearish view；
-- key debate points。
-
----
-
-## 11.3 `VariantViewDiscoverySkill`
-
-目标：找预期差。
-
-输出：
-
-- where we differ from consensus；
-- evidence supporting variant view；
-- possible mispricing；
-- key stock debates；
-- what market may be missing。
-
-这是专业 equity research 的灵魂。
-
----
-
-## 11.4 `BusinessModelAnalysisSkill`
-
-目标：分析商业模式和 unit economics。
-
-输出：
-
-- revenue drivers；
-- pricing mechanism；
-- volume / ASP / mix；
-- customer retention；
-- margin drivers；
-- operating leverage；
-- unit economics。
-
----
-
-## 11.5 `IndustryCompetitionSkill`
-
-目标：行业和竞争格局。
-
-输出：
-
-- TAM；
-- market growth；
-- value chain；
-- market share；
-- pricing trend；
-- competition intensity；
-- barriers to entry；
-- regulatory factors。
-
----
-
-## 11.6 `HistoricalFinancialAnalysisSkill`
-
-目标：解释过去的财务表现。
-
-输出：
-
-- revenue CAGR；
-- segment growth；
-- gross margin trend；
-- operating margin trend；
-- FCF conversion；
-- working capital；
-- ROE / ROIC；
-- leverage；
-- capital intensity。
-
----
-
-## 11.7 `OperatingKPIExtractionSkill`
-
-目标：抽取建模所需 KPI。
-
-不同行业不同 KPI。
-
-例如：
-
-
-| 行业   | KPI                                              |
-| ---- | ------------------------------------------------ |
-| SaaS | ARR, NRR, churn, CAC, LTV                        |
-| 电商   | GMV, take rate, AOV, MAU                         |
-| 银行   | NIM, NPL, loan growth, CASA                      |
-| 新能源  | shipment, ASP, unit margin, capacity utilization |
-| 半导体  | wafer starts, ASP, utilization, backlog          |
-| 消费   | volume, ASP, channel inventory, SSSG             |
-
-
----
-
-## 11.8 `ForecastAssumptionSkill`
-
-目标：把业务驱动转成预测假设。
-
-输出：
-
-- segment revenue assumptions；
-- gross margin assumptions；
-- opex assumptions；
-- capex assumptions；
-- working capital assumptions；
-- tax rate；
-- share count；
-- EPS bridge；
-- assumptions vs consensus。
-
----
-
-## 11.9 `ValuationSkill`
-
-目标：估值。
-
-注意：这个 skill 应该调用 deterministic valuation tools，而不是让 LLM 随便生成 target price。
-
-输出：
-
-- valuation method；
-- peer set；
-- trading multiples；
-- DCF assumptions；
-- SOTP if needed；
-- target price；
-- implied upside；
-- rating；
-- sensitivity table。
-
----
-
-## 11.10 `RiskCounterThesisSkill`
-
-目标：找反证和风险。
-
-输出：
-
-- risk-to-thesis mapping；
-- downside scenario；
-- leading indicators；
-- what would change our view；
-- counter-evidence；
-- thesis failure points。
-
----
-
-## 11.11 `CatalystMonitoringSkill`
-
-目标：未来跟踪什么。
-
-输出：
-
-- earnings date；
-- product launch；
-- policy events；
-- capacity ramp；
-- data releases；
-- investor day；
-- KPI to monitor；
-- thesis linkage。
-
----
-
-## 11.12 `SectionWritingSkill`
-
-目标：把研究结果写成专业研报语言。
-
-要求：
-
-- 不新增未经验证的数据；
-- 每个关键 claim 有 citation；
-- 用投资语言表达；
-- 结构清晰；
-- 与 thesis 一致。
-
----
-
-## 11.13 `QualityReviewSkill`
-
-目标：检查报告质量。
-
-检查：
-
-- claim 是否有 evidence；
-- 数字是否一致；
-- rating 和 upside 是否匹配；
-- risk 是否具体；
-- forecast 是否有依据；
-- valuation 是否可复现；
-- 是否存在 hallucinated source；
-- 是否存在 stale data。
-
----
-
-# 12. 三个 Ledger 是专业化的核心
-
-你未来一定要有三个核心 ledger。
-
----
-
-## 12.1 Evidence Ledger
-
-记录所有证据。
-
-```python
-{
-    "evidence_id": "EVID_001",
-    "source_id": "SRC_001",
-    "source_type": "Annual Report",
-    "date": "2026-03-01",
-    "page": 42,
-    "quote": "Revenue from cloud segment increased by 28% YoY.",
-    "metric": "cloud revenue growth",
-    "value": "28%",
-    "period": "FY2025",
-    "reliability_score": 0.95,
-    "freshness_score": 0.90
-}
-```
-
----
-
-## 12.2 Claim Ledger
-
-记录报告里的每个重要判断。
-
-```python
-{
-    "claim_id": "CLM_001",
-    "section": "investment_thesis",
-    "claim": "Cloud segment growth is likely to exceed consensus expectations.",
-    "claim_type": "variant_view",
-    "direction": "positive",
-    "supporting_evidence": ["EVID_001", "EVID_008"],
-    "contradicting_evidence": ["EVID_014"],
-    "confidence": 0.74,
-    "status": "verified"
-}
-```
-
----
-
-## 12.3 Assumption Ledger
-
-记录预测和估值假设。
-
-```python
-{
-    "assumption_id": "ASM_001",
-    "metric": "FY2026 cloud revenue growth",
-    "our_assumption": "24%",
-    "consensus": "18%",
-    "difference": "+600bps",
-    "rationale": "Backlog growth and management commentary indicate faster enterprise adoption.",
-    "evidence_ids": ["EVID_001", "EVID_009"],
-    "sensitivity": "high",
-    "used_in": ["financial_forecast", "dcf", "target_price"]
-}
-```
-
-这三个 ledger 能让你的研报变得：
-
-- 可验证；
-- 可追踪；
-- 可复用；
-- 可审计；
-- 可被专业分析师信任。
-
----
-
-# 13. Agent 自主研究 Loop 应该怎么设计？
-
-你可以把核心 autonomous research node 设计成一个 mini-loop。
-
-```text
-Research Objective
-   ↓
-Generate Questions
-   ↓
-Select Skill
-   ↓
-Use Tools
-   ↓
-Extract Evidence
-   ↓
-Update Ledgers
-   ↓
-Critique Findings
-   ↓
-Need More Research?
-   ↓
-Stop / Continue
-```
-
-伪代码：
-
-```python
-while budget.remaining() > 0:
-    research_gap = agent.identify_most_important_gap(state)
-
-    selected_skill = agent.select_skill(
-        objective=research_gap,
-        available_skills=skill_registry
-    )
-
-    skill_output = selected_skill.run(
-        input=SkillInput(
-            mandate=state.mandate,
-            state_snapshot=state.snapshot(),
-            objective=research_gap
-        ),
-        tools=tool_registry
-    )
-
-    state.update_ledgers(skill_output)
-
-    review = agent.critique(skill_output, state)
-
-    if review.is_sufficient:
-        break
-
-    if review.needs_different_skill:
-        continue
-
-    if review.needs_human:
-        route_to_human()
-```
-
----
-
-# 14. 怎么避免 Agent 太自由导致胡说？
-
-你需要几个硬约束。
-
----
-
-## 14.1 Tool Permission
-
-不同 skill 只能调用指定 tools。
-
-例如 ValuationSkill：
-
-```python
-allowed_tools = [
-    "get_current_price",
-    "get_financial_statements",
-    "get_peer_multiples",
-    "calculate_dcf",
-    "calculate_trading_multiple_valuation",
-    "calculate_sensitivity_table"
-]
-```
-
-不能随便 web search 后直接编 target price。
-
----
-
-## 14.2 Evidence Required
-
-每个核心 claim 必须链接 evidence。
-
-```python
-if claim.importance == "high" and len(claim.supporting_evidence) < 2:
-    fail_review()
-```
-
----
-
-## 14.3 Contradiction Required
-
-每个核心 investment thesis 必须有反证搜索。
-
-```python
-if thesis.has_no_counter_evidence_search:
-    fail_review()
-```
-
----
-
-## 14.4 Deterministic Calculation
-
-以下内容必须由工具计算：
-
-- target price；
-- upside；
-- EPS；
-- CAGR；
-- margins；
-- EV；
-- multiples；
-- DCF；
-- sensitivity；
-- peer median。
-
-LLM 只能解释，不能直接生成最终数字。
-
----
-
-## 14.5 Data Freshness
-
-每个关键数据都需要 as-of date。
-
-```python
-{
-    "metric": "current_price",
-    "value": 125.3,
-    "as_of": "2026-06-22"
-}
-```
-
-否则专业分析师不会信。
-
----
-
-# 15. 推荐新版 LangGraph 结构
-
-你可以把 graph 改成“workflow spine + autonomous node”。
-
-示意：
-
-```python
-g.set_entry_point("initialize_state")
-
-g.add_edge("initialize_state", "load_report_template")
-g.add_edge("load_report_template", "define_research_mandate")
-g.add_edge("define_research_mandate", "ingest_documents")
-g.add_edge("ingest_documents", "build_source_index")
-
-g.add_edge("build_source_index", "extract_broker_views")
-g.add_edge("extract_broker_views", "discover_consensus")
-g.add_edge("discover_consensus", "find_expectation_gaps")
-
-g.add_edge("find_expectation_gaps", "generate_research_plan")
-g.add_edge("generate_research_plan", "autonomous_research")
-
-g.add_conditional_edges(
-    "autonomous_research",
-    research_completion_router,
-    {
-        "continue_research": "autonomous_research",
-        "financial_model": "historical_financials",
-        "human_review": "human_review",
-    },
+# 之前
+ConsensusSubgraph(deps).build()  # 几百行专用代码
+
+# 之后
+CONSENSUS_TASK_PROFILE = TaskProfile(
+    task_id="consensus",
+    objective="Build market consensus view across analyst estimates",
+    dimensions=CONSENSUS_DIMENSIONS,
+    output_schema=StructuredConsensusView,
+    default_queries_fn=_default_consensus_queries,
+    coverage_threshold=0.75,
+    max_iterations=5,
+    skill_objective="consensus",
+    enable_assumption_probe=True,
 )
 
-g.add_edge("historical_financials", "operating_kpi_extraction")
-g.add_edge("operating_kpi_extraction", "forecast_assumptions")
-g.add_edge("forecast_assumptions", "financial_forecast")
-g.add_edge("financial_forecast", "forecast_consistency_check")
-
-g.add_conditional_edges(
-    "forecast_consistency_check",
-    forecast_router,
-    {
-        "pass": "valuation",
-        "revise_assumptions": "forecast_assumptions",
-        "more_research": "autonomous_research",
-    },
-)
-
-g.add_edge("valuation", "scenario_sensitivity")
-g.add_edge("scenario_sensitivity", "rating_target_price_check")
-
-g.add_conditional_edges(
-    "rating_target_price_check",
-    valuation_router,
-    {
-        "pass": "risk_to_thesis_mapping",
-        "revise_valuation": "valuation",
-        "revise_forecast": "forecast_assumptions",
-    },
-)
-
-g.add_edge("risk_to_thesis_mapping", "catalyst_monitor")
-g.add_edge("catalyst_monitor", "investment_committee_review")
-
-g.add_conditional_edges(
-    "investment_committee_review",
-    ic_review_router,
-    {
-        "approve": "write_investment_focus",
-        "more_research": "autonomous_research",
-        "revise_forecast": "forecast_assumptions",
-        "revise_valuation": "valuation",
-        "human_review": "human_review",
-    },
-)
-
-g.add_edge("write_investment_focus", "write_remaining_sections")
-g.add_edge("write_remaining_sections", "plan_tables_and_charts")
-g.add_edge("plan_tables_and_charts", "chart_generation")
-g.add_edge("chart_generation", "assemble_report")
-g.add_edge("assemble_report", "final_consistency_check")
-g.add_edge("final_consistency_check", "compliance_check")
-g.add_edge("compliance_check", "export_report")
-g.add_edge("export_report", END)
+GenericResearchSubgraph(deps, CONSENSUS_TASK_PROFILE).build()
 ```
 
-这个结构的好处是：
+未来加 `FundamentalAnalysis`：
 
-- 关键阶段是 workflow；
-- 研究阶段是 autonomous；
-- 财务和估值是 deterministic；
-- 审查节点可以打回；
-- 最终报告有质量控制。
+```python
+FUNDAMENTAL_TASK_PROFILE = TaskProfile(
+    task_id="fundamental",
+    objective="Build fundamental analysis view covering revenue drivers, margins, moat",
+    dimensions=FUNDAMENTAL_DIMENSIONS,
+    output_schema=StructuredFundamentalView,
+    ...
+    enable_assumption_probe=False,
+)
+
+GenericResearchSubgraph(deps, FUNDAMENTAL_TASK_PROFILE).build()
+```
+
+**零重复代码**。
 
 ---
 
-# 16. `autonomous_research` 内部怎么实现？
 
-你可以让它不是一个普通 agent，而是一个 agent runtime。
+## 关于 R&D-Agent 论文的几个关键映射
+
+| 论文概念 | 你的对应实现 |
+|---|---|
+| `R&D Loop` | `executor → synthesizer → reflector` 一次循环 |
+| `SelectParents(G, π)` | `ReflectorNode` 路由 + `ExplorationGraph.select_parents()` |
+| `Virtual Evaluation` | `ReflectorNode` 的 LLM 评分（coverage evaluation） |
+| `Collaborative Memory` | `MemoryStore` 跨 branch 共享 search_memory |
+| `Efficient Debug` | 你的 batch_executor 的 batch_size 控制 |
+| `Aggregated Evaluation` | `ScorerNode` 对多 branch 的 `coverage_score` 排序，选最优 |
+
+---
+
+## 核心洞察：你已经有了95%的基础设施
+
+你现有的 Skills/Tools 设计已经非常成熟。真正缺的是**上层调度层**——一个能自主分解任务、把子任务分配给独立 loop 的 Orchestrator。好，现在把完整设计讲清楚。
+
+
+1. **编排循环 (Orchestrator Loop)：** 最顶层的控制流。它接收用户请求，通过 **任务分解器 (Task Decomposer)** 将其拆解为详细的任务计划 (TaskPlan)。**分发器 (Dispatcher)** 将这些任务作为“子循环”发送给下游执行，最后由 **聚合器 (Aggregator)** 汇总所有结果。
+2. **通用研究子图 (GenericResearchSubgraph)：** 核心的任务执行层，参数化运行。
+* 它首先由 **技能选择器 (Skill Selector)** 和 **初始规划器 (Initial Planner)** 进行规划。
+* 进入主要的 **执行器 (Executor)** 循环，执行器批量调用工具并收集证据，这些证据被记录在 **探索图 (Exploration Graph)** 中。
+* **合成器 (Synthesizer)** 将证据整理成结构化视图，**反射器 (Reflector)** 进行评估。如果需要更多信息，它会通过 **循环规划器 (Loop Planner)** 扩展查询队列（loop / plan_more）；如果可以结束，则流向 **假设探针 (Assumption Probe)** 和 **终结器 (Finalizer)** 生成最终报告。
+* 架构还包含了 **人工审查 (Human Review)** 环节，允许人工中断并要求重新规划（replan）。
+
+
+3. **共享基础设施 (Shared Infrastructure)：** 无状态的注册表和存储，为所有子循环提供支持。包括 **技能注册表 (SkillRegistry)**、**工具注册表 (ToolRegistry)**、**内存存储 (MemoryStore)**、以及存储当前代理状态和探索图数据的实体。
+
+这是一个复杂的系统，通过清晰的规划、执行、反射和聚合循环，利用 LLM 和各种工具来解决研究型任务。
+
+
+
+---
+
+## 整体思路：三层结构
+
+图里已经表达了骨架，下面逐层讲设计决策。
+
+---
+
+### Layer 1：Orchestrator Loop
+
+这是"自主分配子任务"的核心。它做三件事：
+
+**Task Decomposer** 接收顶层研究目标（比如 `"equity research on NVDA"`），调用 LLM 输出一个 `TaskPlan`：
 
 ```python
-class AutonomousResearchRuntime:
-    def __init__(self, lead_agent, skill_registry, tool_registry):
-        self.lead_agent = lead_agent
-        self.skill_registry = skill_registry
-        self.tool_registry = tool_registry
+@dataclass
+class SubTaskSpec:
+    task_id: str           # 从 TaskRegistry 取，如 "consensus"
+    priority: int          # 执行顺序
+    depends_on: list[str]  # 依赖哪些其他 sub_task 的结果（空 = 可立即执行）
+    context_keys: list[str] # 需要从父 state 注入哪些字段
+    override_config: dict  # 覆盖 TaskProfile 的部分参数
 
-    def run(self, state):
-        objective = self.lead_agent.pick_next_research_objective(state)
+@dataclass  
+class TaskPlan:
+    sub_tasks: list[SubTaskSpec]
+    parallel_groups: list[list[str]]  # 哪些可以并行
+    rationale: str
+```
 
-        skill_name = self.lead_agent.select_skill(
-            objective=objective,
-            state=state,
-            available_skills=self.skill_registry.list()
-        )
+LLM 只能从 **TaskRegistry 注册表**里选 task_id，这就是"半动态"的边界——它自主决定选哪些、顺序、依赖关系，但不能凭空创造新任务类型。
 
-        skill = self.skill_registry.get(skill_name)
+**Dispatcher** 按 `TaskPlan` 实例化 `GenericResearchSubgraph`，按 `parallel_groups` 决定串行还是并发调用。
 
-        output = skill.run(
-            input=SkillInput(
-                mandate=state["mandate"],
-                state_snapshot=state,
-                objective=objective
-            ),
-            tools=self.tool_registry.for_skill(skill_name)
-        )
+**Aggregator** 收集所有子 loop 的 `final_report` 和 `structured_view`，合并成父级 state。
 
-        state = update_ledgers(state, output)
+---
 
-        critique = self.lead_agent.critique_research_output(
-            objective=objective,
-            output=output,
-            state=state
-        )
+### Layer 2：GenericResearchSubgraph（完全复用）
 
-        state["research_status"] = critique.next_status
-        state["research_gaps"] = critique.remaining_gaps
+这层的设计关键是**节点行为由 TaskProfile 参数化，拓扑结构固定不变**。
 
-        return state
+每个节点的 prompt 构建都从 TaskProfile 读取：
+
+```python
+@dataclass
+class TaskProfile:
+    task_id: str
+    objective: str
+    
+    # Skill 控制
+    skill_objective: str          # 传给 SkillRegistry.select_for_objective()
+    agent_visibility_id: str      # 对应 agent_visibility.py 里的 key
+    max_skills: int = 2
+    
+    # Planner 控制
+    dimensions: list[str]         # 需要覆盖的研究维度
+    default_queries_fn: callable  # 冷启动 fallback
+    max_initial_queries: int = 5
+    max_loop_queries: int = 2
+    
+    # Synthesizer 控制
+    output_schema: type           # Pydantic model
+    merge_strategy: str = "incremental"  # 或 "replace"
+    
+    # Reflector 控制
+    coverage_threshold: float = 0.75
+    max_iterations: int = 5
+    
+    # 可选节点开关
+    enable_assumption_probe: bool = False
+    enable_human_review: bool = False
+    
+    # Finalizer 控制
+    report_format: str = "markdown"
+    report_max_chars: int = 6000
+```
+
+所有节点工厂签名统一为：
+
+```python
+def create_planner_node(deps, task_profile: TaskProfile, mode: str):
+    def planner(state: AgentState) -> dict:
+        # 从 task_profile.dimensions 构建 prompt
+        # 从 task_profile.default_queries_fn 获取 fallback
+        ...
+    return planner
 ```
 
 ---
 
-# 17. State 设计建议
+### Layer 3：Shared Infrastructure（零修改，按现有设计复用）
 
-你的 `EquityResearchState` 应该扩展成更像研究数据库。
+你现有的 `SkillRegistry`、`ToolRegistry`、`MemoryStore` 完全不动，只是调用方式统一化：
+
+Skill 的注入路径和你现有的完全一致：
+
+```
+scan_catalog() → visibility filter (by agent_visibility_id) 
+→ LLM select via load_research_skills tool 
+→ read_skill() full body 
+→ build_skill_context() → active_skill_context in AgentState
+```
+
+唯一变化是 `agent_visibility_id` 从硬编码的 `"consensus_subgraph"` 变成从 `TaskProfile` 读取。
+
+---
+
+## 目录结构
+
+```
+tradingagents/equity_research/
+│
+├── runtime/                         # 新增，纯框架，零业务逻辑
+│   ├── state.py                     # AgentState (TypedDict, 通用字段)
+│   ├── task_profile.py              # TaskProfile dataclass
+│   ├── task_registry.py             # TaskRegistry: 注册 + 查找 TaskProfile
+│   ├── task_plan.py                 # SubTaskSpec, TaskPlan
+│   ├── exploration_graph.py         # ExplorationGraph, ExplorationNode
+│   │
+│   ├── orchestrator/
+│   │   ├── nodes.py                 # decomposer, dispatcher, aggregator
+│   │   ├── routers.py
+│   │   └── graph.py                 # OrchestratorGraph.build()
+│   │
+│   ├── nodes/                       # 六个通用节点，全部参数化
+│   │   ├── skill_selector.py
+│   │   ├── planner.py               # create_planner_node(mode="initial|loop")
+│   │   ├── executor.py              # create_executor_node (batch tool calls)
+│   │   ├── synthesizer.py           # create_synthesizer_node
+│   │   ├── reflector.py             # create_reflector_node
+│   │   ├── assumption_probe.py      # create_assumption_probe_node
+│   │   ├── finalizer.py             # create_finalizer_node
+│   │   └── human_review.py
+│   │
+│   ├── routers.py                   # 通用路由函数 (coverage_router, etc.)
+│   └── subgraph.py                  # GenericResearchSubgraph.build(task_profile)
+│
+├── tasks/                           # 纯业务配置，只有数据，无框架代码
+│   ├── registry.py                  # 注册所有 TaskProfile → TaskRegistry
+│   ├── consensus/
+│   │   ├── profile.py               # CONSENSUS_PROFILE = TaskProfile(...)
+│   │   ├── schemas.py               # StructuredConsensusView (保持不变)
+│   │   └── queries.py               # _default_consensus_queries()
+│   ├── fundamental/
+│   │   ├── profile.py
+│   │   ├── schemas.py
+│   │   └── queries.py
+│   ├── risk/
+│   └── valuation/
+│
+├── skills/                          # 完全不动
+├── tools/                           # 完全不动
+└── agents/
+    └── shared/                      # 保留现有 shared 工具，逐步迁移
+```
+
+---
+
+## Orchestrator 的核心 Prompt 设计
+
+Task Decomposer 的 prompt 模板，体现"半动态"的约束：
 
 ```python
-class EquityResearchState(TypedDict):
-    mandate: dict
-    report_template: dict
+def _decomposer_prompt(state: AgentState, registry: TaskRegistry) -> str:
+    catalog = registry.format_catalog()  # 类似 SkillRegistry 的 catalog table
+    return f"""
+You are an equity research orchestrator for {state['ticker']}.
+Sector: {state.get('sector', '')}
+Research objective: {state.get('research_objective', 'comprehensive equity research')}
 
-    source_index: list[dict]
-    broker_views: list[dict]
-    consensus: dict
-    expectation_gaps: list[dict]
+Available research task types (you may only select from this list):
+{catalog}
 
-    research_plan: dict
-    active_objective: str
-    completed_objectives: list[str]
-    research_gaps: list[dict]
+Decompose the research objective into 2-5 sub-tasks.
+For each sub-task, specify:
+- task_id: must be from the catalog above
+- priority: integer (lower = higher priority)  
+- depends_on: list of task_ids that must complete first ([] = run immediately)
+- context_keys: which fields from completed tasks to pass in
+  (e.g. ["consensus_view", "fundamental_view"])
 
-    thesis_ledger: list[dict]
-    claim_ledger: list[dict]
-    evidence_ledger: list[dict]
-    assumption_ledger: list[dict]
-    metric_store: dict
+Return JSON only. Example:
+{{
+  "sub_tasks": [
+    {{"task_id": "consensus", "priority": 1, "depends_on": [], "context_keys": []}},
+    {{"task_id": "fundamental", "priority": 2, "depends_on": [], "context_keys": []}},
+    {{"task_id": "valuation", "priority": 3, 
+      "depends_on": ["consensus", "fundamental"],
+      "context_keys": ["consensus_view", "fundamental_view"]}}
+  ],
+  "rationale": "..."
+}}
+"""
+```
 
-    historical_financials: dict
-    operating_kpis: dict
-    forecast_model: dict
-    valuation_model: dict
-    scenario_analysis: dict
+TaskRegistry 的 catalog 格式和你现有的 SkillRegistry catalog 完全一致，LLM 已经会用这个模式了。
 
-    risk_map: list[dict]
-    catalyst_calendar: list[dict]
+---
 
-    section_drafts: dict
-    review_findings: list[dict]
-    ic_review: dict
+## AgentState 设计（关键解耦点）
+
+```python
+class AgentState(TypedDict):
+    # 任务描述
+    task_profile: dict          # TaskProfile.to_dict()
+    ticker: str
+    sector: str
+    research_objective: str
+    
+    # 探索图
+    exploration_graph: dict     # ExplorationGraph 序列化
+    current_node_id: str
+    
+    # Skill 上下文（SkillRegistry 写入，节点读取）
+    active_skill_context: dict
+    
+    # Plan-Execute-Reflect 流转字段
+    query_queue: list[dict]     # QueryItem list
+    pending_evidence: list[dict]
+    search_memory: list[dict]   # 全量历史
+    
+    # 结构化输出（类型由 task_profile.output_schema 决定）
+    structured_view: dict       # consensus → StructuredConsensusView.dump()
+                                # fundamental → StructuredFundamentalView.dump()
+    coverage_report: dict
+    coverage_history: list[dict]
+    
+    # 可选
+    assumptions: dict           # 仅 enable_assumption_probe=True 时写入
+    
+    # 产物
     final_report: str
-
-    data_quality_flags: list[dict]
+    
+    # 系统字段
+    iterations: int
+    max_iterations: int
+    api_calls: int
+    documents: list[dict]
+    errors: list[str]
     compliance_flags: list[dict]
-
-    next_route: str
+    human_review_payload: dict
+    last_updated: str
+    
+    # Orchestrator 注入的跨任务上下文
+    parent_context: dict        # 来自 depends_on 任务的 structured_view 等
 ```
 
----
-
-# 18. 研究计划应该长什么样？
-
-`generate_research_plan` 的输出不要只是章节列表，而应该是 thesis-driven。
-
-例如：
-
-```python
-{
-    "core_questions": [
-        {
-            "id": "Q1",
-            "question": "Is the market underestimating cloud revenue growth?",
-            "priority": "high",
-            "linked_sections": ["investment_thesis", "business_model", "forecast"],
-            "required_skills": [
-                "broker_consensus_mining",
-                "operating_kpi_extraction",
-                "variant_view_discovery"
-            ],
-            "success_criteria": [
-                "consensus revenue estimates collected",
-                "management guidance extracted",
-                "at least 2 pieces of evidence supporting or refuting upside"
-            ]
-        },
-        {
-            "id": "Q2",
-            "question": "Is margin expansion sustainable?",
-            "priority": "high",
-            "linked_sections": ["historical_financials", "forecast", "valuation"],
-            "required_skills": [
-                "historical_financial_analysis",
-                "business_model_analysis",
-                "risk_counterthesis"
-            ]
-        }
-    ]
-}
-```
-
-这样系统会围绕研究问题，而不是围绕模板填空。
+`consensus_view`、`consensus_report`、`consensus_*` 全部消失，统一成 `structured_view` 和 `final_report`。
 
 ---
 
-# 19. 专业深度来自哪里？
+## 迁移路径（三个阶段，每个阶段独立可测）
 
-如果你要让研报“有深度”，至少要强制系统完成 7 件事。
+**Phase 1 — State 清洗**（不改行为，只重命名字段）
 
----
+把 `ConsensusSubgraphState` 里的 `consensus_*` 字段映射到 `AgentState` 的通用字段。保持 `ConsensusSubgraph` 外壳不变，内部节点读写新字段名。
 
-## 19.1 必须有 Consensus Map
+**Phase 2 — 节点通用化**（抽取 `runtime/nodes/`）
 
-```text
-市场怎么看？
-```
+从 `consensus/nodes.py` 中把每个节点工厂提取到 `runtime/nodes/`，原来硬编码的 consensus 维度、schema、prompt 片段全部改成从 `task_profile` 读取。
 
-包括：
+consensus 成为第一个 `TaskProfile` 实例，`GenericResearchSubgraph(deps, CONSENSUS_PROFILE).build()` 替代 `ConsensusSubgraph(deps).build()`，行为完全一致。
 
-- broker rating；
-- target price；
-- EPS；
-- revenue；
-- margin；
-- bull case；
-- bear case；
-- key debates。
+**Phase 3 — Orchestrator 上线**
 
----
+在 `runtime/orchestrator/` 实现 Decomposer + Dispatcher + Aggregator，`TaskRegistry` 注册 consensus 等已有 profile，Orchestrator 开始自主分配。
 
-## 19.2 必须有 Variant View
-
-```text
-我们和市场哪里不一样？
-```
-
-如果没有 variant view，报告就只是 facts summary。
-
----
-
-## 19.3 必须有 Driver Tree
-
-```text
-收入和利润由什么驱动？
-```
-
-例如：
-
-```text
-Revenue = Volume × ASP × Mix
-Gross Profit = Revenue × Gross Margin
-EBIT = Gross Profit - Opex
-EPS = Net Income / Diluted Shares
-Target Price = EPS × Target P/E
-```
-
----
-
-## 19.4 必须有 Assumption Bridge
-
-```text
-假设如何从证据走到预测？
-```
-
-例如：
-
-```text
-Backlog + management guidance + industry growth
-→ FY2026 revenue growth assumption
-→ EPS forecast
-→ target price
-```
-
----
-
-## 19.5 必须有 Risk-to-Thesis Mapping
-
-不是泛泛写风险，而是：
-
-```text
-哪个风险会推翻哪个 thesis？
-```
-
----
-
-## 19.6 必须有 Sensitivity
-
-专业投资判断一定要知道：
-
-```text
-如果关键假设错了，target price 变多少？
-```
-
----
-
-## 19.7 必须有 Evidence Traceability
-
-每个关键判断都要能追溯来源。
-
----
-
-# 20. 如何给 Agent 加 Skills？
-
-未来加 skill 的流程建议标准化。
-
----
-
-## 20.1 每个 Skill 一个目录
-
-```text
-skills/
-  broker_consensus_mining/
-    manifest.yaml
-    skill.py
-    prompts.py
-    schemas.py
-    tests.py
-  valuation/
-    manifest.yaml
-    skill.py
-    schemas.py
-    calculators.py
-    tests.py
-  risk_counterthesis/
-    manifest.yaml
-    skill.py
-    prompts.py
-    schemas.py
-    tests.py
-```
-
----
-
-## 20.2 Skill Manifest 示例
-
-```yaml
-name: risk_counterthesis
-description: Identify risks and counter-evidence for investment thesis.
-version: 1.0.0
-
-triggers:
-  - risk section needed
-  - IC review asks for counter-thesis
-  - core thesis confidence below threshold
-
-inputs:
-  - thesis_ledger
-  - claim_ledger
-  - evidence_ledger
-  - forecast_model
-  - valuation_model
-
-outputs:
-  - risk_to_thesis_mapping
-  - counter_evidence
-  - downside_scenario
-  - leading_indicators
-
-allowed_tools:
-  - search_filings
-  - search_transcripts
-  - search_news
-  - retrieve_claims
-  - retrieve_evidence
-  - store_claim
-
-quality_gates:
-  - each core thesis must have at least one mapped risk
-  - each high-impact risk must have evidence
-  - generic risk language is not allowed
-```
-
----
-
-## 20.3 Skill Test
-
-每个 skill 应该有测试：
-
-- schema 是否合格；
-- 是否引用 evidence；
-- 是否调用了允许工具；
-- 是否没有 hallucinated source；
-- 输出是否可被 state 接收；
-- 是否满足 minimum evidence count。
-
----
-
-# 21. Human-in-the-loop 应该放在哪里？
-
-专业分析师工具不应该假装完全自动化。建议在人类最有价值的地方插入。
-
----
-
-## 21.1 Research Plan Approval
-
-Agent 生成研究计划后，让分析师确认：
-
-```text
-这些研究问题是不是对？
-```
-
----
-
-## 21.2 Forecast Assumption Approval
-
-在生成 forecast 前，让分析师确认关键假设：
-
-- revenue growth；
-- margin；
-- capex；
-- WACC；
-- terminal growth；
-- target multiple。
-
----
-
-## 21.3 IC Review Override
-
-如果系统自己审查失败，可以请求人类：
-
-```text
-是否接受这个风险？
-是否继续研究？
-是否调整 rating？
-```
-
----
-
-# 22. 推荐的权限设计
-
-不同 agent/skill 对 tools 的权限不同。
-
-例如：
-
-```python
-TOOL_PERMISSIONS = {
-    "BrokerConsensusMiningSkill": [
-        "search_broker_reports",
-        "parse_pdf",
-        "extract_tables",
-        "store_evidence"
-    ],
-    "ForecastAssumptionSkill": [
-        "get_financial_statements",
-        "retrieve_evidence",
-        "calculate_cagr",
-        "store_assumption"
-    ],
-    "ValuationSkill": [
-        "get_current_price",
-        "get_peer_multiples",
-        "calculate_dcf",
-        "calculate_sensitivity_table"
-    ],
-    "SectionWritingSkill": [
-        "retrieve_claims",
-        "retrieve_evidence"
-    ]
-}
-```
-
-这可以减少 agent 胡乱调用工具。
-
----
-
-# 23. 质量评分系统
-
-你可以给每个章节和整篇报告打分。
-
----
-
-## 23.1 Section Quality Score
-
-```python
-{
-    "section": "industry_and_competition",
-    "evidence_score": 0.82,
-    "specificity_score": 0.76,
-    "freshness_score": 0.91,
-    "contradiction_score": 0.65,
-    "numerical_consistency_score": 0.88,
-    "overall_score": 0.80
-}
-```
-
----
-
-## 23.2 报告必须过的门槛
-
-```python
-BLOCKING_RULES = [
-    "rating_missing",
-    "target_price_missing",
-    "current_price_missing",
-    "rating_upside_mismatch",
-    "no_variant_view",
-    "no_consensus_comparison",
-    "valuation_not_reproducible",
-    "forecast_assumptions_without_evidence",
-    "core_thesis_without_counter_evidence",
-    "hallucinated_citation",
-    "stale_market_price",
-]
-```
-
----
-
-# 24. 你当前代码具体怎么改？
-
-你现在的节点很多：
-
-```python
-generate_hypotheses
-virtual_evaluate
-allocate_budget
-retrieve_evidence
-extract_facts
-verify_claims
-evaluate_stop_condition
-write_section
-review_section
-...
-```
-
-建议不要全删，而是重构成三层。
-
----
-
-## 24.1 保留 Workflow 节点
-
-保留：
-
-```python
-initialize_state
-load_report_template
-discover_consensus
-find_expectation_gaps
-business_driver_decomp
-financial_forecast
-valuation
-investment_committee_review
-assemble_report
-chart_generation
-markdown_memory_export
-```
-
-但要调整顺序。
-
----
-
-## 24.2 合并开放研究节点
-
-把这些：
-
-```python
-generate_hypotheses
-virtual_evaluate
-allocate_budget
-retrieve_evidence
-extract_facts
-verify_claims
-evaluate_stop_condition
-```
-
-封装成：
-
-```python
-autonomous_research
-```
-
-内部由 Lead Analyst Agent 调 skill 和 tools。
-
-外部 workflow 只关心：
-
-```python
-autonomous_research 是否完成？
-是否需要更多研究？
-是否要进入财务模型？
-是否要 human review？
-```
-
----
-
-## 24.3 写作不要太早
-
-把：
-
-```python
-write_investment_focus
-```
-
-放到：
-
-```text
-valuation
-→ risk
-→ IC review
-```
-
-之后。
-
----
-
-# 25. 一个新的代码骨架
-
-大概可以这样组织。
-
-```python
-class EquityResearchSystem:
-    def __init__(self, deps):
-        self.tools = ToolRegistry(deps)
-        self.skills = SkillRegistry()
-        self.lead_agent = LeadAnalystAgent(
-            skill_registry=self.skills,
-            tool_registry=self.tools,
-        )
-
-    def setup_graph(self):
-        g = StateGraph(EquityResearchState)
-
-        g.add_node("initialize_state", create_initialize_state())
-        g.add_node("load_report_template", create_load_report_template())
-        g.add_node("define_research_mandate", create_define_research_mandate())
-        g.add_node("ingest_documents", create_ingest_documents())
-        g.add_node("build_source_index", create_build_source_index())
-
-        g.add_node("extract_broker_views", create_extract_broker_views())
-        g.add_node("discover_consensus", create_discover_consensus())
-        g.add_node("find_expectation_gaps", create_find_expectation_gaps())
-        g.add_node("generate_research_plan", create_generate_research_plan())
-
-        g.add_node("autonomous_research", self.lead_agent.autonomous_research_node)
-
-        g.add_node("historical_financials", create_historical_financials())
-        g.add_node("operating_kpi_extraction", create_operating_kpi_extraction())
-        g.add_node("forecast_assumptions", create_forecast_assumptions())
-        g.add_node("financial_forecast", create_financial_forecast())
-        g.add_node("forecast_consistency_check", create_forecast_consistency_check())
-
-        g.add_node("valuation", create_valuation_engine())
-        g.add_node("scenario_sensitivity", create_scenario_sensitivity())
-        g.add_node("rating_target_price_check", create_rating_target_price_check())
-
-        g.add_node("risk_to_thesis_mapping", create_risk_to_thesis_mapping())
-        g.add_node("catalyst_monitor", create_catalyst_monitor())
-
-        g.add_node("investment_committee_review", create_investment_committee_review())
-        g.add_node("write_investment_focus", create_write_investment_focus())
-        g.add_node("write_remaining_sections", create_write_remaining_sections())
-
-        g.add_node("plan_tables_and_charts", create_plan_tables_and_charts())
-        g.add_node("chart_generation", create_chart_generation())
-        g.add_node("assemble_report", create_assemble_report())
-        g.add_node("final_consistency_check", create_final_consistency_check())
-        g.add_node("compliance_check", create_compliance_check())
-        g.add_node("markdown_memory_export", create_markdown_memory_export())
-
-        return g
-```
-
----
-
-# 26. 推荐路线图
-
-## P0：先把系统从“写作 workflow”升级成“研究 workflow”
-
-优先做：
-
-1. `Research Mandate`
-2. `Source Index`
-3. `Evidence Ledger`
-4. `Claim Ledger`
-5. `Assumption Ledger`
-6. `Autonomous Research Node`
-7. `Skill Registry`
-8. `Tool Registry`
-9. `Final Consistency Check`
-
----
-
-## P1：把专业深度做出来
-
-加入：
-
-1. `BrokerConsensusMiningSkill`
-2. `VariantViewDiscoverySkill`
-3. `ConsensusBridge`
-4. `RiskCounterThesisSkill`
-5. `ForecastAssumptionSkill`
-6. `ValuationSkill`
-7. `ScenarioSensitivitySkill`
-
----
-
-## P2：提升产品体验
-
-加入：
-
-1. human approval；
-2. chart planner；
-3. source reliability scoring；
-4. stale data detection；
-5. section quality score；
-6. report diff；
-7. broker view comparison dashboard；
-8. analyst editable assumptions；
-9. export to Markdown / Word / Excel / PowerPoint。
-
----
-
-# 27. 最重要的设计原则
-
-最后总结一下：
-
-## 原则一：Workflow 管顺序，Agent 管探索
-
-不要让 agent 自由决定整个报告流程；但也不要把每个研究动作写死。
-
----
-
-## 原则二：LLM 负责推理，工具负责事实和计算
-
-尤其是 target price、EPS、DCF、multiples，必须由工具算。
-
----
-
-## 原则三：每个结论都要有证据链
-
-没有 evidence 的 claim 不进报告。
-
----
-
-## 原则四：每个核心 thesis 都要有反证
-
-没有 counter-thesis 的报告不专业。
-
----
-
-## 原则五：先研究，后写作
-
-不要让系统一边找一点资料一边写最终稿。  
-正确顺序是：
-
-```text
-research → model → valuation → risk → IC review → write executive summary
-```
-
----
-
-## 原则六：Skills 是你未来扩展系统的核心
-
-以后你想加能力，不要改整个 graph。  
-只需要：
-
-```text
-新增 Skill → 注册 Skill → 定义触发条件 → 定义 tools 权限 → 定义输出 schema → 加测试
-```
-
----
-
-# 最终建议
-
-你应该把当前系统改造成：
-
-```text
-Workflow Spine + Lead Analyst Agent + Skill Registry + Tool Layer + Research Ledgers + Quality Gates
-```
-
-其中：
-
-- **Workflow** 保证流程专业、可控、可审计；
-- **Agent** 负责开放式研究和判断；
-- **Skills** 负责可复用的专业研究能力；
-- **Tools** 负责数据、检索、计算和制图；
-- **Ledgers** 保证证据、判断和假设可追溯；
-- **Quality Gates** 保证报告不会“看起来专业但其实没依据”。
-
-这样你的产品才会从“自动写研报”升级成真正有价值的：
-
-> **Equity Research Copilot for professional analysts.**
+三个阶段之间有清晰的接口边界，Phase 2 完成后就可以开始添加新的 `TaskProfile`（fundamental、risk 等），不需要等 Phase 3。
 

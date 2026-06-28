@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from tradingagents.equity_research.agents.consensus.search_memory import (
+from tradingagents.equity_research.agents.deps import EquityResearchDeps
+from tradingagents.equity_research.runtime.task_profile import TaskProfile
+from tradingagents.equity_research.runtime.utils.search_memory import (
     append_search_record,
     queries_from_memory,
     record_from_evidence,
 )
-from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.tools.perplexity_tool import execute_perplexity_search
 
 
@@ -23,14 +24,16 @@ def _append_documents(documents: list[dict], doc_ids: list[str]) -> list[dict]:
     return new_docs
 
 
-def create_search_batch_executor(
+def create_executor_node(
     deps: EquityResearchDeps,
+    task_profile: TaskProfile,
     *,
     batch_size: int = 5,
-    trace_name: str = "search_batch_executor",
+    trace_name: str | None = None,
     search_fn: Callable[..., Any] | None = None,
 ):
     run_search = search_fn or execute_perplexity_search
+    agent_trace = trace_name or f"{task_profile.task_id}_query_executor"
 
     def query_batch_executor(state: dict[str, Any]) -> dict[str, Any]:
         errors = list(state.get("errors", []))
@@ -48,7 +51,7 @@ def create_search_batch_executor(
         pending = list(state.get("pending_evidence", []))
         new_docs = list(state.get("documents", []))
         api_calls = int(state.get("api_calls", 0))
-        iteration = int(state.get("consensus_iterations", 0))
+        iteration = int(state.get("iterations", state.get("consensus_iterations", 0)))
         dimensions_run: list[str] = []
 
         try:
@@ -86,7 +89,7 @@ def create_search_batch_executor(
                 "documents": new_docs,
                 "api_calls": api_calls,
             }
-            updates.update(deps.trace({**state, **updates}, trace_name, {
+            updates.update(deps.trace({**state, **updates}, agent_trace, {
                 "batch_size": len(to_run),
                 "dimensions": dimensions_run,
             }))

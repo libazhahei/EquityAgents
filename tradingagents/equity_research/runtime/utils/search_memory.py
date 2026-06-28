@@ -1,11 +1,11 @@
-"""Search memory for consensus subgraph — records prior Perplexity searches."""
+"""Search memory for research subgraphs — records prior Perplexity searches."""
 
 from __future__ import annotations
 
 import uuid
 from typing import Any
 
-from tradingagents.equity_research.agents.consensus.context_compact import compact_if_needed
+from tradingagents.equity_research.runtime.utils.context_compact import compact_if_needed
 from tradingagents.equity_research.state.consensus_schemas import EvidenceItem, SearchRecord
 
 ANSWER_SUMMARY_THRESHOLD = 1500

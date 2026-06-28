@@ -1,4 +1,4 @@
-"""Model-based context compaction for consensus prompts."""
+"""Model-based context compaction for research prompts."""
 
 from __future__ import annotations
 

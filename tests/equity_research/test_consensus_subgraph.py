@@ -5,36 +5,64 @@ from unittest.mock import MagicMock
 from langchain_core.messages import AIMessage
 from pydantic import ValidationError
 
-from tradingagents.equity_research.agents.consensus.compliance import (
-    append_compliance_suffix,
-    filter_compliant_citations,
-)
-from tradingagents.equity_research.agents.consensus.merge_utils import merge_view_update
-from tradingagents.equity_research.agents.consensus.nodes import (
+from tradingagents.equity_research.agents.consensus.subgraph import ConsensusSubgraph, create_run_consensus_subgraph
+from tradingagents.equity_research.agents.consensus_agents import create_gap_finder
+from tradingagents.equity_research.agents.deps import EquityResearchDeps
+from tradingagents.equity_research.runtime.nodes.assumption_probe import (
     create_assumption_batch_executor,
     create_assumption_query_planner,
     create_assumption_synthesizer,
-    create_consensus_planner,
-    create_consensus_synthesizer,
-    create_coverage_reflector,
-    create_finalizer,
-    create_human_review,
-    create_query_batch_executor,
-    create_query_executor,
-    create_query_planner,
-    create_skill_selector,
 )
-from tradingagents.equity_research.agents.consensus.routers import (
+from tradingagents.equity_research.runtime.nodes.executor import create_executor_node
+from tradingagents.equity_research.runtime.nodes.finalizer import create_finalizer_node
+from tradingagents.equity_research.runtime.nodes.human_review import create_human_review_node
+from tradingagents.equity_research.runtime.nodes.planner import create_planner_node
+from tradingagents.equity_research.runtime.nodes.reflector import create_reflector_node
+from tradingagents.equity_research.runtime.nodes.skill_selector import create_skill_selector
+from tradingagents.equity_research.runtime.nodes.synthesizer import create_synthesizer_node
+from tradingagents.equity_research.runtime.routers import (
     assumption_probe_gate_router,
     coverage_reflector_router,
     gap_query_planner_router,
     human_review_router,
     skill_selector_router,
 )
-from tradingagents.equity_research.agents.consensus.search_memory import format_search_memory
-from tradingagents.equity_research.agents.consensus.structured_invoke import invoke_structured_with_retry
-from tradingagents.equity_research.agents.consensus.subgraph import ConsensusSubgraph, create_run_consensus_subgraph
-from tradingagents.equity_research.agents.consensus_agents import create_gap_finder
+from tradingagents.equity_research.runtime.utils.search_memory import format_search_memory
+from tradingagents.equity_research.runtime.utils.structured_invoke import invoke_structured_with_retry
+from tradingagents.equity_research.tasks.consensus.compliance import (
+    append_compliance_suffix,
+    filter_compliant_citations,
+)
+from tradingagents.equity_research.tasks.consensus.merge import merge_view_update
+from tradingagents.equity_research.tasks.consensus.profile import CONSENSUS_TASK_PROFILE
+
+
+def _tp(deps):
+    return CONSENSUS_TASK_PROFILE
+
+
+create_consensus_synthesizer = lambda deps: create_synthesizer_node(deps, CONSENSUS_TASK_PROFILE)
+create_coverage_reflector = lambda deps: create_reflector_node(deps, CONSENSUS_TASK_PROFILE)
+create_finalizer = lambda deps: create_finalizer_node(deps, CONSENSUS_TASK_PROFILE)
+create_human_review = lambda deps: create_human_review_node(deps, CONSENSUS_TASK_PROFILE)
+create_query_planner = lambda deps: create_planner_node(deps, CONSENSUS_TASK_PROFILE, mode="loop")
+create_query_executor = lambda deps: create_executor_node(deps, CONSENSUS_TASK_PROFILE, batch_size=1)
+create_query_batch_executor = lambda deps, batch_size=5: create_executor_node(
+    deps, CONSENSUS_TASK_PROFILE, batch_size=batch_size,
+)
+create_assumption_batch_executor_wrapped = lambda deps: create_assumption_batch_executor(
+    deps, CONSENSUS_TASK_PROFILE,
+)
+create_assumption_query_planner_wrapped = lambda deps: create_assumption_query_planner(
+    deps, CONSENSUS_TASK_PROFILE,
+)
+create_assumption_synthesizer_wrapped = lambda deps: create_assumption_synthesizer(
+    deps, CONSENSUS_TASK_PROFILE,
+)
+
+
+def _skill_selector(deps):
+    return create_skill_selector(deps, CONSENSUS_TASK_PROFILE)
 from tradingagents.equity_research.state.consensus_schemas import (
     CONSENSUS_DIMENSIONS,
     ConsensusAssumptions,
@@ -99,7 +127,7 @@ def _mock_deps(
     perplexity_answer: str = "consensus data",
     perplexity_citations: list[str] | None = None,
 ):
-    from tradingagents.equity_research.agents.consensus import structured_invoke
+    from tradingagents.equity_research.runtime.utils import structured_invoke
 
     structured_invoke._RUNNABLE_CACHE.clear()
 
@@ -156,7 +184,7 @@ def test_structured_consensus_view_legacy_summary():
 
 def test_skill_selector_uses_llm_chosen_skills():
     deps = _mock_deps(skill_names=["broker_consensus_mining"])
-    node = create_skill_selector(deps)
+    node = _skill_selector(deps)
     result = node({"ticker": "NVDA", "sector": "Tech", "errors": []})
     assert result["active_skills"] == ["broker_consensus_mining"]
     assert result["active_skill_context"]["prompt_template"]
@@ -168,7 +196,7 @@ def test_skill_selector_uses_llm_chosen_skills():
 
 def test_skill_selector_tool_node_flow():
     deps = _mock_deps(skill_names=["broker_consensus_mining"])
-    agent = create_skill_selector(deps)
+    agent = _skill_selector(deps)
     state = {"ticker": "NVDA", "sector": "Tech", "errors": []}
     result = agent(state)
     assert result["active_skills"] == ["broker_consensus_mining"]
@@ -190,7 +218,7 @@ def test_skill_selector_fallback_on_bad_llm_response():
     deps.trace.return_value = {}
     deps.quick_llm.bind_tools.side_effect = RuntimeError("bind failed")
 
-    node = create_skill_selector(deps)
+    node = _skill_selector(deps)
     result = node({"ticker": "NVDA", "errors": []})
     assert result["active_skills"]
     assert result["active_skills"][0] == "broker_consensus_mining"
@@ -422,7 +450,7 @@ def test_assumption_probe_runs_once_on_exit():
         "consensus_iterations": 1,
         "consensus_view": empty_structured_consensus_view("NVDA").model_dump(),
     }
-    create_assumption_batch_executor(deps)(state)
+    create_assumption_batch_executor_wrapped(deps)(state)
     synth_state = {
         **state,
         "assumption_pending_evidence": [{
@@ -432,13 +460,13 @@ def test_assumption_probe_runs_once_on_exit():
             "query_used": "NVDA business model",
         }],
     }
-    result = create_assumption_synthesizer(deps)(synth_state)
+    result = create_assumption_synthesizer_wrapped(deps)(synth_state)
     assert result["assumption_probe_completed"] is True
     assert result["consensus_assumptions"]["business_model"]
 
 
 def test_assumption_planner_covers_theme_checklist():
-    from tradingagents.equity_research.agents.consensus import structured_invoke
+    from tradingagents.equity_research.runtime.utils import structured_invoke
 
     structured_invoke._RUNNABLE_CACHE.clear()
     captured: dict[str, str] = {}
@@ -454,7 +482,7 @@ def test_assumption_planner_covers_theme_checklist():
 
     deps.deep_llm.with_structured_output.side_effect = _capture_plan
     structured_invoke._RUNNABLE_CACHE.clear()
-    create_assumption_query_planner(deps)({
+    create_assumption_query_planner_wrapped(deps)({
         "ticker": "NVDA",
         "consensus_view": empty_structured_consensus_view("NVDA").model_dump(),
         "coverage_report": {},
@@ -563,7 +591,7 @@ def test_synthesizer_preserves_all_perplexity_citations():
 
 
 def test_query_planner_receives_search_memory_in_prompt():
-    from tradingagents.equity_research.agents.consensus import structured_invoke
+    from tradingagents.equity_research.runtime.utils import structured_invoke
 
     structured_invoke._RUNNABLE_CACHE.clear()
     captured: dict[str, str] = {}
@@ -614,7 +642,7 @@ def test_query_planner_receives_search_memory_in_prompt():
 
 
 def test_synthesizer_uses_pending_evidence_only():
-    from tradingagents.equity_research.agents.consensus import structured_invoke
+    from tradingagents.equity_research.runtime.utils import structured_invoke
 
     structured_invoke._RUNNABLE_CACHE.clear()
     captured: dict[str, str] = {}
@@ -657,7 +685,7 @@ def test_synthesizer_uses_pending_evidence_only():
 
 
 def test_structured_invoke_retries_on_validation_error():
-    from tradingagents.equity_research.agents.consensus import structured_invoke
+    from tradingagents.equity_research.runtime.utils import structured_invoke
 
     structured_invoke._RUNNABLE_CACHE.clear()
 

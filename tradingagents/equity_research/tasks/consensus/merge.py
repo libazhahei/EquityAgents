@@ -59,20 +59,6 @@ def _merge_coverage(old: CoverageStatus | str | None, new: CoverageStatus | str 
     return new if _COVERAGE_ORDER.get(new, 0) > _COVERAGE_ORDER.get(old, 0) else old
 
 
-def _merge_dict(old: dict[str, Any] | None, new: dict[str, Any] | None) -> dict[str, Any]:
-    merged = dict(old or {})
-    for key, value in (new or {}).items():
-        if key not in merged or not merged[key]:
-            merged[key] = value
-        elif isinstance(merged[key], dict) and isinstance(value, dict):
-            merged[key] = _merge_dict(merged[key], value)
-        elif isinstance(merged[key], list) and isinstance(value, list):
-            merged[key] = _merge_list(merged[key], value)
-        else:
-            merged[key] = _merge_scalar(merged[key], value)
-    return merged
-
-
 def _merge_model_dict(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
     merged = dict(old)
     for key, value in new.items():
@@ -108,3 +94,51 @@ def merge_view_update(view: StructuredConsensusView, update: Any) -> StructuredC
                 status,
             )
     return StructuredConsensusView.model_validate(merged)
+
+
+def dedupe_preserve_order(items: list[str]) -> list[str]:
+    return _dedupe_preserve_order(items)
+
+
+def preserve_citations_from_evidence(view: StructuredConsensusView, evidence: list[dict]) -> None:
+    dim_sources: dict[str, list[str]] = {
+        "quantitative_estimates": view.quantitative_estimates.sources,
+        "kpi_focus": view.kpi_focus.sources,
+        "pricing_assumptions": view.pricing_assumptions.sources,
+        "narrative_framework": view.narrative_framework.sources,
+        "recent_delta": view.recent_delta.sources,
+    }
+    all_doc_ids = list(view.source_doc_ids)
+    for ev in evidence:
+        dim = ev.get("target_dimension", "")
+        citations = ev.get("citations") or []
+        if dim in dim_sources:
+            dim_sources[dim].extend(citations)
+        all_doc_ids.extend(ev.get("doc_ids", []))
+    for sources in dim_sources.values():
+        deduped = _dedupe_preserve_order(sources)
+        sources.clear()
+        sources.extend(deduped)
+    view.source_doc_ids = _dedupe_preserve_order(all_doc_ids)
+
+
+def preserve_citations_from_memory(view: StructuredConsensusView, records: list[dict]) -> None:
+    dim_sources: dict[str, list[str]] = {
+        "quantitative_estimates": view.quantitative_estimates.sources,
+        "kpi_focus": view.kpi_focus.sources,
+        "pricing_assumptions": view.pricing_assumptions.sources,
+        "narrative_framework": view.narrative_framework.sources,
+        "recent_delta": view.recent_delta.sources,
+    }
+    all_doc_ids = list(view.source_doc_ids)
+    for record in records:
+        dim = record.get("target_dimension", "")
+        citations = record.get("citations") or []
+        if dim in dim_sources:
+            dim_sources[dim].extend(citations)
+        all_doc_ids.extend(record.get("doc_ids", []))
+    for sources in dim_sources.values():
+        deduped = _dedupe_preserve_order(sources)
+        sources.clear()
+        sources.extend(deduped)
+    view.source_doc_ids = _dedupe_preserve_order(all_doc_ids)

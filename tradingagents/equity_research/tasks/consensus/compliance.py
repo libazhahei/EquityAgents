@@ -1,4 +1,4 @@
-"""Data compliance helpers for consensus subgraph searches."""
+"""Data compliance helpers for consensus research."""
 
 from __future__ import annotations
 

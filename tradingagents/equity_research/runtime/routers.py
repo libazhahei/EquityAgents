@@ -1,9 +1,8 @@
-"""Routing for the consensus subgraph."""
+"""Routing for generic research subgraphs."""
 
 from __future__ import annotations
 
 from langchain_core.messages import AIMessage
-
 from typing import Any
 
 
@@ -26,7 +25,7 @@ def coverage_reflector_router(state: dict[str, Any]) -> str:
     return "plan_more"
 
 
-def gap_query_planner_router(state: dict[str, Any]) -> str:
+def loop_planner_router(state: dict[str, Any]) -> str:
     if state.get("query_queue"):
         return "run"
     return "exit"
@@ -36,6 +35,10 @@ def assumption_probe_gate_router(state: dict[str, Any]) -> str:
     if state.get("assumption_probe_completed"):
         return "done"
     return "probe"
+
+
+# Backward-compatible alias
+gap_query_planner_router = loop_planner_router
 
 
 def human_review_router(state: dict[str, Any]) -> str:

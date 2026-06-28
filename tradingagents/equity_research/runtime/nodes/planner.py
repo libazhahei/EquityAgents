@@ -6,8 +6,9 @@ from collections.abc import Callable
 from difflib import SequenceMatcher
 from typing import Any
 
-from tradingagents.equity_research.agents.consensus.structured_invoke import invoke_structured_with_retry
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
+from tradingagents.equity_research.runtime.task_profile import TaskProfile
+from tradingagents.equity_research.runtime.utils.structured_invoke import invoke_structured_with_retry
 from tradingagents.equity_research.state.consensus_schemas import QueryItem, QueryPlan
 
 
@@ -19,26 +20,41 @@ def _similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
 
-def create_query_planner_node(
+def create_planner_node(
     deps: EquityResearchDeps,
+    task_profile: TaskProfile,
     *,
-    prompt_builder: Callable[[dict[str, Any]], str],
-    max_queries: int,
-    use_default_if_empty: bool,
-    normalize_fn: Callable[[list[QueryItem], str, bool], list[QueryItem]],
-    agent_name: str,
-    trace_name: str | None = None,
-    executed_queries_fn: Callable[[dict[str, Any]], list[str]] | None = None,
-    fallback_plan: Callable[[dict[str, Any]], QueryPlan] | None = None,
-    extend_queue: bool = False,
+    mode: str = "initial",
 ):
-    agent_trace = trace_name or agent_name
+    if mode == "initial":
+        max_queries = task_profile.max_initial_queries
+        use_default_if_empty = True
+        extend_queue = False
+        prompt_builder = task_profile.build_initial_planner_prompt
+        agent_name = f"{task_profile.task_id}_planner"
+        fallback_plan = None
+        executed_queries_fn = None
+    else:
+        max_queries = task_profile.max_loop_queries
+        use_default_if_empty = False
+        extend_queue = True
+        prompt_builder = task_profile.build_loop_planner_prompt
+        agent_name = f"{task_profile.task_id}_query_planner"
+        from tradingagents.equity_research.runtime.utils.search_memory import queries_from_memory
+
+        def fallback_plan(_state: dict[str, Any]) -> QueryPlan:
+            return QueryPlan(queries=[])
+
+        def executed_queries_fn(state: dict[str, Any]) -> list[str]:
+            return queries_from_memory(state.get("search_memory", [])) or state.get("executed_queries", [])
+
+    agent_trace = agent_name
 
     def query_planner(state: dict[str, Any]) -> dict[str, Any]:
         errors = list(state.get("errors", []))
         ticker = state.get("ticker", "")
         try:
-            prompt = prompt_builder(state)
+            prompt = prompt_builder(deps, state)
 
             def _fallback() -> QueryPlan:
                 if fallback_plan:
@@ -53,7 +69,9 @@ def create_query_planner_node(
                 max_attempts=_max_retries(deps),
                 fallback=_fallback,
             )
-            new_items = normalize_fn(plan.queries, ticker, use_default_if_empty)[:max_queries]
+            new_items = task_profile.normalize_queries_fn(
+                plan.queries, ticker, use_default_if_empty,
+            )[:max_queries]
 
             if executed_queries_fn:
                 executed = executed_queries_fn(state)

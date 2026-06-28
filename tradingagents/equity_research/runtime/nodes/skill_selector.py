@@ -1,14 +1,14 @@
-"""Parameterized skill selector nodes for research subgraphs (agent + ToolNode)."""
+"""Parameterized skill selector nodes for research subgraphs."""
 
 from __future__ import annotations
 
-import json
 from typing import Any, Callable
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.prebuilt import ToolNode
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
+from tradingagents.equity_research.runtime.task_profile import TaskProfile
 from tradingagents.equity_research.skills.catalog import format_catalog_for_prompt
 from tradingagents.equity_research.skills.loader import format_skill_prompt
 from tradingagents.equity_research.skills.registry import SkillRegistry
@@ -62,19 +62,17 @@ def _skill_selection_prompt(
 
 def create_skill_selector_agent(
     deps: EquityResearchDeps,
+    task_profile: TaskProfile,
     *,
-    graph_name: str,
-    objective: str,
-    max_skills: int = 2,
     registry: SkillRegistry | None = None,
-    prompt_builder: Callable[[dict[str, Any], str, str], str] | None = None,
 ):
     skill_reg = registry or SkillRegistry(deps=deps)
+    graph_name = task_profile.agent_visibility_id
     load_tool = make_load_research_skills_tool(
         skill_reg,
         graph_name=graph_name,
-        objective=objective,
-        max_skills=max_skills,
+        objective=task_profile.skill_objective,
+        max_skills=task_profile.max_skills,
     )
 
     def skill_selector_agent(state: dict[str, Any]) -> dict[str, Any]:
@@ -85,8 +83,8 @@ def create_skill_selector_agent(
             state,
             catalog_table,
             ticker,
-            max_skills=max_skills,
-            prompt_builder=prompt_builder,
+            max_skills=task_profile.max_skills,
+            prompt_builder=task_profile.build_skill_prompt,
         )
         messages = list(state.get("messages", []))
         if not messages:
@@ -100,34 +98,31 @@ def create_skill_selector_agent(
 
 def create_skill_tools_node(
     deps: EquityResearchDeps,
+    task_profile: TaskProfile,
     *,
-    graph_name: str,
-    objective: str,
-    max_skills: int = 2,
     registry: SkillRegistry | None = None,
 ):
     skill_reg = registry or SkillRegistry(deps=deps)
     load_tool = make_load_research_skills_tool(
         skill_reg,
-        graph_name=graph_name,
-        objective=objective,
-        max_skills=max_skills,
+        graph_name=task_profile.agent_visibility_id,
+        objective=task_profile.skill_objective,
+        max_skills=task_profile.max_skills,
     )
     return ToolNode([load_tool])
 
 
 def create_skill_context_apply(
     deps: EquityResearchDeps,
+    task_profile: TaskProfile,
     *,
-    graph_name: str,
-    objective: str,
-    max_skills: int = 2,
     registry: SkillRegistry | None = None,
     trace_name: str | None = None,
 ):
     skill_reg = registry or SkillRegistry(deps=deps)
-    agent_trace = trace_name or f"{graph_name}_skill_selector"
-    fallback_name = skill_reg.select_for_objective(objective)
+    graph_name = task_profile.agent_visibility_id
+    agent_trace = trace_name or f"{task_profile.task_id}_skill_selector"
+    fallback_name = skill_reg.select_for_objective(task_profile.skill_objective)
 
     def skill_context_apply(state: dict[str, Any]) -> dict[str, Any]:
         errors = list(state.get("errors", []))
@@ -181,38 +176,14 @@ def create_skill_context_apply(
 
 def create_skill_selector(
     deps: EquityResearchDeps,
+    task_profile: TaskProfile,
     *,
-    graph_name: str,
-    objective: str,
-    max_skills: int = 2,
     registry: SkillRegistry | None = None,
     trace_name: str | None = None,
-    prompt_builder: Callable[[dict[str, Any], str, str], str] | None = None,
 ):
-    """Backward-compatible single-node wrapper (agent → tools → apply)."""
-    agent = create_skill_selector_agent(
-        deps,
-        graph_name=graph_name,
-        objective=objective,
-        max_skills=max_skills,
-        registry=registry,
-        prompt_builder=prompt_builder,
-    )
-    tools = create_skill_tools_node(
-        deps,
-        graph_name=graph_name,
-        objective=objective,
-        max_skills=max_skills,
-        registry=registry,
-    )
-    apply = create_skill_context_apply(
-        deps,
-        graph_name=graph_name,
-        objective=objective,
-        max_skills=max_skills,
-        registry=registry,
-        trace_name=trace_name,
-    )
+    agent = create_skill_selector_agent(deps, task_profile, registry=registry)
+    tools = create_skill_tools_node(deps, task_profile, registry=registry)
+    apply = create_skill_context_apply(deps, task_profile, registry=registry, trace_name=trace_name)
 
     def skill_selector(state: dict[str, Any]) -> dict[str, Any]:
         working = dict(state)
@@ -226,7 +197,3 @@ def create_skill_selector(
         return apply(working)
 
     return skill_selector
-
-
-# Backward-compatible alias for internal imports
-_build_skill_context = build_skill_context

@@ -6,12 +6,12 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from tradingagents.equity_research.agents.consensus.context_compact import compact_if_needed
-from tradingagents.equity_research.agents.consensus.prompt_format import format_consensus_view
-from tradingagents.equity_research.agents.consensus.structured_invoke import (
+from tradingagents.equity_research.runtime.utils.context_compact import compact_if_needed
+from tradingagents.equity_research.runtime.utils.structured_invoke import (
     StructuredOutputUnsupported,
     invoke_structured_with_retry,
 )
+from tradingagents.equity_research.tasks.consensus.prompts import format_consensus_view
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.state.consensus_schemas import (
     CONSENSUS_DIMENSIONS,

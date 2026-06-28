@@ -18,6 +18,14 @@ final_state, summary = graph.propagate("NVDA")
 
 入口类 `EquityResearchGraph`（[`graph/equity_research_graph.py`](../../tradingagents/equity_research/graph/equity_research_graph.py)）负责：装配 LLM 客户端、初始化 `EquityResearchDeps`、编译 LangGraph、调用 `propagate()` 驱动整条流水线。
 
+**共识子图手动测试**（项目根目录）：
+
+```bash
+uv run python demo_consensus.py NVDA --sector Technology --max-iterations 3
+uv run python demo_consensus.py NVDA --mode subgraph --json -o ./out/nvda.json
+uv run python scripts/visualize_consensus_trace.py ./out/nvda.json -o ./out/nvda_trace.html
+```
+
 ---
 
 ## 顶层目录树
@@ -52,25 +60,28 @@ tradingagents/equity_research/
 │   ├── forecast_agents.py          # 图表生成
 │   ├── final_agents.py             # IC 评审、报告组装、导出
 │   ├── final_qa.py                 # 最终 QA 门禁
-│   ├── consensus/                  # 嵌套共识子图（独立 StateGraph）
-│   │   ├── subgraph.py               # 子图编译与 invoke
-│   │   ├── nodes.py                  # 共识各节点 + prompt 组装
-│   │   ├── state.py                  # ConsensusSubgraphState
-│   │   ├── search_memory.py          # Perplexity 搜索历史记忆
-│   │   ├── context_compact.py        # LLM 上下文压缩
-│   │   ├── prompt_format.py          # 注入块的 bullet 格式化
-│   │   ├── routers.py                # 子图条件路由
-│   │   ├── merge_utils.py            # 共识视图合并
-│   │   ├── structured_invoke.py        # 结构化 LLM 输出 + 重试
-│   │   └── compliance.py             # 引用合规过滤
-│   ├── shared/                     # 跨子图共享节点
-│   │   ├── skill_selector.py         # LLM skill 选择 + context 注入
-│   │   ├── query_planner.py          # 共享查询规划节点
-│   │   └── search_executor.py        # 批量搜索执行
+│   ├── consensus/                  # 共识子图兼容层（wrapper）
+│   │   ├── subgraph.py               # → GenericResearchSubgraph + 父 state 映射
+│   │   └── _legacy.py                # 归档旧实现（不参与运行）
 │   └── domain/                     # 9 个领域 Agent 薄封装
 │       ├── base.py                   # BaseDomainAgent：按 skill 列表执行
 │       ├── consensus_agent.py, business_agent.py, valuation_agent.py, ...
 │       └── ...
+│
+├── runtime/                    # 通用研究子图框架（零业务逻辑）
+│   ├── state.py                    # AgentState
+│   ├── task_profile.py             # TaskProfile
+│   ├── task_registry.py            # TaskRegistry
+│   ├── exploration_graph.py        # ExplorationGraph（chain 模式）
+│   ├── subgraph.py                 # GenericResearchSubgraph
+│   ├── demo_graph.py               # ConsensusDemoGraph 手动测试
+│   ├── routers.py                  # 子图条件路由
+│   ├── nodes/                      # skill_selector / planner / executor / ...
+│   └── utils/                      # structured_invoke、search_memory 等
+│
+├── tasks/                      # 业务 TaskProfile 配置
+│   ├── registry.py
+│   └── consensus/                  # CONSENSUS_TASK_PROFILE、prompts、queries
 │
 ├── state/                      # 共享状态模式
 │   ├── equity_research_state.py  # 主 TypedDict + empty_equity_research_state()
