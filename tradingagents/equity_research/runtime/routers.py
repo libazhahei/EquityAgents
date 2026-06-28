@@ -31,12 +31,6 @@ def loop_planner_router(state: dict[str, Any]) -> str:
     return "exit"
 
 
-def assumption_probe_gate_router(state: dict[str, Any]) -> str:
-    if state.get("assumption_probe_completed"):
-        return "done"
-    return "probe"
-
-
 # Backward-compatible alias
 gap_query_planner_router = loop_planner_router
 

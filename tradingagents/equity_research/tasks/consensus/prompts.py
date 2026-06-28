@@ -45,21 +45,22 @@ def _format_sources(sources: list[str]) -> list[str]:
 
 
 def format_consensus_view(view: StructuredConsensusView) -> str:
+    lines: list[str] = [f"**Consensus view**"]
     lines: list[str] = [f"- Ticker: {view.ticker}", f"- Coverage score: {view.coverage_score}"]
     qe = view.quantitative_estimates
     lines.append("- Quantitative estimates:")
     lines.append(f"  - Analyst count: {qe.analyst_count}")
     lines.append(f"  - Coverage: {_status_label(view.dimension_coverage.get('quantitative_estimates'))}")
-    lines.append("  - Sources:")
-    lines.extend(_format_sources(qe.sources))
+    # lines.append("  - Sources:")
+    # lines.extend(_format_sources(qe.sources))
 
     kpi = view.kpi_focus
     lines.append("- KPI focus:")
     lines.append(f"  - Coverage: {_status_label(view.dimension_coverage.get('kpi_focus'))}")
     for item in kpi.primary_kpis[:5]:
         lines.append(f"  - KPI: {item.name} — expected {item.expected_level} ({item.importance})")
-    lines.append("  - Sources:")
-    lines.extend(_format_sources(kpi.sources))
+    # lines.append("  - Sources:")
+    # lines.extend(_format_sources(kpi.sources))
 
     pa = view.pricing_assumptions
     lines.append("- Pricing assumptions:")
@@ -67,8 +68,8 @@ def format_consensus_view(view: StructuredConsensusView) -> str:
     lines.append(f"  - Coverage: {_status_label(view.dimension_coverage.get('pricing_assumptions'))}")
     for peer in pa.peer_comparison[:3]:
         lines.append(f"  - Peer {peer.ticker}: {peer.metric} = {peer.value} ({peer.comparison})")
-    lines.append("  - Sources:")
-    lines.extend(_format_sources(pa.sources))
+    # lines.append("  - Sources:")
+    # lines.extend(_format_sources(pa.sources))
 
     nf = view.narrative_framework
     lines.append("- Narrative framework:")
@@ -79,8 +80,8 @@ def format_consensus_view(view: StructuredConsensusView) -> str:
         lines.append(f"  - Bear case: {nf.bear_case[:400]}")
     for debate in nf.key_debates[:5]:
         lines.append(f"  - Debate: {debate}")
-    lines.append("  - Sources:")
-    lines.extend(_format_sources(nf.sources))
+    # lines.append("  - Sources:")
+    # lines.extend(_format_sources(nf.sources))
 
     rd = view.recent_delta
     lines.append("- Recent delta:")
@@ -91,8 +92,8 @@ def format_consensus_view(view: StructuredConsensusView) -> str:
         lines.append(f"  - Guidance change: {rd.guidance_change[:300]}")
     if rd.sentiment_shift:
         lines.append(f"  - Sentiment shift: {rd.sentiment_shift[:300]}")
-    lines.append("  - Sources:")
-    lines.extend(_format_sources(rd.sources))
+    # lines.append("  - Sources:")
+    # lines.extend(_format_sources(rd.sources))
     return "\n".join(lines)
 
 
@@ -131,14 +132,14 @@ def build_initial_planner_prompt(deps: Any, state: dict[str, Any]) -> str:
         f"Generate an initial Perplexity search query queue for market consensus on {ticker}.\n"
         f"Sector: {state.get('sector', '')}\n"
         f"Report type: {state.get('report_type', '')}\n"
-        f"Active skills:\n{format_skill_names(skill_ctx.get('names', []))}\n"
+        f"Active skills:\n{format_skill_names(skill_ctx.get('names', []))}\n\n"
         f"{format_skill_context(skill_ctx)}\n"
         f"{memory_block}\n"
         "Produce exactly 5 query items, one for each dimension. Each item must include:\n"
         "- query: 10-80 English words\n"
         f"- target_dimension: one of\n{format_dimension_list(CONSENSUS_DIMENSIONS)}\n"
         "- mode: exploratory or targeted\n"
-        "- priority: integer (higher = run first)\n"
+        "- priority: integer (higher = run first)\n\n"
         "Do not repeat queries already covered in prior search memory."
     )
 

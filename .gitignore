@@ -227,3 +227,4 @@ reports/
 # 
 # NVDA test reports
 NVDA/
+out/

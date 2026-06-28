@@ -15,12 +15,22 @@ def _llm_text(response: Any) -> str:
     return response.content if hasattr(response, "content") else str(response)
 
 
-def _summarize_answer(deps: Any, answer: str) -> str:
+def _summarize_answer(deps: Any, answer: str, query: str) -> str:
     if len(answer) <= ANSWER_SUMMARY_THRESHOLD:
         return answer
     prompt = (
-        "Summarize the following search answer in 1-3 sentences for an equity research agent.\n"
-        "Keep key numbers and facts. Use plain prose, not JSON.\n\n"
+        "Summarize the following answer for an equity research agent in exactly 3-4 sentences of plain text. "
+        "Do NOT output JSON. Use only plain prose.  "
+        "Rules:  "
+        "- Include key numbers/ranges that capture the breadth of estimates, but do NOT list all available numbers.  \n"
+        "- End with a short takeaway that guides the user on what to trust, what to watch, or what source to use next.  \n"
+        "- Keep every sentence under 40 words.  \n"
+        "- Do not use bullet points or markdown.  \n\n"
+        "- Summarize the content to be concise\n"
+        "The answer below is to respond to the query:  \n"
+        f"Query: {query}\n"
+        "-----\n\n"
+        "Answer:\n"
         f"{answer}"
     )
     return _llm_text(deps.quick_llm.invoke(prompt))
@@ -32,9 +42,11 @@ def record_from_evidence(
     *,
     iteration: int,
     mode: str,
+    query: str | None = None,
 ) -> SearchRecord:
     answer = evidence.answer or ""
-    summary = _summarize_answer(deps, answer) if answer else ""
+    query = query or evidence.query_used or ""
+    summary = _summarize_answer(deps, answer, query=query) if answer else ""
     return SearchRecord(
         record_id=f"sr_{uuid.uuid4().hex[:8]}",
         iteration=iteration,
@@ -72,17 +84,16 @@ def format_search_memory(records: list[dict], *, max_records: int = 20) -> str:
         mode = record.get("mode", "")
         iteration = record.get("iteration", 0)
         answer = record.get("answer_summary") or record.get("answer", "")
-        citations = record.get("citations") or []
-        lines.append(f"- Search (iteration {iteration}, dimension: {dim}, mode: {mode})")
-        lines.append(f"  - Query: {query}")
+        # citations = record.get("citations") or []
+        lines.append(f"Search (iteration {iteration}, dimension: {dim}, mode: {mode})")
+        lines.append(f"Query: {query}")
         if answer:
-            lines.append(f"  - Findings: {answer[:800]}")
-        if citations:
-            lines.append("  - Citations:")
-            for url in citations:
-                lines.append(f"    - {url}")
-    return "\n".join(lines)
-
+            lines.append(f"Findings: {answer}")
+        # if citations:
+        #     lines.append("Citations:")
+        #     for url in citations:
+        #         lines.append(f"  - {url}")
+    return "\n\n".join(lines)
 
 def build_search_memory_for_prompt(
     deps: Any,

@@ -5,14 +5,10 @@ from unittest.mock import MagicMock
 from langchain_core.messages import AIMessage
 from pydantic import ValidationError
 
+from tradingagents.equity_research.agents.assumption.subgraph import create_run_assumption_subgraph
 from tradingagents.equity_research.agents.consensus.subgraph import ConsensusSubgraph, create_run_consensus_subgraph
 from tradingagents.equity_research.agents.consensus_agents import create_gap_finder
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
-from tradingagents.equity_research.runtime.nodes.assumption_probe import (
-    create_assumption_batch_executor,
-    create_assumption_query_planner,
-    create_assumption_synthesizer,
-)
 from tradingagents.equity_research.runtime.nodes.executor import create_executor_node
 from tradingagents.equity_research.runtime.nodes.finalizer import create_finalizer_node
 from tradingagents.equity_research.runtime.nodes.human_review import create_human_review_node
@@ -21,7 +17,6 @@ from tradingagents.equity_research.runtime.nodes.reflector import create_reflect
 from tradingagents.equity_research.runtime.nodes.skill_selector import create_skill_selector
 from tradingagents.equity_research.runtime.nodes.synthesizer import create_synthesizer_node
 from tradingagents.equity_research.runtime.routers import (
-    assumption_probe_gate_router,
     coverage_reflector_router,
     gap_query_planner_router,
     human_review_router,
@@ -34,6 +29,7 @@ from tradingagents.equity_research.tasks.consensus.compliance import (
     filter_compliant_citations,
 )
 from tradingagents.equity_research.tasks.consensus.merge import merge_view_update
+from tradingagents.equity_research.tasks.assumption.profile import ASSUMPTION_TASK_PROFILE
 from tradingagents.equity_research.tasks.consensus.profile import CONSENSUS_TASK_PROFILE
 
 
@@ -50,14 +46,8 @@ create_query_executor = lambda deps: create_executor_node(deps, CONSENSUS_TASK_P
 create_query_batch_executor = lambda deps, batch_size=5: create_executor_node(
     deps, CONSENSUS_TASK_PROFILE, batch_size=batch_size,
 )
-create_assumption_batch_executor_wrapped = lambda deps: create_assumption_batch_executor(
-    deps, CONSENSUS_TASK_PROFILE,
-)
-create_assumption_query_planner_wrapped = lambda deps: create_assumption_query_planner(
-    deps, CONSENSUS_TASK_PROFILE,
-)
-create_assumption_synthesizer_wrapped = lambda deps: create_assumption_synthesizer(
-    deps, CONSENSUS_TASK_PROFILE,
+create_assumption_planner = lambda deps: create_planner_node(
+    deps, ASSUMPTION_TASK_PROFILE, mode="initial",
 )
 
 
@@ -368,7 +358,7 @@ def test_consensus_subgraph_wrapper_writes_structured_view():
     assert result["consensus_iterations"] >= 1
     assert "consensus_search_memory" in result
     assert "consensus_report" in result
-    assert "consensus_assumptions" in result
+    assert "consensus_assumptions" not in result
 
 
 def test_gap_finder_includes_source_dimension():
@@ -411,58 +401,56 @@ def test_consensus_subgraph_compiles():
     assert graph is not None
 
 
-def test_subgraph_graph_includes_human_review():
+def test_subgraph_graph_excludes_assumption_nodes():
     deps = _mock_deps()
     graph = ConsensusSubgraph(deps).build()
     node_names = set(graph.nodes.keys())
     assert "human_review" in node_names
-    assert "assumption_query_planner" in node_names
     assert "skill_selector_agent" in node_names
+    assert not any(name.startswith("assumption_") for name in node_names)
 
 
-def test_assumption_probe_gate_router():
-    assert assumption_probe_gate_router({"assumption_probe_completed": False}) == "probe"
-    assert assumption_probe_gate_router({"assumption_probe_completed": True}) == "done"
+def test_assumption_subgraph_compiles():
+    deps = _mock_deps()
+    from tradingagents.equity_research.runtime.subgraph import GenericResearchSubgraph
+    graph = GenericResearchSubgraph(deps, ASSUMPTION_TASK_PROFILE).compile()
+    assert graph is not None
 
 
-def test_assumption_probe_runs_once_on_exit():
-    deps = _mock_deps(
-        assumption_result=ConsensusAssumptions(
-            business_model="Chip sales",
-            market_sentiment="bullish",
-            sources=["https://example.com/consensus"],
-        ),
-    )
-    state = {
+def test_assumption_subgraph_shares_topology_with_consensus():
+    deps = _mock_deps()
+    from tradingagents.equity_research.runtime.subgraph import GenericResearchSubgraph
+    consensus_nodes = set(GenericResearchSubgraph(deps, CONSENSUS_TASK_PROFILE).build().nodes.keys())
+    assumption_nodes = set(GenericResearchSubgraph(deps, ASSUMPTION_TASK_PROFILE).build().nodes.keys())
+    core_nodes = {
+        "skill_selector_agent", "skill_tools", "skill_context_apply",
+        "initial_planner", "executor", "synthesizer", "reflector",
+        "loop_planner", "finalizer",
+    }
+    assert core_nodes <= consensus_nodes
+    assert core_nodes <= assumption_nodes
+    assert "human_review" in consensus_nodes
+    assert "human_review" not in assumption_nodes
+
+
+def test_assumption_seed_passes_consensus_state():
+    from tradingagents.equity_research.agents.assumption.subgraph import _seed_assumption_state
+
+    parent = {
         "ticker": "NVDA",
-        "query_queue": [{
-            "query": append_compliance_suffix("NVDA business model revenue drivers"),
-            "target_dimension": "narrative_framework",
-            "mode": "exploratory",
-            "priority": 5,
-        }],
-        "evidence_buffer": [],
-        "pending_evidence": [],
-        "search_memory": [],
+        "consensus_view": empty_structured_consensus_view("NVDA").model_dump(),
+        "consensus_report": "consensus report text",
+        "consensus_search_memory": [{"query": "prior"}],
+        "consensus_evidence_buffer": [{"answer": "ev"}],
         "documents": [],
         "api_calls": 0,
-        "errors": [],
-        "consensus_iterations": 1,
-        "consensus_view": empty_structured_consensus_view("NVDA").model_dump(),
     }
-    create_assumption_batch_executor_wrapped(deps)(state)
-    synth_state = {
-        **state,
-        "assumption_pending_evidence": [{
-            "answer": "AI chip demand",
-            "citations": ["https://example.com/consensus"],
-            "target_dimension": "narrative_framework",
-            "query_used": "NVDA business model",
-        }],
-    }
-    result = create_assumption_synthesizer_wrapped(deps)(synth_state)
-    assert result["assumption_probe_completed"] is True
-    assert result["consensus_assumptions"]["business_model"]
+    seeded = _seed_assumption_state(parent, ASSUMPTION_TASK_PROFILE)
+    assert seeded["parent_context"]["consensus_view"] == parent["consensus_view"]
+    assert seeded["parent_context"]["consensus_report"] == "consensus report text"
+    assert seeded["search_memory"] == [{"query": "prior"}]
+    assert seeded["evidence_buffer"] == [{"answer": "ev"}]
+    assert seeded["structured_view"]["ticker"] == "NVDA"
 
 
 def test_assumption_planner_covers_theme_checklist():
@@ -482,14 +470,17 @@ def test_assumption_planner_covers_theme_checklist():
 
     deps.deep_llm.with_structured_output.side_effect = _capture_plan
     structured_invoke._RUNNABLE_CACHE.clear()
-    create_assumption_query_planner_wrapped(deps)({
+    create_assumption_planner(deps)({
         "ticker": "NVDA",
-        "consensus_view": empty_structured_consensus_view("NVDA").model_dump(),
+        "parent_context": {
+            "consensus_view": empty_structured_consensus_view("NVDA").model_dump(),
+        },
         "coverage_report": {},
         "search_memory": [],
         "errors": [],
+        "active_skill_context": {},
     })
-    assert "How does this company make money?" in captured["prompt"]
+    assert "assumptions" in captured["prompt"].lower()
     assert "publicly available" in captured["prompt"].lower()
 
 
@@ -635,7 +626,6 @@ def test_query_planner_receives_search_memory_in_prompt():
     }
     create_query_planner(deps)(state)
     assert "NVDA revenue consensus" in captured["prompt"]
-    assert "https://example.com/prior" in captured["prompt"]
     assert "quantitative_estimates: partial" in captured["prompt"]
     assert "Overall score: 0.4" in captured["prompt"]
     assert "Round: 2 / 5" in captured["prompt"]
@@ -679,8 +669,7 @@ def test_synthesizer_uses_pending_evidence_only():
         "errors": [],
     }
     create_consensus_synthesizer(deps)(state)
-    for i in range(5):
-        assert f"https://example.com/{i}" in captured["prompt"]
+    assert "finding 0" in captured["prompt"] or "query 0" in captured["prompt"]
     assert "this round only" in captured["prompt"].lower()
 
 
@@ -782,6 +771,49 @@ def test_query_batch_executor_runs_up_to_batch_size():
     assert len(result["evidence_buffer"]) == 5
 
 
+def test_batch_executor_runs_queries_in_parallel():
+    import threading
+    import time
+
+    deps = _mock_deps()
+    active = {"count": 0}
+    peak = {"value": 0}
+    lock = threading.Lock()
+
+    def slow_search(*_args, **_kwargs):
+        with lock:
+            active["count"] += 1
+            peak["value"] = max(peak["value"], active["count"])
+        time.sleep(0.05)
+        with lock:
+            active["count"] -= 1
+        from tradingagents.equity_research.state.consensus_schemas import EvidenceItem
+        return EvidenceItem(answer="ok", citations=[], doc_ids=[], target_dimension="debates")
+
+    executor = create_executor_node(
+        deps, CONSENSUS_TASK_PROFILE, batch_size=3, search_fn=slow_search,
+    )
+    queue = [
+        {"query": f"q{i}", "target_dimension": "debates", "mode": "exploratory", "priority": i}
+        for i in range(3)
+    ]
+    state = {
+        "ticker": "NVDA",
+        "query_queue": queue,
+        "evidence_buffer": [],
+        "pending_evidence": [],
+        "search_memory": [],
+        "documents": [],
+        "api_calls": 0,
+        "errors": [],
+        "consensus_iterations": 0,
+    }
+    deps.config.setdefault("equity_research", {})["batch_search_concurrency"] = 3
+    result = executor(state)
+    assert len(result["pending_evidence"]) == 3
+    assert peak["value"] >= 2
+
+
 def test_documents_dedup_on_batch_executor():
     deps = _mock_deps()
     state = {
@@ -821,7 +853,7 @@ def test_merge_view_update_appends_sources():
     ]
 
 
-def test_format_search_memory_includes_all_citations():
+def test_format_search_memory_omits_citations():
     records = [
         {
             "iteration": 0,
@@ -833,5 +865,6 @@ def test_format_search_memory_includes_all_citations():
         },
     ]
     text = format_search_memory(records)
-    assert "https://a.com" in text
-    assert "https://b.com" in text
+    assert "Data center revenue key" in text
+    assert "https://a.com" not in text
+    assert "https://b.com" not in text

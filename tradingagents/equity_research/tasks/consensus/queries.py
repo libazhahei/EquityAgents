@@ -57,7 +57,7 @@ def normalize_query_items(
             dim = "narrative_framework"
         normalized.append(
             QueryItem(
-                query=str(item.query)[:500],
+                query=str(item.query),
                 target_dimension=dim,
                 mode=item.mode,
                 priority=item.priority,

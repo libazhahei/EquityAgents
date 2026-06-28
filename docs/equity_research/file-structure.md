@@ -1,7 +1,7 @@
 # Equity Research 文件结构
 
 > 模块路径：`tradingagents/equity_research/`  
-> 相关文档：[产品概览](../EQUITY_RESEARCH.md) · [Memory](memory.md) · [Context](context.md) · [Skills & Tools](skills-and-tools.md)
+> 相关文档：[产品概览](../EQUITY_RESEARCH.md) · [Agent Loop 与 Task 分配](agent-loop-and-tasks.md) · [Memory](memory.md) · [Context](context.md) · [Skills & Tools](skills-and-tools.md)
 
 ## 模块定位
 
@@ -24,6 +24,21 @@ final_state, summary = graph.propagate("NVDA")
 uv run python demo_consensus.py NVDA --sector Technology --max-iterations 3
 uv run python demo_consensus.py NVDA --mode subgraph --json -o ./out/nvda.json
 uv run python scripts/visualize_consensus_trace.py ./out/nvda.json -o ./out/nvda_trace.html
+
+# 生成 HTML（默认），浏览器打开即可
+uv run python scripts/visualize_consensus_trace.py out/nvda.json -o out/nvda_trace.html
+
+# 不指定 -o 时，输出为同目录下的 out/nvda.html
+uv run python scripts/visualize_consensus_trace.py out/nvda.json
+
+# 导出 Markdown（含 mermaid 代码块，可在支持 mermaid 的编辑器中查看）
+uv run python scripts/visualize_consensus_trace.py out/nvda.json --format md -o out/nvda_trace.md
+
+# 仅输出 mermaid 源码
+uv run python scripts/visualize_consensus_trace.py out/nvda.json --format mermaid --diagram process
+
+uv run python demo_consensus.py NVDA --max-iterations 3 -o out/nvda.json
+uv run python scripts/visualize_consensus_trace.py out/nvda.json -o out/nvda_trace.html
 ```
 
 ---
@@ -61,27 +76,31 @@ tradingagents/equity_research/
 │   ├── final_agents.py             # IC 评审、报告组装、导出
 │   ├── final_qa.py                 # 最终 QA 门禁
 │   ├── consensus/                  # 共识子图兼容层（wrapper）
-│   │   ├── subgraph.py               # → GenericResearchSubgraph + 父 state 映射
+│   │   ├── subgraph.py               # → subgraph_runner + CONSENSUS_TASK_PROFILE
 │   │   └── _legacy.py                # 归档旧实现（不参与运行）
+│   ├── assumption/                 # 假设探测子图 wrapper
+│   │   └── subgraph.py               # → subgraph_runner + ASSUMPTION_TASK_PROFILE
 │   └── domain/                     # 9 个领域 Agent 薄封装
 │       ├── base.py                   # BaseDomainAgent：按 skill 列表执行
 │       ├── consensus_agent.py, business_agent.py, valuation_agent.py, ...
 │       └── ...
 │
-├── runtime/                    # 通用研究子图框架（零业务逻辑）
+├── runtime/                    # 通用研究子图框架（零业务逻辑）；详见 agent-loop-and-tasks.md
 │   ├── state.py                    # AgentState
 │   ├── task_profile.py             # TaskProfile
 │   ├── task_registry.py            # TaskRegistry
 │   ├── exploration_graph.py        # ExplorationGraph（chain 模式）
-│   ├── subgraph.py                 # GenericResearchSubgraph
+│   ├── subgraph.py                 # GenericResearchSubgraph（唯一 PER 拓扑）
+│   ├── subgraph_runner.py          # create_run_profile_subgraph 通用 invoke 封装
 │   ├── demo_graph.py               # ConsensusDemoGraph 手动测试
 │   ├── routers.py                  # 子图条件路由
 │   ├── nodes/                      # skill_selector / planner / executor / ...
 │   └── utils/                      # structured_invoke、search_memory 等
 │
-├── tasks/                      # 业务 TaskProfile 配置
+├── tasks/                      # 业务 TaskProfile 配置；详见 agent-loop-and-tasks.md
 │   ├── registry.py
-│   └── consensus/                  # CONSENSUS_TASK_PROFILE、prompts、queries
+│   ├── consensus/                  # CONSENSUS_TASK_PROFILE、prompts、queries
+│   └── assumption/                 # ASSUMPTION_TASK_PROFILE、prompts、queries
 │
 ├── state/                      # 共享状态模式
 │   ├── equity_research_state.py  # 主 TypedDict + empty_equity_research_state()
@@ -189,9 +208,14 @@ flowchart TD
 
 每轮 `ResearchLoopRuntime.run()` 执行 9 步：动态规划 → 选父节点 → **memory 上下文** → 关键问题 → 假设生成 → 虚拟 IC → 快速尽调 → 全量开发（证据 + skills）→ 评估并更新 `research_graph`。
 
-### 嵌套共识子图（`agents/consensus/subgraph.py`）
+### 嵌套研究子图（`agents/task_analysis.py` → `runtime/subgraph.py`）
 
-在 `analyze_research_task` 内 invoke，流程为：skill 选择 → 查询规划 → 搜索执行 → 共识合成 → 覆盖度反思 →（循环）缺口查询 → 假设探测 → 定稿。
+在 `analyze_research_task` 内串行 invoke 两个 `GenericResearchSubgraph` 实例：
+
+1. `CONSENSUS_TASK_PROFILE` — Plan-Execute-Reflect 构建共识视图
+2. `ASSUMPTION_TASK_PROFILE` — 在同一 PER 拓扑上探测假设，产出 `research_suggestions` / `research_directions`
+
+SEC 文件在子图执行前预取到 `{data_cache_dir}/equity_research/sec/`。完整节点与路由见 [Agent Loop 与 Task 分配](agent-loop-and-tasks.md)。
 
 ```mermaid
 flowchart LR
@@ -200,14 +224,10 @@ flowchart LR
         Task --> Plan[dynamic_planning]
         Plan --> Loop[research_loop]
     end
-    subgraph inner [agents/research_loop.py]
-        Loop --> Mem[memory/retrieval.py]
-        Loop --> Skills[skills/registry.py]
-        Loop --> Tools[tools/registry.py]
-    end
-    subgraph nested [agents/consensus/]
-        Task --> Consensus[consensus subgraph]
-        Consensus --> SkillSel[shared/skill_selector.py]
+    subgraph nested [runtime/subgraph.py]
+        Task --> SEC[SEC cache]
+        SEC --> Consensus[GenericResearchSubgraph consensus]
+        Consensus --> Assumption[GenericResearchSubgraph assumption]
     end
 ```
 
@@ -258,6 +278,7 @@ flowchart LR
 | 文档 | 内容 |
 |------|------|
 | [../EQUITY_RESEARCH.md](../EQUITY_RESEARCH.md) | 产品概览、快速开始、外层/内层流程表 |
+| [agent-loop-and-tasks.md](agent-loop-and-tasks.md) | GenericResearchSubgraph PER 循环、TaskProfile、Task 分配现状与规划 |
 | [memory.md](memory.md) | Memory 分层与控制方案 |
 | [context.md](context.md) | Context 注入与预算压缩 |
 | [skills-and-tools.md](skills-and-tools.md) | Skill/Tool 注册、可见性与执行 |

@@ -32,7 +32,8 @@ def compact_if_needed(
         "- Keep ALL citation URLs verbatim\n"
         "- Keep numeric estimates and dimension labels\n"
         "- Use bullet lists, not JSON\n"
-        f"- Target length: under {limit} characters\n\n"
+        f"- Target length: under {limit} characters\n"
+        f"------\n\n"
         f"{text}"
     )
     response = deps.quick_llm.invoke(prompt)

@@ -34,6 +34,13 @@ def empty_equity_research_state() -> dict[str, Any]:
         "max_consensus_iterations": 5,
         "consensus_evidence_buffer": [],
         "consensus_search_memory": [],
+        "assumption_view": {},
+        "assumption_report": "",
+        "assumption_search_memory": [],
+        "assumption_evidence_buffer": [],
+        "research_suggestions": [],
+        "research_directions": [],
+        "max_assumption_iterations": 3,
         "expectation_gaps": [],
         "research_plan": {},
         "active_objective": "",
@@ -130,6 +137,13 @@ class EquityResearchState(TypedDict, total=False):
     max_consensus_iterations: int
     consensus_evidence_buffer: list[dict]
     consensus_search_memory: list[dict]
+    assumption_view: dict
+    assumption_report: str
+    assumption_search_memory: list[dict]
+    assumption_evidence_buffer: list[dict]
+    research_suggestions: list[dict]
+    research_directions: list[str]
+    max_assumption_iterations: int
     expectation_gaps: list[dict]
     research_plan: dict
     active_objective: str

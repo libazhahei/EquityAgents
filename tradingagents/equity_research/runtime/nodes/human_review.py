@@ -39,7 +39,6 @@ def create_human_review_node(deps: EquityResearchDeps, task_profile: TaskProfile
                 "human_followup_query": "",
                 "_pending_human_followup": True,
                 "coverage_report": coverage,
-                "assumption_probe_completed": False,
             })
         else:
             updates["_pending_human_followup"] = False

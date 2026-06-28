@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
@@ -24,6 +25,15 @@ def _append_documents(documents: list[dict], doc_ids: list[str]) -> list[dict]:
     return new_docs
 
 
+def _batch_concurrency(deps: EquityResearchDeps, batch_size: int) -> int:
+    er = deps.config.get("equity_research", {}) or {}
+    configured = er.get("batch_search_concurrency", batch_size)
+    try:
+        return max(1, min(int(configured), batch_size))
+    except (TypeError, ValueError):
+        return max(1, batch_size)
+
+
 def create_executor_node(
     deps: EquityResearchDeps,
     task_profile: TaskProfile,
@@ -34,6 +44,31 @@ def create_executor_node(
 ):
     run_search = search_fn or execute_perplexity_search
     agent_trace = trace_name or f"{task_profile.task_id}_query_executor"
+
+    def _run_one_query(
+        item: dict[str, Any],
+        *,
+        ticker: str,
+        iteration: int,
+    ) -> tuple[dict[str, Any] | None, Any, list[str], int, str | None]:
+        query = item.get("query", "")
+        target_dimension = item.get("target_dimension", "narrative_framework")
+        mode = item.get("mode", "exploratory")
+        try:
+            evidence = run_search(
+                deps,
+                query=query,
+                mode=mode,
+                target_dimension=target_dimension,
+                ticker=ticker,
+            )
+            evidence_dict = evidence.model_dump()
+            record = record_from_evidence(
+                deps, evidence, iteration=iteration, mode=str(mode), query=query
+            )
+            return evidence_dict, record, evidence.doc_ids, 1, None
+        except Exception as exc:
+            return None, None, [], 0, f"query failed ({query[:60]}): {exc}"
 
     def query_batch_executor(state: dict[str, Any]) -> dict[str, Any]:
         errors = list(state.get("errors", []))
@@ -53,31 +88,39 @@ def create_executor_node(
         api_calls = int(state.get("api_calls", 0))
         iteration = int(state.get("iterations", state.get("consensus_iterations", 0)))
         dimensions_run: list[str] = []
+        concurrency = _batch_concurrency(deps, len(to_run))
 
         try:
-            for item in to_run:
-                query = item.get("query", "")
-                target_dimension = item.get("target_dimension", "narrative_framework")
-                mode = item.get("mode", "exploratory")
-                dimensions_run.append(target_dimension)
+            results_by_priority: dict[int, tuple] = {}
+            with ThreadPoolExecutor(max_workers=concurrency) as pool:
+                futures = {
+                    pool.submit(
+                        _run_one_query,
+                        item,
+                        ticker=ticker,
+                        iteration=iteration,
+                    ): item
+                    for item in to_run
+                }
+                for fut in as_completed(futures):
+                    item = futures[fut]
+                    priority = int(item.get("priority", 0))
+                    dimensions_run.append(item.get("target_dimension", "narrative_framework"))
+                    evidence_dict, record, doc_ids, calls, err = fut.result()
+                    if err:
+                        errors.append(err)
+                        continue
+                    if evidence_dict is None or record is None:
+                        continue
+                    results_by_priority[priority] = (evidence_dict, record, doc_ids, calls)
 
-                evidence = run_search(
-                    deps,
-                    query=query,
-                    mode=mode,
-                    target_dimension=target_dimension,
-                    ticker=ticker,
-                )
-                evidence_dict = evidence.model_dump()
+            for priority in sorted(results_by_priority.keys(), reverse=True):
+                evidence_dict, record, doc_ids, calls = results_by_priority[priority]
                 buffer.append(evidence_dict)
                 pending.append(evidence_dict)
-
-                record = record_from_evidence(
-                    deps, evidence, iteration=iteration, mode=str(mode),
-                )
                 search_memory = append_search_record(search_memory, record)
-                new_docs = _append_documents(new_docs, evidence.doc_ids)
-                api_calls += 1
+                new_docs = _append_documents(new_docs, doc_ids)
+                api_calls += calls
 
             executed = queries_from_memory(search_memory)
             updates: dict[str, Any] = {
@@ -89,9 +132,12 @@ def create_executor_node(
                 "documents": new_docs,
                 "api_calls": api_calls,
             }
+            if errors:
+                updates["errors"] = errors
             updates.update(deps.trace({**state, **updates}, agent_trace, {
                 "batch_size": len(to_run),
                 "dimensions": dimensions_run,
+                "concurrency": concurrency,
             }))
             return updates
         except Exception as exc:

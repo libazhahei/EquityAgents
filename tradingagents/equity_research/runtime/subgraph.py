@@ -7,13 +7,6 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
-from tradingagents.equity_research.runtime.nodes.assumption_probe import (
-    create_assumption_batch_executor,
-    create_assumption_compliance_check,
-    create_assumption_probe_gate,
-    create_assumption_query_planner,
-    create_assumption_synthesizer,
-)
 from tradingagents.equity_research.runtime.nodes.executor import create_executor_node
 from tradingagents.equity_research.runtime.nodes.finalizer import create_finalizer_node
 from tradingagents.equity_research.runtime.nodes.human_review import create_human_review_node
@@ -26,7 +19,6 @@ from tradingagents.equity_research.runtime.nodes.skill_selector import (
 )
 from tradingagents.equity_research.runtime.nodes.synthesizer import create_synthesizer_node
 from tradingagents.equity_research.runtime.routers import (
-    assumption_probe_gate_router,
     coverage_reflector_router,
     human_review_router,
     loop_planner_router,
@@ -62,13 +54,6 @@ class GenericResearchSubgraph:
         graph.add_node("loop_planner", create_planner_node(self.deps, tp, mode="loop"))
         graph.add_node("finalizer", create_finalizer_node(self.deps, tp))
 
-        if tp.enable_assumption_probe:
-            graph.add_node("assumption_probe_gate", create_assumption_probe_gate(self.deps, tp))
-            graph.add_node("assumption_query_planner", create_assumption_query_planner(self.deps, tp))
-            graph.add_node("assumption_batch_executor", create_assumption_batch_executor(self.deps, tp))
-            graph.add_node("assumption_synthesizer", create_assumption_synthesizer(self.deps, tp))
-            graph.add_node("assumption_compliance_check", create_assumption_compliance_check(self.deps, tp))
-
         if tp.enable_human_review:
             graph.add_node("human_review", create_human_review_node(self.deps, tp))
 
@@ -87,7 +72,7 @@ class GenericResearchSubgraph:
             "reflector",
             coverage_reflector_router,
             {
-                "exit": "assumption_probe_gate" if tp.enable_assumption_probe else "finalizer",
+                "exit": "finalizer",
                 "run_existing_queue": "executor",
                 "plan_more": "loop_planner",
             },
@@ -97,20 +82,9 @@ class GenericResearchSubgraph:
             loop_planner_router,
             {
                 "run": "executor",
-                "exit": "assumption_probe_gate" if tp.enable_assumption_probe else "finalizer",
+                "exit": "finalizer",
             },
         )
-
-        if tp.enable_assumption_probe:
-            graph.add_conditional_edges(
-                "assumption_probe_gate",
-                assumption_probe_gate_router,
-                {"probe": "assumption_query_planner", "done": "finalizer"},
-            )
-            graph.add_edge("assumption_query_planner", "assumption_batch_executor")
-            graph.add_edge("assumption_batch_executor", "assumption_synthesizer")
-            graph.add_edge("assumption_synthesizer", "assumption_compliance_check")
-            graph.add_edge("assumption_compliance_check", "finalizer")
 
         if tp.enable_human_review:
             graph.add_edge("finalizer", "human_review")

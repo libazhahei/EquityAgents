@@ -19,7 +19,8 @@ Evaluation Phase  →  aggregated scoring, IC review, Final QA
 
 ```text
 initialize_state
-  → analyze_research_task      # mandate, ingest, broker, consensus, gaps, init graph
+  → analyze_research_task      # mandate, ingest, broker, consensus subgraph, gaps, init graph
+                                 # consensus: see docs/equity_research/agent-loop-and-tasks.md
   → dynamic_planning           # stage-aware strategy (orientation → convergence)
   → research_loop              # inner 9-step R&D iteration
       ↺ continue_research → dynamic_planning
@@ -116,16 +117,19 @@ print(final_state["final_report"])
 tradingagents/equity_research/
 ├── graph/              # Outer LangGraph (setup.py, routers.py)
 ├── agents/
-│   ├── research_loop.py      # Inner R&D loop runtime
-│   ├── task_analysis.py      # Combined init spine + graph bootstrap
+│   ├── research_loop.py      # Inner R&D loop runtime (thesis graph)
+│   ├── task_analysis.py      # Init spine: static consensus subgraph + gaps + graph bootstrap
+│   ├── consensus/            # Thin wrapper → GenericResearchSubgraph + parent state mapping
 │   ├── dynamic_planning.py
 │   ├── modeling_workflow.py
 │   ├── valuation_workflow.py
 │   ├── branch_merge.py
 │   ├── risk_mapping.py
 │   ├── final_qa.py
-│   ├── lead_analyst.py       # Orchestrator
+│   ├── lead_analyst.py       # Domain agent orchestrator (not Task Decomposer)
 │   └── domain/               # 9 domain analyst agents (logical roles)
+├── runtime/            # GenericResearchSubgraph framework (PER loop, zero business logic)
+├── tasks/              # TaskProfile configs (currently: consensus)
 ├── skills/             # SkillRegistry + implementations
 ├── tools/              # ToolRegistry (data, calculators, ledgers)
 ├── state/
@@ -214,6 +218,7 @@ IC review uses `aggregate_ic_scores()` and records blocking issues to `issue_led
 | 文档 | 内容 |
 |------|------|
 | [equity_research/file-structure.md](equity_research/file-structure.md) | 完整目录树、执行流与代码入口速查 |
+| [equity_research/agent-loop-and-tasks.md](equity_research/agent-loop-and-tasks.md) | GenericResearchSubgraph PER 循环、TaskProfile、Task 分配现状与规划 |
 | [equity_research/memory.md](equity_research/memory.md) | Ledger 分层、读写路径、检索评分与导出 |
 | [equity_research/context.md](equity_research/context.md) | Context 注入链路、预算上限与 LLM 压缩 |
 | [equity_research/skills-and-tools.md](equity_research/skills-and-tools.md) | Skill/Tool 注册、可见性、绑定与发现工具 |

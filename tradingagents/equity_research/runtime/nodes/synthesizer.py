@@ -45,11 +45,8 @@ def create_synthesizer_node(deps: EquityResearchDeps, task_profile: TaskProfile)
                     max_attempts=_max_retries(deps),
                     fallback=_fallback,
                 )
-                update_fields = (
-                    "quantitative_estimates", "kpi_focus", "pricing_assumptions",
-                    "narrative_framework", "recent_delta", "dimension_coverage",
-                )
-                if any(getattr(update, field, None) is not None for field in update_fields):
+                update_dump = update.model_dump(exclude_unset=True)
+                if update_dump:
                     view = task_profile.merge_view_fn(view, update)
                 elif task_profile.apply_evidence_heuristic_fn:
                     task_profile.apply_evidence_heuristic_fn(view, pending)
@@ -64,11 +61,12 @@ def create_synthesizer_node(deps: EquityResearchDeps, task_profile: TaskProfile)
             if memory_fn and search_memory:
                 memory_fn(view, search_memory)
 
-            updates = {
+            updates: dict[str, Any] = {
                 "structured_view": view.model_dump(),
-                "consensus_view": view.model_dump(),
                 "pending_evidence": [],
             }
+            if task_profile.task_id == "consensus":
+                updates["consensus_view"] = view.model_dump()
             updates.update(deps.trace({**state, **updates}, f"{task_profile.task_id}_synthesizer"))
             return updates
         except Exception as exc:

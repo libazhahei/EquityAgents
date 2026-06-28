@@ -73,6 +73,11 @@ def main(argv: list[str] | None = None) -> int:
         default="demo-graph",
         help="demo-graph: minimal 2-node graph; subgraph: direct GenericResearchSubgraph",
     )
+    parser.add_argument(
+        "--with-assumption",
+        action="store_true",
+        help="After consensus subgraph, run ASSUMPTION_TASK_PROFILE",
+    )
     args = parser.parse_args(argv)
 
     config = DEFAULT_CONFIG.copy()
@@ -93,6 +98,27 @@ def main(argv: list[str] | None = None) -> int:
         )
         init["structured_view"] = empty_structured_consensus_view(args.ticker.upper()).model_dump()
         result = compiled.invoke(init)
+        if args.with_assumption:
+            from tradingagents.equity_research.agents.assumption.subgraph import _map_assumption_result, _seed_assumption_state
+            # from tradingagents.equity_research.runtime.subgraph import GenericResearchSubgraph
+            from tradingagents.equity_research.tasks.assumption.profile import ASSUMPTION_TASK_PROFILE
+
+            parent = {
+                "ticker": args.ticker.upper(),
+                "sector": args.sector,
+                "consensus_view": result.get("structured_view", {}),
+                "consensus_report": result.get("final_report", ""),
+                "consensus_search_memory": result.get("search_memory", []),
+                "consensus_evidence_buffer": result.get("evidence_buffer", []),
+                "documents": result.get("documents", []),
+                "api_calls": result.get("api_calls", 0),
+            }
+            assumption_compiled = GenericResearchSubgraph(deps, ASSUMPTION_TASK_PROFILE).compile()
+            assumption_result = assumption_compiled.invoke(
+                _seed_assumption_state(parent, ASSUMPTION_TASK_PROFILE),
+            )
+            mapped = _map_assumption_result(deps, parent, assumption_result, ASSUMPTION_TASK_PROFILE)
+            result = {**result, **mapped}
     else:
         demo = ConsensusDemoGraph(
             deps,

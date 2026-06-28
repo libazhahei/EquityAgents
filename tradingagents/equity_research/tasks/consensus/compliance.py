@@ -31,7 +31,7 @@ def get_consensus_compliance_config(config: dict[str, Any] | None) -> dict[str, 
 
 
 COMPLIANCE_QUERY_SUFFIX = (
-    " Use only publicly available sources: SEC filings, earnings calls, "
+    "Use only publicly available sources: SEC filings, earnings calls, "
     "broker research summaries, news, and consensus data providers. "
     "Do not use MNPI, insider tips, or unauthorized expert network content."
 )
