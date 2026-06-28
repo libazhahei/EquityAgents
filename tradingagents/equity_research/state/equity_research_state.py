@@ -27,7 +27,13 @@ def empty_equity_research_state() -> dict[str, Any]:
         "completed_sections": [],
         "source_index": [],
         "broker_views": [],
-        "consensus_view": [],
+        "consensus_view": {},
+        "consensus_report": "",
+        "consensus_assumptions": {},
+        "consensus_iterations": 0,
+        "max_consensus_iterations": 5,
+        "consensus_evidence_buffer": [],
+        "consensus_search_memory": [],
         "expectation_gaps": [],
         "research_plan": {},
         "active_objective": "",
@@ -90,6 +96,8 @@ def empty_equity_research_state() -> dict[str, Any]:
         "last_updated": now,
         "tokens_consumed": 0,
         "api_calls": 0,
+        "skill_catalog": [],
+        "loaded_skills": [],
         "next_route": "",
         "_route": "",
         "_hypothesis_route": "",
@@ -115,7 +123,13 @@ class EquityResearchState(TypedDict, total=False):
     completed_sections: list[str]
     source_index: list[dict]
     broker_views: list[dict]
-    consensus_view: list[dict]
+    consensus_view: dict
+    consensus_report: str
+    consensus_assumptions: dict
+    consensus_iterations: int
+    max_consensus_iterations: int
+    consensus_evidence_buffer: list[dict]
+    consensus_search_memory: list[dict]
     expectation_gaps: list[dict]
     research_plan: dict
     active_objective: str
@@ -178,6 +192,8 @@ class EquityResearchState(TypedDict, total=False):
     last_updated: str
     tokens_consumed: int
     api_calls: int
+    skill_catalog: list[dict]
+    loaded_skills: list[str]
     next_route: str
     _route: str
     _hypothesis_route: str

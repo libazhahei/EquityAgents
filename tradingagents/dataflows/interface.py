@@ -29,8 +29,36 @@ from .errors import (
     VendorNotConfiguredError,
     VendorRateLimitError,
 )
+from .equity_vendors import (
+    analyst_estimates_fetch_fmp,
+    analyst_estimates_fetch_info_sources,
+    analyst_estimates_fetch_yfinance,
+    company_profile_fmp,
+    company_profile_yfinance,
+    earnings_calendar_fmp,
+    earnings_calendar_yfinance,
+    filing_reader_edgar,
+    filings_search_edgar,
+    financial_statement_fetch_alpha_vantage,
+    financial_statement_fetch_yfinance,
+    news_search_jina,
+    news_search_tavily,
+    peer_comps_fetch_fmp,
+    peer_comps_fetch_yfinance,
+    stock_quote_alpha_vantage,
+    stock_quote_yfinance,
+    transcript_search_fmp,
+    transcript_search_perplexity,
+    valuation_multiples_fetch_fmp,
+    valuation_multiples_fetch_yfinance,
+    web_fetch_jina,
+    web_fetch_tavily,
+    web_search_jina,
+    web_search_tavily,
+)
 from .fred import get_macro_data as get_fred_macro_data
 from .polymarket import get_prediction_markets as get_polymarket_prediction_markets
+from .vendor_routing import build_vendor_chain, execute_vendor_chain
 # from .y_finance import (
 #     get_balance_sheet as get_yfinance_balance_sheet,
 #     get_cashflow as get_yfinance_cashflow,
@@ -87,7 +115,45 @@ TOOLS_CATEGORIES = {
         "tools": [
             "get_prediction_markets",
         ]
-    }
+    },
+    "web_search_data": {
+        "description": "Web search and news retrieval",
+        "tools": [
+            "web_search",
+            "news_search",
+        ],
+    },
+    "web_fetch_data": {
+        "description": "Fetch web page content",
+        "tools": [
+            "web_fetch",
+        ],
+    },
+    "equity_finance": {
+        "description": "Equity finance data for research",
+        "tools": [
+            "stock_quote",
+            "company_profile",
+            "financial_statement_fetch",
+            "earnings_calendar",
+            "analyst_estimates_fetch",
+            "peer_comps_fetch",
+            "valuation_multiples_fetch",
+        ],
+    },
+    "filings_data": {
+        "description": "SEC and regulatory filings",
+        "tools": [
+            "filings_search",
+            "filing_reader",
+        ],
+    },
+    "transcripts_data": {
+        "description": "Earnings call transcripts",
+        "tools": [
+            "transcript_search",
+        ],
+    },
 }
 
 VENDOR_LIST = [
@@ -95,6 +161,12 @@ VENDOR_LIST = [
     "fred",
     "polymarket",
     "alpha_vantage",
+    "tavily",
+    "jina",
+    "fmp",
+    "edgar",
+    "perplexity",
+    "info_sources",
 ]
 
 # Mapping of methods to their vendor-specific implementations
@@ -151,6 +223,62 @@ VENDOR_METHODS = {
     "get_prediction_markets": {
         "polymarket": get_polymarket_prediction_markets,
     },
+    # web_search_data
+    "web_search": {
+        "tavily": web_search_tavily,
+        "jina": web_search_jina,
+    },
+    "news_search": {
+        "tavily": news_search_tavily,
+        "jina": news_search_jina,
+    },
+    # web_fetch_data
+    "web_fetch": {
+        "jina": web_fetch_jina,
+        "tavily": web_fetch_tavily,
+    },
+    # equity_finance
+    "stock_quote": {
+        "yfinance": stock_quote_yfinance,
+        "alpha_vantage": stock_quote_alpha_vantage,
+    },
+    "company_profile": {
+        "yfinance": company_profile_yfinance,
+        "fmp": company_profile_fmp,
+    },
+    "financial_statement_fetch": {
+        "yfinance": financial_statement_fetch_yfinance,
+        "alpha_vantage": financial_statement_fetch_alpha_vantage,
+    },
+    "earnings_calendar": {
+        "fmp": earnings_calendar_fmp,
+        "yfinance": earnings_calendar_yfinance,
+    },
+    "analyst_estimates_fetch": {
+        "fmp": analyst_estimates_fetch_fmp,
+        "info_sources": analyst_estimates_fetch_info_sources,
+        "yfinance": analyst_estimates_fetch_yfinance,
+    },
+    "peer_comps_fetch": {
+        "yfinance": peer_comps_fetch_yfinance,
+        "fmp": peer_comps_fetch_fmp,
+    },
+    "valuation_multiples_fetch": {
+        "yfinance": valuation_multiples_fetch_yfinance,
+        "fmp": valuation_multiples_fetch_fmp,
+    },
+    # filings_data
+    "filings_search": {
+        "edgar": filings_search_edgar,
+    },
+    "filing_reader": {
+        "edgar": filing_reader_edgar,
+    },
+    # transcripts_data
+    "transcript_search": {
+        "fmp": transcript_search_fmp,
+        "perplexity": transcript_search_perplexity,
+    },
 }
 
 def get_category_for_method(method: str) -> str:
@@ -178,87 +306,9 @@ def get_vendor(category: str, method: str = None) -> str:
 def route_to_vendor(method: str, *args, **kwargs):
     """Route method calls to appropriate vendor implementation with fallback support."""
     category = get_category_for_method(method)
-    vendor_config = get_vendor(category, method)
-    primary_vendors = [v.strip() for v in vendor_config.split(',')]
 
     if method not in VENDOR_METHODS:
         raise ValueError(f"Method '{method}' not supported")
 
-    all_available_vendors = list(VENDOR_METHODS[method].keys())
-
-    # The configured vendor list IS the chain: we do NOT silently fall back to
-    # vendors the user did not choose (#988/#289) — that returned data from an
-    # unexpected source and caused cross-vendor inconsistencies. For multi-vendor
-    # fallback, list them in order, e.g. data_vendors="yfinance,alpha_vantage".
-    # The "default" sentinel (no explicit config) uses all available vendors.
-    explicit = [v for v in primary_vendors if v and v != "default"]
-    if explicit:
-        vendor_chain = [v for v in explicit if v in VENDOR_METHODS[method]]
-        if not vendor_chain:
-            raise ValueError(
-                f"Configured vendor(s) {explicit} not available for '{method}'. "
-                f"Available: {all_available_vendors}."
-            )
-    else:
-        vendor_chain = all_available_vendors
-
-    last_no_data: NoMarketDataError | None = None
-    first_error: Exception | None = None
-    for vendor in vendor_chain:
-        vendor_impl = VENDOR_METHODS[method][vendor]
-        impl_func = vendor_impl[0] if isinstance(vendor_impl, list) else vendor_impl
-
-        try:
-            return impl_func(*args, **kwargs)
-        except VendorRateLimitError:
-            logger.warning("Vendor %r rate-limited for %s; trying next vendor.", vendor, method)
-            continue
-        except VendorNotConfiguredError as e:
-            logger.warning("Vendor %r not configured for %s; trying next vendor.", vendor, method)
-            if first_error is None:
-                first_error = e  # Surface it if no other vendor can serve the call.
-            continue
-        except NoMarketDataError as e:
-            last_no_data = e  # No data here; another configured vendor may have it
-            continue
-        except Exception as e:
-            # Don't let one vendor's failure crash the call when another can
-            # serve it, but never swallow silently: a broken primary must be
-            # visible in the logs (#989), not hidden behind a fallback's verdict.
-            logger.warning("Vendor %r failed for %s: %s", vendor, method, e)
-            if first_error is None:
-                first_error = e
-            continue
-
-    # If any vendor reported "no data", the symbol is genuinely unavailable.
-    # Return one explicit, instructive sentinel rather than a vendor-specific
-    # empty string, so the agent reports "unavailable" instead of inventing a
-    # value. This takes precedence over incidental fallback errors.
-    if last_no_data is not None:
-        if first_error is not None:
-            # A vendor also hit a real error; surface it in logs so the no-data
-            # verdict can't hide a broken primary (network/auth/etc.).
-            logger.warning(
-                "Returning NO_DATA for %s, but a vendor errored earlier: %s",
-                method, first_error,
-            )
-        sym = last_no_data.symbol
-        canonical = last_no_data.canonical
-        resolved = "" if canonical == sym else f" (resolved to '{canonical}')"
-        # Surface the typed error's detail (e.g. "latest row is 2025-06-11 ...
-        # stale") so the agent sees the specific reason — invalid symbol, no
-        # coverage, or stale data — not just a generic "unavailable".
-        reason = f" ({last_no_data.detail})" if last_no_data.detail else ""
-        return (
-            f"NO_DATA_AVAILABLE: No usable market data for '{sym}'{resolved} from "
-            f"any configured vendor{reason}. The symbol may be invalid, delisted, "
-            f"not covered, or the vendor returned stale data. Do not estimate or "
-            f"fabricate values — report that data is unavailable for this symbol."
-        )
-
-    # No vendor returned data and none reported clean "no data" — surface the
-    # first real error (e.g. the primary vendor's network failure).
-    if first_error is not None:
-        raise first_error
-
-    raise RuntimeError(f"No available vendor for '{method}'")
+    vendor_chain = build_vendor_chain(method, VENDOR_METHODS[method], category=category)
+    return execute_vendor_chain(method, vendor_chain, VENDOR_METHODS[method], *args, **kwargs)

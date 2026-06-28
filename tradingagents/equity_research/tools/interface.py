@@ -1,13 +1,66 @@
-"""Equity research tool vendor routing."""
+"""Equity research tool vendor routing and catalog."""
 
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Callable
 
+from tradingagents.dataflows import equity_vendors
+from tradingagents.dataflows.config import get_config
 from tradingagents.dataflows.interface import route_to_vendor
+from tradingagents.dataflows.vendor_routing import (
+    DEFAULT_VENDOR_ORDER,
+    build_vendor_chain,
+    execute_vendor_chain,
+)
 from tradingagents.equity_research.computation.valuation_mock import compute_valuation_mock
 from tradingagents.equity_research.integrations.info_sources import default_registry
+from tradingagents.equity_research.tools.tool_catalog import (
+    EQUITY_TOOLS_CATEGORIES,
+    get_category_for_tool,
+)
+
+# Register default vendor order for equity tools
+DEFAULT_VENDOR_ORDER.update({
+    "web_search": ["tavily", "jina"],
+    "web_fetch": ["jina", "tavily"],
+    "news_search": ["tavily", "jina"],
+    "stock_quote": ["yfinance", "alpha_vantage"],
+    "company_profile": ["yfinance", "fmp"],
+    "financial_statement_fetch": ["yfinance", "alpha_vantage"],
+    "earnings_calendar": ["fmp", "yfinance"],
+    "analyst_estimates_fetch": ["fmp", "info_sources", "yfinance"],
+    "transcript_search": ["fmp", "perplexity"],
+    "filings_search": ["edgar"],
+    "filing_reader": ["edgar"],
+    "peer_comps_fetch": ["yfinance", "fmp"],
+    "valuation_multiples_fetch": ["yfinance", "fmp"],
+    "get_financial_statements": ["yfinance", "info_sources"],
+    "get_consensus_estimates": ["info_sources", "fmp", "yfinance"],
+})
+
+WRAP_VENDOR_METADATA = {
+    "web_search", "web_fetch", "news_search",
+    "stock_quote", "company_profile", "financial_statement_fetch",
+    "earnings_calendar", "analyst_estimates_fetch", "transcript_search",
+    "filings_search", "filing_reader", "peer_comps_fetch", "valuation_multiples_fetch",
+}
+
+EQUITY_METHOD_CATEGORIES: dict[str, str] = {
+    "web_search": "web_search_data",
+    "web_fetch": "web_fetch_data",
+    "news_search": "web_search_data",
+    "stock_quote": "equity_finance",
+    "company_profile": "equity_finance",
+    "financial_statement_fetch": "equity_finance",
+    "earnings_calendar": "equity_finance",
+    "analyst_estimates_fetch": "equity_finance",
+    "peer_comps_fetch": "equity_finance",
+    "valuation_multiples_fetch": "equity_finance",
+    "transcript_search": "transcripts_data",
+    "filings_search": "filings_data",
+    "filing_reader": "filings_data",
+}
 
 EQUITY_VENDOR_METHODS: dict[str, dict[str, Callable[..., Any]]] = {
     "get_financial_statements": {
@@ -16,7 +69,8 @@ EQUITY_VENDOR_METHODS: dict[str, dict[str, Callable[..., Any]]] = {
     },
     "get_consensus_estimates": {
         "info_sources": lambda ticker, **_: _info_sources_consensus(ticker),
-        "yfinance": lambda ticker, **_: _yfinance_consensus(ticker),
+        "fmp": equity_vendors.analyst_estimates_fetch_fmp,
+        "yfinance": equity_vendors.analyst_estimates_fetch_yfinance,
     },
     "get_current_price": {
         "yfinance": lambda ticker, **_: route_to_vendor(
@@ -39,23 +93,89 @@ EQUITY_VENDOR_METHODS: dict[str, dict[str, Callable[..., Any]]] = {
     "calculate_sensitivity_table": {
         "internal": lambda base_target, scenarios, **_: _calculate_sensitivity(base_target, scenarios),
     },
+    "web_search": {
+        "tavily": equity_vendors.web_search_tavily,
+        "jina": equity_vendors.web_search_jina,
+    },
+    "web_fetch": {
+        "jina": equity_vendors.web_fetch_jina,
+        "tavily": equity_vendors.web_fetch_tavily,
+    },
+    "news_search": {
+        "tavily": equity_vendors.news_search_tavily,
+        "jina": equity_vendors.news_search_jina,
+    },
+    "stock_quote": {
+        "yfinance": equity_vendors.stock_quote_yfinance,
+        "alpha_vantage": equity_vendors.stock_quote_alpha_vantage,
+    },
+    "company_profile": {
+        "yfinance": equity_vendors.company_profile_yfinance,
+        "fmp": equity_vendors.company_profile_fmp,
+    },
+    "financial_statement_fetch": {
+        "yfinance": equity_vendors.financial_statement_fetch_yfinance,
+        "alpha_vantage": equity_vendors.financial_statement_fetch_alpha_vantage,
+    },
+    "earnings_calendar": {
+        "fmp": equity_vendors.earnings_calendar_fmp,
+        "yfinance": equity_vendors.earnings_calendar_yfinance,
+    },
+    "analyst_estimates_fetch": {
+        "fmp": equity_vendors.analyst_estimates_fetch_fmp,
+        "info_sources": equity_vendors.analyst_estimates_fetch_info_sources,
+        "yfinance": equity_vendors.analyst_estimates_fetch_yfinance,
+    },
+    "transcript_search": {
+        "fmp": equity_vendors.transcript_search_fmp,
+        "perplexity": equity_vendors.transcript_search_perplexity,
+    },
+    "filings_search": {
+        "edgar": equity_vendors.filings_search_edgar,
+    },
+    "filing_reader": {
+        "edgar": equity_vendors.filing_reader_edgar,
+    },
+    "peer_comps_fetch": {
+        "yfinance": equity_vendors.peer_comps_fetch_yfinance,
+        "fmp": equity_vendors.peer_comps_fetch_fmp,
+    },
+    "valuation_multiples_fetch": {
+        "yfinance": equity_vendors.valuation_multiples_fetch_yfinance,
+        "fmp": equity_vendors.valuation_multiples_fetch_fmp,
+    },
 }
 
 
 def route_equity_tool(method: str, *args, **kwargs) -> Any:
     if method not in EQUITY_VENDOR_METHODS:
         raise ValueError(f"Equity tool '{method}' not supported")
-    vendors = EQUITY_VENDOR_METHODS[method]
-    last_error: Exception | None = None
-    for vendor, impl in vendors.items():
-        try:
-            return impl(*args, **kwargs)
-        except Exception as exc:
-            last_error = exc
-            continue
-    if last_error:
-        raise last_error
-    raise RuntimeError(f"No vendor available for equity tool '{method}'")
+    category = EQUITY_METHOD_CATEGORIES.get(method) or get_category_for_tool(method)
+    config = get_config()
+    vendor_chain = build_vendor_chain(
+        method,
+        EQUITY_VENDOR_METHODS[method],
+        category=category,
+        config=config,
+        equity_override=True,
+    )
+    wrap = method in WRAP_VENDOR_METADATA
+    result = execute_vendor_chain(
+        method,
+        vendor_chain,
+        EQUITY_VENDOR_METHODS[method],
+        *args,
+        wrap_metadata=wrap,
+        no_data_as_string=False,
+        **kwargs,
+    )
+    if not wrap:
+        return result
+    if isinstance(result, dict) and "vendor_used" in result:
+        return result
+    if isinstance(result, dict):
+        return {**result, "vendor_used": vendor_chain[0] if vendor_chain else None, "fallback_attempted": vendor_chain}
+    return {"data": result, "vendor_used": vendor_chain[0] if vendor_chain else None, "fallback_attempted": vendor_chain}
 
 
 def _yfinance_financials(ticker: str) -> dict[str, Any]:
@@ -78,10 +198,6 @@ def _info_sources_consensus(ticker: str) -> dict[str, Any]:
     return results[0] if results else {}
 
 
-def _yfinance_consensus(ticker: str) -> dict[str, Any]:
-    return _info_sources_consensus(ticker)
-
-
 def _calculate_cagr(values: list[float], periods: int) -> dict[str, float]:
     if not values or periods <= 0 or values[0] == 0:
         return {"cagr": 0.0}
@@ -101,3 +217,6 @@ def _calculate_sensitivity(base_target: float, scenarios: list[dict]) -> list[di
             }
         )
     return rows
+
+
+__all__ = ["EQUITY_TOOLS_CATEGORIES", "EQUITY_VENDOR_METHODS", "route_equity_tool"]

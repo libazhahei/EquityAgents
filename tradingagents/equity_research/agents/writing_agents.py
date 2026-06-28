@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
+from tradingagents.equity_research.state.consensus_schemas import get_consensus_view_for_prompt
 from tradingagents.equity_research.state.schemas import ClaimStatus, SectionDraft
 from tradingagents.equity_research.templates.report_template import (
     MVP1_DISPLAY_ORDER,
@@ -21,7 +22,7 @@ def create_write_investment_summary(deps: EquityResearchDeps):
         template = MVP1_REPORT_TEMPLATE[section_id]
         verified = [c for c in state.get("claims", []) if c.get("status") == ClaimStatus.VERIFIED.value]
         gaps = state.get("expectation_gaps", [])
-        consensus = state.get("consensus_view", [{}])[0] if state.get("consensus_view") else {}
+        consensus = get_consensus_view_for_prompt(state)
         scenario = state.get("scenario_analysis", {})
         prompt = (
             f"Write Investment Summary for {state['ticker']}.\n"

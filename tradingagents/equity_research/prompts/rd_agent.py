@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from tradingagents.equity_research.state.consensus_schemas import get_consensus_view_for_prompt
+
 
 def research_task_analysis_prompt(state: dict[str, Any]) -> str:
     return (
@@ -57,7 +59,7 @@ def scientific_hypothesis_prompt(
         "You are a research scientist formulating testable investment hypotheses.\n"
         f"Ticker: {state.get('ticker')}\n"
         f"Problems: {json.dumps(problems[:3], default=str)}\n"
-        f"Consensus: {json.dumps(state.get('consensus_view', [])[:2], default=str)}\n"
+        f"Consensus: {get_consensus_view_for_prompt(state)}\n"
         "For each hypothesis: proposal, mechanism, evidence plan, forecast linkage, five-dimensional scoring (1-10).\n"
         "Classify: Revenue Growth, Margin Expansion, Cost Efficiency, Market Share, Valuation Re-rating, "
         "Capital Allocation, Balance Sheet, Regulatory/Policy, Bear Case.\n"
@@ -104,7 +106,7 @@ def thesis_merge_prompt(state: dict[str, Any], best_nodes: list[dict]) -> str:
         "You are a senior equity research analyst merging multiple investment thesis branches "
         "into a coherent final investment thesis.\n"
         f"Best branches: {json.dumps(best_nodes[:4], default=str)[:3000]}\n"
-        f"Consensus: {json.dumps(state.get('consensus_view', [])[:2], default=str)}\n"
+        f"Consensus: {get_consensus_view_for_prompt(state)}\n"
         "Preserve only evidence-supported claims. Resolve contradictions explicitly.\n"
         "Return JSON: final_core_thesis, supporting_points, discarded_claims, "
         "integrated_forecast_assumptions, integrated_risks, catalysts, what_would_change_our_view."

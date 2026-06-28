@@ -1,4 +1,4 @@
-"""Concrete skill implementations for equity research."""
+"""Python skill handlers — execution logic decoupled from .skill.md manifests."""
 
 from __future__ import annotations
 
@@ -6,23 +6,19 @@ import json
 import uuid
 from typing import Any
 
-from tradingagents.equity_research.skills.base import SkillInput, SkillManifest, SkillOutput
-from tradingagents.equity_research.state.schemas import ClaimStatus, ClaimType, claim_to_dict, Claim
+from tradingagents.equity_research.memory.retrieval import build_memory_context
+from tradingagents.equity_research.skills.base import LoadedSkill, SkillInput, SkillOutput
+from tradingagents.equity_research.state.research_graph import init_research_graph_from_gaps
+from tradingagents.equity_research.state.schemas import Claim, ClaimStatus, ClaimType, claim_to_dict
+from tradingagents.equity_research.evaluation.aggregators import aggregate_ic_scores
 
 
-class BrokerConsensusMiningSkill:
-    name = "broker_consensus_mining"
-    manifest = SkillManifest(
-        name=name,
-        description="Extract and compare sell-side broker views.",
-        allowed_tools=["get_consensus_estimates", "get_news", "store_evidence", "store_claim"],
-        quality_gates=["source citation required"],
-    )
-
-    def run(self, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
+class BrokerConsensusHandler:
+    def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         ticker = state.get("ticker", "")
-        consensus_data = tools["get_consensus_estimates"](ticker) if "get_consensus_estimates" in tools else {}
+        fetch_estimates = tools.get("analyst_estimates_fetch") or tools.get("get_consensus_estimates")
+        consensus_data = fetch_estimates(ticker) if fetch_estimates else {}
         summary = json.dumps(consensus_data, default=str)[:2000]
         claim = claim_to_dict(
             Claim(
@@ -45,16 +41,8 @@ class BrokerConsensusMiningSkill:
         )
 
 
-class VariantViewDiscoverySkill:
-    name = "variant_view_discovery"
-    manifest = SkillManifest(
-        name=name,
-        description="Identify where our view differs from consensus.",
-        allowed_tools=["retrieve_claims_by_section", "store_claim"],
-        quality_gates=["must articulate variant view"],
-    )
-
-    def run(self, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
+class VariantViewDiscoveryHandler:
+    def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         gaps = state.get("expectation_gaps", [])
         claims = []
@@ -78,19 +66,12 @@ class VariantViewDiscoverySkill:
         return SkillOutput(summary=summary, claims=claims, confidence=0.65)
 
 
-class BusinessModelAnalysisSkill:
-    name = "business_model_analysis"
-    manifest = SkillManifest(
-        name=name,
-        description="Analyze business model and revenue drivers.",
-        allowed_tools=["get_financial_statements", "store_claim", "store_evidence"],
-        quality_gates=["at least 2 revenue drivers"],
-    )
-
-    def run(self, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
+class BusinessModelAnalysisHandler:
+    def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         ticker = state.get("ticker", "")
-        financials = tools["get_financial_statements"](ticker) if "get_financial_statements" in tools else {}
+        fetch_financials = tools.get("financial_statement_fetch") or tools.get("get_financial_statements")
+        financials = fetch_financials(ticker) if fetch_financials else {}
         drivers = state.get("business_drivers", [])
         text = f"Business drivers for {ticker}: {json.dumps(drivers, default=str)[:800]}"
         claim = claim_to_dict(
@@ -114,18 +95,12 @@ class BusinessModelAnalysisSkill:
         )
 
 
-class HistoricalFinancialAnalysisSkill:
-    name = "historical_financial_analysis"
-    manifest = SkillManifest(
-        name=name,
-        description="Analyze historical financial performance.",
-        allowed_tools=["get_financial_statements", "calculate_cagr", "store_claim"],
-    )
-
-    def run(self, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
+class HistoricalFinancialAnalysisHandler:
+    def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         ticker = state.get("ticker", "")
-        financials = tools["get_financial_statements"](ticker) if "get_financial_statements" in tools else {}
+        fetch_financials = tools.get("financial_statement_fetch") or tools.get("get_financial_statements")
+        financials = fetch_financials(ticker) if fetch_financials else {}
         claim = claim_to_dict(
             Claim(
                 claim_id=str(uuid.uuid4()),
@@ -147,21 +122,30 @@ class HistoricalFinancialAnalysisSkill:
         )
 
 
-class ValuationSkill:
-    name = "valuation"
-    manifest = SkillManifest(
-        name=name,
-        description="Deterministic valuation via trading multiples.",
-        allowed_tools=["calculate_trading_multiple_valuation", "get_current_price", "store_claim"],
-        quality_gates=["target price must come from calculator"],
-    )
-
-    def run(self, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
+class ValuationHandler:
+    def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         ticker = state.get("ticker", "")
+        current_price = float(state.get("current_price") or 0)
+        if current_price <= 0:
+            quote_fn = tools.get("stock_quote") or tools.get("get_current_price")
+            if quote_fn:
+                quote = quote_fn(ticker)
+                if isinstance(quote, dict):
+                    current_price = float(
+                        quote.get("current_price")
+                        or quote.get("price")
+                        or quote.get("regularMarketPrice")
+                        or 0
+                    )
+                else:
+                    try:
+                        current_price = float(str(quote).split()[-1].replace(",", "").replace("$", ""))
+                    except (ValueError, IndexError):
+                        current_price = 0.0
         result = tools["calculate_trading_multiple_valuation"](
             ticker,
-            float(state.get("current_price") or 0),
+            current_price,
             state.get("forecast_model"),
             state.get("structured_facts", []),
         )
@@ -186,16 +170,8 @@ class ValuationSkill:
         )
 
 
-class RiskCounterThesisSkill:
-    name = "risk_counterthesis"
-    manifest = SkillManifest(
-        name=name,
-        description="Map risks to thesis and find counter-evidence.",
-        allowed_tools=["retrieve_contradictory_evidence", "store_claim"],
-        quality_gates=["each core thesis must have mapped risk"],
-    )
-
-    def run(self, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
+class RiskCounterThesisHandler:
+    def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         contradictions = (
             tools["retrieve_contradictory_evidence"](state)
@@ -235,15 +211,8 @@ class RiskCounterThesisSkill:
         )
 
 
-class SectionWritingSkill:
-    name = "section_writing"
-    manifest = SkillManifest(
-        name=name,
-        description="Write a report section from verified claims.",
-        allowed_tools=["retrieve_claims_by_section"],
-    )
-
-    def run(self, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
+class SectionWritingHandler:
+    def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         section_id = input.constraints.get("section_id", "") if input.constraints else ""
         claims = (
             tools["retrieve_claims_by_section"](input.state_snapshot, section_id)
@@ -257,30 +226,8 @@ class SectionWritingSkill:
         )
 
 
-class StubSkill:
-    """Placeholder skill registered for future implementation."""
-
-    def __init__(self, name: str, description: str = ""):
-        self.name = name
-        self.manifest = SkillManifest(name=name, description=description)
-
-    def run(self, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
-        return SkillOutput(
-            summary=f"Stub skill {self.name} — no implementation yet",
-            confidence=0.0,
-            data_quality_flags=["stub_skill"],
-        )
-
-
-class DynamicResearchPlanningSkill:
-    name = "dynamic_research_planning"
-    manifest = SkillManifest(
-        name=name,
-        description="Dynamic stage-aware research planning.",
-        allowed_tools=[],
-    )
-
-    def run(self, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
+class DynamicResearchPlanningHandler:
+    def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         iterations = int(state.get("research_iterations", 0))
         max_iter = int(state.get("max_research_iterations", 5))
@@ -292,13 +239,8 @@ class DynamicResearchPlanningSkill:
         )
 
 
-class ThesisExplorationDAGSkill:
-    name = "thesis_exploration_dag"
-    manifest = SkillManifest(name=name, description="Initialize and extend thesis exploration branches.")
-
-    def run(self, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
-        from tradingagents.equity_research.state.research_graph import init_research_graph_from_gaps
-
+class ThesisExplorationDAGHandler:
+    def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         graph = init_research_graph_from_gaps(state.get("expectation_gaps", []))
         return SkillOutput(
@@ -308,11 +250,8 @@ class ThesisExplorationDAGSkill:
         )
 
 
-class ScientificInvestmentReasoningSkill:
-    name = "scientific_investment_reasoning"
-    manifest = SkillManifest(name=name, description="Scientific multi-step investment hypothesis generation.")
-
-    def run(self, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
+class ScientificInvestmentReasoningHandler:
+    def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         return SkillOutput(
             summary="Scientific reasoning delegated to research loop",
             confidence=0.5,
@@ -320,13 +259,8 @@ class ScientificInvestmentReasoningSkill:
         )
 
 
-class CollaborativeMemorySkill:
-    name = "collaborative_memory"
-    manifest = SkillManifest(name=name, description="Cross-branch collaborative memory retrieval.")
-
-    def run(self, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
-        from tradingagents.equity_research.memory.retrieval import build_memory_context
-
+class CollaborativeMemoryHandler:
+    def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         graph = state.get("research_graph", {})
         parents = list(graph.get("nodes", {}).keys())[:2]
@@ -338,19 +272,17 @@ class CollaborativeMemorySkill:
         )
 
 
-class IndustryAnalysisSkill:
-    name = "industry_analysis"
-    manifest = SkillManifest(
-        name=name,
-        description="Industry and competitive landscape analysis.",
-        allowed_tools=["get_news", "store_claim", "store_evidence"],
-    )
-
-    def run(self, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
+class IndustryAnalysisHandler:
+    def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         ticker = state.get("ticker", "")
         industry = state.get("industry", state.get("sector", ""))
-        news = tools["get_news"](ticker) if "get_news" in tools else ""
+        news = ""
+        if "news_search" in tools:
+            news_result = tools["news_search"](f"{ticker} {industry} industry competition")
+            news = json.dumps(news_result, default=str)[:500]
+        elif "get_news" in tools:
+            news = str(tools["get_news"](ticker))[:500]
         text = f"Industry analysis for {ticker} in {industry}: competitive dynamics review."
         claim = claim_to_dict(
             Claim(
@@ -368,19 +300,12 @@ class IndustryAnalysisSkill:
         return SkillOutput(summary=text[:500], claims=[claim], confidence=0.55, artifacts={"news_snippet": str(news)[:500]})
 
 
-class ForecastAssumptionBuilderSkill:
-    name = "forecast_assumption_builder"
-    manifest = SkillManifest(
-        name=name,
-        description="Build forecast assumptions from business drivers and claims.",
-        allowed_tools=["store_claim"],
-    )
-
-    def run(self, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
+class ForecastAssumptionBuilderHandler:
+    def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         drivers = state.get("business_drivers", [])
         assumptions = []
-        for idx, driver in enumerate(drivers[:5]):
+        for driver in drivers[:5]:
             assumptions.append({
                 "assumption_id": f"asm_{uuid.uuid4().hex[:8]}",
                 "metric": driver.get("metric_link", "revenue"),
@@ -395,6 +320,9 @@ class ForecastAssumptionBuilderSkill:
                 "our_assumption": "10%",
                 "rationale": "default assumption",
             }]
+        if "store_assumption" in tools:
+            for assumption in assumptions:
+                tools["store_assumption"](state, assumption)
         return SkillOutput(
             summary=f"Built {len(assumptions)} forecast assumptions",
             confidence=0.65,
@@ -403,12 +331,10 @@ class ForecastAssumptionBuilderSkill:
         )
 
 
-class CatalystMonitoringSkill:
-    name = "catalyst_monitoring"
-    manifest = SkillManifest(name=name, description="Build catalyst calendar from gaps and earnings.")
-
-    def run(self, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
+class CatalystMonitoringHandler:
+    def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
+        ticker = state.get("ticker", "")
         gaps = state.get("expectation_gaps", [])
         calendar = [
             {
@@ -418,11 +344,19 @@ class CatalystMonitoringSkill:
             }
             for g in gaps[:5]
         ]
-        calendar.append({
-            "catalyst_id": str(uuid.uuid4()),
-            "description": "Next earnings release",
-            "timeframe": "near_term",
-        })
+        if "earnings_calendar" in tools:
+            earnings = tools["earnings_calendar"](ticker)
+            calendar.append({
+                "catalyst_id": str(uuid.uuid4()),
+                "description": f"Next earnings release: {json.dumps(earnings, default=str)[:200]}",
+                "timeframe": "near_term",
+            })
+        else:
+            calendar.append({
+                "catalyst_id": str(uuid.uuid4()),
+                "description": "Next earnings release",
+                "timeframe": "near_term",
+            })
         return SkillOutput(
             summary=f"Built catalyst calendar with {len(calendar)} items",
             confidence=0.7,
@@ -430,13 +364,8 @@ class CatalystMonitoringSkill:
         )
 
 
-class StandardizedQASkill:
-    name = "standardized_qa"
-    manifest = SkillManifest(name=name, description="Standardized quality assessment.")
-
-    def run(self, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
-        from tradingagents.equity_research.evaluation.aggregators import aggregate_ic_scores
-
+class StandardizedQAHandler:
+    def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         result = aggregate_ic_scores(state)
         flags = result.blocking_issues + result.warnings

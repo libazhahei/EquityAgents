@@ -87,7 +87,7 @@ def test_e2e_mini_report_mocked():
                             graph.deps.edgar = MagicMock()
                             graph.deps.edgar.fetch_recent_filings.return_value = []
                             graph.deps.fmp = MagicMock(available=False)
-                            final_state, _ = graph.propagate("NVDA")
+                            final_state, _ = graph.propagate("NVDA", "2024-06-01")
 
     assert final_state.get("final_report")
     assert final_state.get("research_graph") is not None

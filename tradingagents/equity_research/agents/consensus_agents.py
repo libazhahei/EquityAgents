@@ -1,105 +1,127 @@
-"""Consensus and expectation gap discovery agents."""
+"""Consensus gap discovery agent (runs after consensus subgraph)."""
 
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import datetime
 from typing import Any
 
+from tradingagents.equity_research.agents.consensus.context_compact import compact_if_needed
+from tradingagents.equity_research.agents.consensus.prompt_format import format_consensus_view
+from tradingagents.equity_research.agents.consensus.structured_invoke import (
+    StructuredOutputUnsupported,
+    invoke_structured_with_retry,
+)
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
-from tradingagents.llm_clients.perplexity_client import SearchMode
-from tradingagents.equity_research.integrations.info_sources import default_registry
-from tradingagents.equity_research.state.schemas import ConsensusView, ExpectationGap
+from tradingagents.equity_research.state.consensus_schemas import (
+    CONSENSUS_DIMENSIONS,
+    ExpectationGapBatch,
+    StructuredConsensusView,
+)
+from tradingagents.equity_research.state.schemas import ExpectationGap
 
 
-def create_discover_consensus(deps: EquityResearchDeps):
-    def discover_consensus(state: dict[str, Any]) -> dict[str, Any]:
+def _max_retries(deps: EquityResearchDeps) -> int:
+    return int(deps.config.get("equity_research", {}).get("structured_output_max_retries", 3))
+
+
+def _consensus_text_for_prompt(deps: EquityResearchDeps, state: dict[str, Any]) -> str:
+    view_raw = state.get("consensus_view") or {}
+    if isinstance(view_raw, list):
+        return (view_raw[0] if view_raw else {}).get("summary", "")
+    if not view_raw:
+        return "No structured consensus data available."
+    try:
+        view = StructuredConsensusView.model_validate(view_raw)
+        text = format_consensus_view(view)
+    except Exception:
+        text = str(view_raw)[:6000]
+    return compact_if_needed(deps, text, purpose="consensus view for gap analysis")
+
+
+def create_gap_finder(deps: EquityResearchDeps):
+    def gap_finder(state: dict[str, Any]) -> dict[str, Any]:
         ticker = state["ticker"]
-        query = f"{ticker} analyst consensus estimates price target growth expectations"
-        result = deps.perplexity.search(query, mode=SearchMode.EXPLORATORY)
-        yf_results = default_registry().fetch_all(ticker, "consensus")
-        yf_data = yf_results[0] if yf_results else {}
-        doc_ids = []
-        for url in result.get("citations", [])[]:
-            doc = deps.documents.register(
-                ticker=ticker,
-                source_type="news",
-                title=url,
-                source_url=url,
-            )
-            doc_ids.append(doc["doc_id"])
-        summary = result.get("answer", "")
-        if yf_data.get("data"):
-            summary += f"\n\nYahoo Finance data: {json.dumps(yf_data['data'], default=str)}"
-        view = ConsensusView(
-            summary=summary[:4000],
-            analyst_consensus=summary[:1500],
-            implied_growth=str(yf_data.get("data", {}).get("revenue_growth", "")),
-            source_doc_ids=doc_ids,
-        )
-        updates = {
-            "consensus_view": [view.model_dump()],
-            "documents": state.get("documents", []) + [{"doc_id": d} for d in doc_ids],
-            "api_calls": state.get("api_calls", 0) + 1,
-            "last_updated": datetime.utcnow().isoformat(),
-        }
-        updates.update(deps.trace({**state, **updates}, "discover_consensus"))
-        return updates
+        consensus_text = _consensus_text_for_prompt(deps, state)
+        dimensions = "\n".join(f"- {dim}" for dim in CONSENSUS_DIMENSIONS)
 
-    return discover_consensus
-
-
-def create_find_expectation_gaps(deps: EquityResearchDeps):
-    def find_expectation_gaps(state: dict[str, Any]) -> dict[str, Any]:
-        ticker = state["ticker"]
-        consensus = state.get("consensus_view", [{}])[0].get("summary", "")
         prompt = (
-            f"Given market consensus for {ticker}:\n{consensus[:2000]}\n\n"
+            f"Given structured market consensus for {ticker}:\n{consensus_text}\n\n"
             f"Instrument context:\n{state.get('instrument_context', '')}\n\n"
-            "Identify 2-4 expectation gaps (variant views) that could be alpha sources. "
-            "Return JSON array with fields: description, alpha_source, materiality (0-1), "
-            "verifiability (0-1), related_metrics."
+            f"Analyze each dimension:\n{dimensions}\n\n"
+            "Identify 2-4 expectation gaps (variant views) that could be alpha sources.\n"
+            "Each gap must include:\n"
+            "- description\n"
+            "- alpha_source\n"
+            "- materiality (0-1)\n"
+            "- verifiability (0-1)\n"
+            "- related_metrics (list of metric names)\n"
+            "- source_dimension (one of the dimensions above)\n"
+            "- consensus_assumption\n"
+            "- variant_view"
         )
-        response = deps.quick_llm.invoke(prompt)
-        text = response.content if hasattr(response, "content") else str(response)
-        gaps = _parse_gaps(text, ticker)
+
+        def _fallback() -> ExpectationGapBatch:
+            return ExpectationGapBatch(gaps=[])
+
+        try:
+            batch = invoke_structured_with_retry(
+                deps.deep_llm,
+                ExpectationGapBatch,
+                prompt,
+                agent_name="gap_finder",
+                max_attempts=_max_retries(deps),
+                fallback=_fallback,
+            )
+            gaps = _gaps_from_batch(batch, ticker)
+        except StructuredOutputUnsupported:
+            gaps = _fallback_gaps(ticker)
+        except Exception:
+            gaps = _fallback_gaps(ticker)
+
+        if not gaps:
+            gaps = _fallback_gaps(ticker)
+
         updates = {
             "expectation_gaps": [g.model_dump() for g in gaps],
             "last_updated": datetime.utcnow().isoformat(),
         }
-        updates.update(deps.trace({**state, **updates}, "find_expectation_gaps", {"count": len(gaps)}))
+        updates.update(deps.trace({**state, **updates}, "gap_finder", {"count": len(gaps)}))
         return updates
 
-    return find_expectation_gaps
+    return gap_finder
 
 
-def _parse_gaps(text: str, ticker: str) -> list[ExpectationGap]:
-    import re
+# Backward-compatible alias
+create_find_expectation_gaps = create_gap_finder
 
-    gaps = []
-    try:
-        match = re.search(r"\[.*\]", text, re.DOTALL)
-        if match:
-            items = json.loads(match.group())
-            for item in items[:4]:
-                gaps.append(ExpectationGap(
-                    gap_id=str(uuid.uuid4()),
-                    description=item.get("description", ""),
-                    alpha_source=item.get("alpha_source", ""),
-                    materiality=float(item.get("materiality", 0.5)),
-                    verifiability=float(item.get("verifiability", 0.5)),
-                    related_metrics=item.get("related_metrics", []),
-                ))
-    except (json.JSONDecodeError, ValueError):
-        pass
-    if not gaps:
+
+def _gaps_from_batch(batch: ExpectationGapBatch, ticker: str) -> list[ExpectationGap]:
+    gaps: list[ExpectationGap] = []
+    for item in batch.gaps:
         gaps.append(ExpectationGap(
             gap_id=str(uuid.uuid4()),
-            description=f"Market may be underestimating {ticker} revenue growth drivers",
-            alpha_source="variant_perception",
-            materiality=0.6,
-            verifiability=0.5,
-            related_metrics=["revenue_growth"],
+            description=item.description,
+            alpha_source=item.alpha_source,
+            materiality=item.materiality,
+            verifiability=item.verifiability,
+            related_metrics=list(item.related_metrics),
+            source_dimension=item.source_dimension,
+            consensus_assumption=item.consensus_assumption,
+            variant_view=item.variant_view,
         ))
     return gaps
+
+
+def _fallback_gaps(ticker: str) -> list[ExpectationGap]:
+    return [ExpectationGap(
+        gap_id=str(uuid.uuid4()),
+        description=f"Market may be underestimating {ticker} revenue growth drivers",
+        alpha_source="variant_perception",
+        materiality=0.6,
+        verifiability=0.5,
+        related_metrics=["revenue_growth"],
+        source_dimension="quantitative_estimates",
+        consensus_assumption="Consensus embeds moderate growth",
+        variant_view="Growth drivers may accelerate faster than priced",
+    )]

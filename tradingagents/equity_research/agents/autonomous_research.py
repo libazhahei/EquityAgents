@@ -31,7 +31,11 @@ class AutonomousResearchRuntime:
     def __init__(self, deps: EquityResearchDeps):
         self.deps = deps
         self.tool_registry = ToolRegistry(deps)
-        self.skill_registry = SkillRegistry()
+        self.skill_registry = SkillRegistry(
+            deps=deps,
+            known_tools=set(self.tool_registry.list_tools()),
+            config=deps.config,
+        )
         self.lead_agent = LeadAnalystAgent(self.skill_registry, deps)
         self._legacy_generate = create_generate_hypotheses(deps)
         self._legacy_evaluate = create_virtual_evaluate(deps)

@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from tradingagents.equity_research.state.consensus_schemas import StructuredConsensusView
+
 
 class EvidenceLedgerEntry(BaseModel):
     evidence_id: str
@@ -229,7 +231,23 @@ def sync_ledgers_from_legacy(state: dict[str, Any]) -> dict[str, Any]:
 
     consensus_ledger = list(state.get("consensus_ledger", []))
     existing_consensus_ids = {c.get("consensus_id") for c in consensus_ledger}
-    for idx, view in enumerate(state.get("consensus_view", [])):
+    raw_consensus = state.get("consensus_view", [])
+    consensus_entries: list[dict] = []
+    if isinstance(raw_consensus, dict) and raw_consensus:
+        try:
+            view = StructuredConsensusView.model_validate(raw_consensus)
+            consensus_entries = view.to_ledger_entries()
+        except Exception:
+            consensus_entries = [{
+                "consensus_id": "cons_0",
+                "metric": "overall",
+                "summary": str(raw_consensus.get("summary", ""))[:500],
+                "value": str(raw_consensus.get("summary", ""))[:500],
+                "source": "perplexity",
+            }]
+    elif isinstance(raw_consensus, list):
+        consensus_entries = list(raw_consensus)
+    for idx, view in enumerate(consensus_entries):
         entry = ConsensusLedgerEntry(
             consensus_id=view.get("consensus_id", f"cons_{idx}"),
             metric=view.get("metric", "overall"),

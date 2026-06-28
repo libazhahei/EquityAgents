@@ -46,7 +46,11 @@ class ResearchLoopRuntime:
     def __init__(self, deps: EquityResearchDeps):
         self.deps = deps
         self.tool_registry = ToolRegistry(deps)
-        self.skill_registry = SkillRegistry()
+        self.skill_registry = SkillRegistry(
+            deps=deps,
+            known_tools=set(self.tool_registry.list_tools()),
+            config=deps.config,
+        )
         self._generate_hypotheses = create_generate_hypotheses(deps)
         self._virtual_evaluate = create_virtual_evaluate(deps)
         self._allocate_budget = create_allocate_budget(deps)
@@ -285,6 +289,7 @@ class ResearchLoopRuntime:
         # Run skills from planning
         for skill_name in strategy.get("skills_to_run", [])[:2]:
             try:
+                self.skill_registry.read_skill(skill_name)
                 skill = self.skill_registry.get(skill_name)
                 tools = self.tool_registry.for_skill(skill.manifest.allowed_tools)
                 output = skill.run(

@@ -111,6 +111,11 @@ DEFAULT_CONFIG = _apply_env_overrides({
         "news_data": "yfinance",             # Options: alpha_vantage, yfinance
         "macro_data": "fred",                # Options: fred (needs FRED_API_KEY)
         "prediction_markets": "polymarket",  # Options: polymarket (keyless)
+        "web_search_data": "tavily,jina",
+        "web_fetch_data": "jina,tavily",
+        "equity_finance": "yfinance,fmp",
+        "filings_data": "edgar",
+        "transcripts_data": "fmp,perplexity",
     },
     # Tool-level configuration (takes precedence over category-level)
     "tool_vendors": {
@@ -160,5 +165,15 @@ DEFAULT_CONFIG = _apply_env_overrides({
             "max_search_queries": 5,
             "max_extraction_docs": 8,
         },
+        "human_tools_mode": "stub",
+        "document_root": None,
+        "code_root": None,
+        "tools": {
+            "python_exec_sandbox": False,
+            "shell_exec_sandbox": False,
+            "code_writer": False,
+        },
+        "data_vendors": {},
+        "tool_vendors": {},
     },
 })

@@ -207,6 +207,18 @@ evidence_strength (20%) + consensus_gap (20%) + financial_materiality (20%)
 
 IC review uses `aggregate_ic_scores()` and records blocking issues to `issue_ledger`.
 
+### 系统架构专题
+
+以下中文文档对模块内部机制做专项说明（文件结构、Memory、Context、Skills/Tools 控制方案）：
+
+| 文档 | 内容 |
+|------|------|
+| [equity_research/file-structure.md](equity_research/file-structure.md) | 完整目录树、执行流与代码入口速查 |
+| [equity_research/memory.md](equity_research/memory.md) | Ledger 分层、读写路径、检索评分与导出 |
+| [equity_research/context.md](equity_research/context.md) | Context 注入链路、预算上限与 LLM 压缩 |
+| [equity_research/skills-and-tools.md](equity_research/skills-and-tools.md) | Skill/Tool 注册、可见性、绑定与发现工具 |
+| [equity_research/storage.md](equity_research/storage.md) | Redis、PostgreSQL、本地文件的配置与数据流 |
+
 ## Design constraints
 
 - Target price and EPS come from **deterministic calculators**, not LLM invention

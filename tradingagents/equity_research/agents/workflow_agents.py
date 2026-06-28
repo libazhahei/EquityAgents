@@ -112,7 +112,10 @@ def create_generate_research_plan(deps: EquityResearchDeps):
         from tradingagents.equity_research.agents.lead_analyst import LeadAnalystAgent
         from tradingagents.equity_research.skills.registry import SkillRegistry
 
-        agent = LeadAnalystAgent(SkillRegistry(), deps)
+        from tradingagents.equity_research.tools.registry import ToolRegistry
+
+        tools = ToolRegistry(deps)
+        agent = LeadAnalystAgent(SkillRegistry(deps=deps, known_tools=set(tools.list_tools()), config=deps.config), deps)
         prompt = agent.generate_research_plan_prompt(state)
         response = deps.deep_llm.invoke(prompt)
         text = response.content if hasattr(response, "content") else str(response)
@@ -265,11 +268,12 @@ def create_rating_target_price_check(deps: EquityResearchDeps):
 
 def create_risk_to_thesis_mapping(deps: EquityResearchDeps):
     def risk_to_thesis_mapping(state: dict[str, Any]) -> dict[str, Any]:
-        from tradingagents.equity_research.skills.implementations import RiskCounterThesisSkill
         from tradingagents.equity_research.skills.base import SkillInput
+        from tradingagents.equity_research.skills.registry import SkillRegistry
         from tradingagents.equity_research.tools.registry import ToolRegistry
 
-        skill = RiskCounterThesisSkill()
+        registry = SkillRegistry(deps=deps, known_tools=set(ToolRegistry(deps).list_tools()), config=deps.config)
+        skill = registry.get("risk_counterthesis")
         tools = ToolRegistry(deps).for_skill(skill.manifest.allowed_tools)
         output = skill.run(SkillInput(state_snapshot=state, objective="risk mapping"), tools)
         updates = {

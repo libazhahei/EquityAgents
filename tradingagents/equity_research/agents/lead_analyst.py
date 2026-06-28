@@ -17,6 +17,7 @@ from tradingagents.equity_research.agents.domain import (
 )
 from tradingagents.equity_research.evaluation.aggregators import aggregate_thesis_score
 from tradingagents.equity_research.prompts.rd_agent import dynamic_planning_prompt
+from tradingagents.equity_research.state.consensus_schemas import get_consensus_view_for_prompt
 from tradingagents.equity_research.skills.registry import SkillRegistry
 from tradingagents.equity_research.tools.registry import ToolRegistry
 
@@ -153,7 +154,7 @@ class LeadAnalystAgent:
 
     def generate_research_plan_prompt(self, state: dict[str, Any]) -> str:
         gaps = json.dumps(state.get("expectation_gaps", [])[:4], default=str)
-        consensus = json.dumps(state.get("consensus_view", [])[:1], default=str)
+        consensus = get_consensus_view_for_prompt(state)
         return (
             f"Create a thesis-driven research plan for {state.get('ticker')}.\n"
             f"Consensus: {consensus}\nExpectation gaps: {gaps}\n"

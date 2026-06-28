@@ -118,6 +118,9 @@ class ExpectationGap(BaseModel):
     materiality: float = 0.0
     verifiability: float = 0.0
     related_metrics: list[str] = Field(default_factory=list)
+    source_dimension: str = ""
+    consensus_assumption: str = ""
+    variant_view: str = ""
 
 
 class ResearchBudget(BaseModel):

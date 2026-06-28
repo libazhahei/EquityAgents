@@ -21,15 +21,27 @@ def test_sync_ledgers_from_legacy_claims():
             "metric": "revenue_growth",
             "our_assumption": "15%",
         }],
-        "consensus_view": [{"summary": "consensus growth 10%"}],
+        "consensus_view": {
+            "ticker": "TEST",
+            "summary": "consensus growth 10%",
+            "narrative_framework": {"bull_case": "growth"},
+        },
         "broker_views": [{"view_id": "bv1", "summary": "buy rated"}],
     }
     synced = sync_ledgers_from_legacy(state)
     assert len(synced["claim_ledger"]) == 1
     assert len(synced["evidence_ledger"]) == 1
     assert len(synced["assumption_ledger"]) == 1
-    assert len(synced["consensus_ledger"]) == 1
+    assert len(synced["consensus_ledger"]) >= 1
     assert len(synced["broker_view_ledger"]) == 1
+
+
+def test_sync_ledgers_legacy_list_consensus():
+    state = {
+        "consensus_view": [{"summary": "legacy consensus 8% growth"}],
+    }
+    synced = sync_ledgers_from_legacy(state)
+    assert len(synced["consensus_ledger"]) == 1
 
 
 def test_write_to_ledger():

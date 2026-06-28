@@ -7,10 +7,8 @@ import re
 from datetime import datetime
 from typing import Any
 
-from tradingagents.equity_research.agents.consensus_agents import (
-    create_discover_consensus,
-    create_find_expectation_gaps,
-)
+from tradingagents.equity_research.agents.consensus import create_run_consensus_subgraph
+from tradingagents.equity_research.agents.consensus_agents import create_gap_finder
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.agents.init_agents import create_load_report_template
 from tradingagents.equity_research.agents.workflow_agents import (
@@ -34,8 +32,8 @@ def create_analyze_research_task(deps: EquityResearchDeps):
     _ingest = create_ingest_documents(deps)
     _source_index = create_build_source_index(deps)
     _broker = create_extract_broker_views(deps)
-    _consensus = create_discover_consensus(deps)
-    _gaps = create_find_expectation_gaps(deps)
+    _consensus_subgraph = create_run_consensus_subgraph(deps)
+    _gap_finder = create_gap_finder(deps)
     _plan = create_generate_research_plan(deps)
 
     def analyze_research_task(state: EquityResearchState) -> dict[str, Any]:
@@ -70,8 +68,8 @@ def create_analyze_research_task(deps: EquityResearchDeps):
             working["documents"] = documents
 
         working.update(_broker(working))
-        working.update(_consensus(working))
-        working.update(_gaps(working))
+        working.update(_consensus_subgraph(working))
+        working.update(_gap_finder(working))
         working.update(_plan(working))
 
         # Task analysis
