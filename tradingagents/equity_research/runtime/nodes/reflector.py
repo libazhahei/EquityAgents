@@ -7,7 +7,10 @@ from typing import Any
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.exploration_graph import ExplorationGraph
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
-from tradingagents.equity_research.runtime.utils.search_memory import build_search_memory_for_prompt
+from tradingagents.equity_research.runtime.utils.reflector_routing import (
+    TERMINAL_LIMITED_GAP_LABELS,
+    should_force_exit_on_terminal_gaps,
+)
 from tradingagents.equity_research.runtime.utils.structured_invoke import (
     StructuredOutputUnsupported,
     invoke_structured_with_retry,
@@ -66,7 +69,17 @@ def create_reflector_node(deps: EquityResearchDeps, task_profile: TaskProfile):
                 report = post_fn(view, report)
 
             max_iter = int(state.get("max_iterations", state.get("max_consensus_iterations", task_profile.max_iterations)))
-            if report.overall_score >= task_profile.coverage_threshold and not report.critical_gaps:
+            force_exit_labels = task_profile.extra_config.get(
+                "force_exit_gap_labels",
+                TERMINAL_LIMITED_GAP_LABELS,
+            )
+            terminal_only_exit = should_force_exit_on_terminal_gaps(
+                report,
+                allowed=force_exit_labels,
+            )
+            if terminal_only_exit:
+                report.routing_decision = "exit"
+            elif report.overall_score >= task_profile.coverage_threshold and not report.critical_gaps:
                 report.routing_decision = "exit"
             elif iterations >= max_iter:
                 report.routing_decision = "exit"
@@ -110,6 +123,7 @@ def create_reflector_node(deps: EquityResearchDeps, task_profile: TaskProfile):
             }))
             return updates
         except Exception as exc:
+            print(f"Reflector node error: {exc}")
             errors.append(f"reflector: {exc}")
             return {
                 "errors": errors,

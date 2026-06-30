@@ -54,6 +54,9 @@ class AgentState(TypedDict, total=False):
     research_traces: list[dict]
     last_updated: str
 
+    _executor_batch: dict[str, Any] | None
+    _executor_tool_node: str | None
+
 
 def empty_agent_state(
     parent: dict[str, Any],

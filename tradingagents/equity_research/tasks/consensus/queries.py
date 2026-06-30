@@ -13,7 +13,7 @@ from tradingagents.equity_research.state.consensus_schemas import (
 def default_queries(ticker: str) -> list[QueryItem]:
     return [
         QueryItem(
-            query=f"{ticker} analyst consensus revenue estimates next 3 years range median",
+            query=f"{ticker} public analyst consensus revenue EPS estimates range earnings calls news aggregator",
             target_dimension="quantitative_estimates",
             mode=SearchMode.TARGETED,
             priority=5,

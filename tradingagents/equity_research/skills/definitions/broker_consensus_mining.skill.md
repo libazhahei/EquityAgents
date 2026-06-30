@@ -29,8 +29,10 @@ Context: report_type={report_type}, instrument_context={instrument_context}
 
 ## Query Guidance
 
-- Quantitative: {ticker} analyst consensus revenue EPS estimates range median
-- KPI: {ticker} key metrics analysts watch earnings call guidance
-- Pricing: {ticker} forward PE EV EBITDA implied growth vs peers
-- Narrative: {ticker} bull bear investment thesis debate
-- Delta: {ticker} estimate revision guidance change recent quarter
+Public web sources only — no FactSet, Bloomberg Terminal, Refinitiv, or other paid databases.
+
+- Quantitative: {ticker} public analyst consensus revenue EPS estimates range from earnings calls news aggregator
+- KPI: {ticker} key metrics analysts watch earnings call guidance public filings
+- Pricing: {ticker} forward PE EV EBITDA implied growth vs peers public market data
+- Narrative: {ticker} bull bear investment thesis debate financial news
+- Delta: {ticker} estimate revision guidance change recent quarter public sources

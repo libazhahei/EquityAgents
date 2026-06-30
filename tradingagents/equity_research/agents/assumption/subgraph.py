@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
-from tradingagents.equity_research.runtime.state import empty_agent_state
+from tradingagents.equity_research.runtime.state import AgentState, empty_agent_state
 from tradingagents.equity_research.runtime.subgraph_runner import create_run_profile_subgraph
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
 from tradingagents.equity_research.tasks.assumption.profile import ASSUMPTION_TASK_PROFILE
@@ -17,7 +17,7 @@ from tradingagents.equity_research.tasks.assumption.schemas import (
 )
 
 
-def _seed_assumption_state(parent: dict[str, Any], profile: TaskProfile) -> dict[str, Any]:
+def _seed_assumption_state(parent: dict[str, Any], profile: TaskProfile) -> AgentState:
     ticker = parent.get("ticker", "")
     max_iter = int(parent.get("max_assumption_iterations", profile.max_iterations))
     subgraph_input = empty_agent_state(
@@ -73,6 +73,7 @@ def _map_assumption_result(
         "research_suggestions": suggestions,
         "research_directions": directions,
         "assumption_report": result.get("final_report", ""),
+        "assumption_coverage_report": result.get("coverage_report", {}),
         "assumption_search_memory": result.get("search_memory", []),
         "assumption_evidence_buffer": result.get("evidence_buffer", []),
         "documents": result.get("documents", parent.get("documents", [])),

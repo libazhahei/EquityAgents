@@ -2,22 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from difflib import SequenceMatcher
 from typing import Any
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
+from tradingagents.equity_research.runtime.utils.dedupe import similarity
 from tradingagents.equity_research.runtime.utils.structured_invoke import invoke_structured_with_retry
 from tradingagents.equity_research.state.consensus_schemas import QueryItem, QueryPlan
 
 
 def _max_retries(deps: EquityResearchDeps) -> int:
     return int(deps.config.get("equity_research", {}).get("structured_output_max_retries", 3))
-
-
-def _similarity(a: str, b: str) -> float:
-    return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
 
 def create_planner_node(
@@ -80,7 +75,7 @@ def create_planner_node(
 
             filtered: list[QueryItem] = []
             for item in new_items:
-                if any(_similarity(item.query, prev) > 0.7 for prev in executed):
+                if any(similarity(item.query, prev) > 0.7 for prev in executed):
                     continue
                 filtered.append(item)
 

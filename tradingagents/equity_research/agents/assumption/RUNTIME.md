@@ -20,7 +20,10 @@ flowchart TD
     ST --> SA
     SA --> IP[initial_planner]
     IP --> EX[executor]
-    EX --> SY[synthesizer]
+    EX -->|tool_calls| ET[executor_tools]
+    EX -->|no_queue| EA[executor_apply]
+    ET --> EA
+    EA --> SY[synthesizer]
     SY --> RF[reflector]
     RF -->|exit| FN[finalizer]
     RF -->|run_existing_queue| EX
@@ -146,6 +149,8 @@ Do not repeat queries already in prior search memory.
 
 **输出**：`query_queue`（3–5 条）；失败时用 `default_queries(ticker)` 兜底，且每条 query 自动追加合规后缀
 
+**Query 去重**：与 `executed_queries` / `search_memory` 比对，语义相似度 > 0.7 则过滤。
+
 **默认兜底 queries**（`tasks/assumption/queries.py`）：
 
 | 维度 | 示例 query 主题 |
@@ -158,9 +163,9 @@ Do not repeat queries already in prior search memory.
 
 ---
 
-### 4. executor
+### 4. executor（dispatch → tools → apply）
 
-与 consensus 相同：Perplexity 批量搜索，无 LLM Prompt。
+与 consensus 相同：通过 `batch_perplexity_search` 工具批量搜索，无 LLM Prompt。子图节点为 `executor` → `executor_tools` → `executor_apply`。
 
 **输出**：`pending_evidence`, `evidence_buffer`, `search_memory`, `query_queue`, `documents`, `api_calls`
 
@@ -194,6 +199,19 @@ Update dimension_coverage for probed assumption dimensions.
 **输入**：`structured_view`（`AssumptionView`）, `pending_evidence`, `parent_context.consensus_view`
 
 **输出**：更新后的 `structured_view`，清空 `pending_evidence`
+
+#### Merge / 语义去重
+
+Synthesizer 产出的 `AssumptionViewUpdate` 经 `tasks/assumption/merge.merge_assumption_view` 增量合并：
+
+| 字段 | 去重策略 |
+|------|----------|
+| `assumption_map` | 按 `id` 合并；无 id 时 `statement` 语义相似度 ≥ **0.85** 视为同条 |
+| `research_suggestions` | `direction` 相似则合并：priority 取 min、合并 rationale 与 next_checks |
+| `top_research_priorities` / `open_questions` / `watchlist` | `merge_list_by_similarity`（threshold 0.85） |
+| 子列表字段（`evidence_for` 等） | 字符串子列表同样语义去重 |
+
+底层相似度：`memory.retrieval.text_similarity`（Jaccard token overlap）+ `canonical_key` 预检。
 
 ---
 
@@ -258,7 +276,7 @@ Produce up to 2 query items. Prioritize weak assumption dimensions.
 **Prompt**（`build_finalizer_prompt`）：
 
 ```
-Write a concise assumption probe report for {ticker} (target 400-800 words, max {report_max_chars} characters).
+Write a concise assumption probe report for {ticker} (target 400-800 words, aim for roughly {report_max_chars} characters).
 
 Consensus report excerpt:
 {consensus_report[:1500]}
@@ -278,7 +296,7 @@ Include:
 - Data gaps and recommended next checks
 ```
 
-**输出**：`final_report` → 映射为父 state 的 `assumption_report`
+**输出**：`final_report` → 映射为父 state 的 `assumption_report`；**不做硬截断**，`report_max_chars` 仅作为 prompt 软引导。
 
 ---
 
@@ -395,4 +413,4 @@ Assumption 的 planner 与 loop_planner 均追加 `COMPLIANCE_QUERY_SUFFIX`（`t
 |----------|--------|------|
 | `equity_research.structured_output_max_retries` | 3 | 结构化输出重试 |
 | `equity_research.batch_search_concurrency` | batch_size | 并发搜索数 |
-| profile `report_max_chars` | 4000 | 假设报告长度上限 |
+| profile `report_max_chars` | 4000 | finalizer prompt 软引导字数（不硬截断） |

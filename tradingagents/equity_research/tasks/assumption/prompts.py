@@ -24,7 +24,10 @@ from tradingagents.equity_research.tasks.assumption.schemas import (
     AssumptionView,
     empty_assumption_view,
 )
-from tradingagents.equity_research.tasks.consensus.compliance import COMPLIANCE_QUERY_SUFFIX
+from tradingagents.equity_research.tasks.consensus.compliance import (
+    COMPLIANCE_QUERY_SUFFIX,
+    PUBLIC_DATA_SOURCE_NOTE,
+)
 from tradingagents.equity_research.tasks.consensus.prompts import format_consensus_view
 
 
@@ -103,9 +106,11 @@ def build_initial_planner_prompt(deps: Any, state: dict[str, Any]) -> str:
         f"Active skills:\n{format_skill_names(skill_ctx.get('names', []))}\n"
         f"{format_skill_context(skill_ctx)}\n"
         f"{memory_block}\n"
+        f"{PUBLIC_DATA_SOURCE_NOTE}\n"
         f"{COMPLIANCE_QUERY_SUFFIX}\n\n"
         "Produce 3-5 query items probing hidden assumptions. Each item must include:\n"
-        "- query: 10-80 English words focused on what the market must be assuming\n"
+        "- query: 10-80 English words focused on what the market must be assuming; public sources only "
+        "(no FactSet, Bloomberg Terminal, or Refinitiv)\n"
         f"- target_dimension: one of\n{format_dimension_list(ASSUMPTION_SEARCH_DIMENSIONS)}\n"
         "- mode: exploratory or targeted\n"
         "- priority: integer (higher = run first)\n"
@@ -130,8 +135,10 @@ def build_loop_planner_prompt(deps: Any, state: dict[str, Any]) -> str:
         f"{_dedupe_memory_block(deps, search_memory)}"
         f"Executed queries:\n{format_executed_queries(executed)}\n\n"
         f"{format_skill_context(skill_ctx)}\n"
+        f"{PUBLIC_DATA_SOURCE_NOTE}\n"
         f"{COMPLIANCE_QUERY_SUFFIX}\n\n"
         "Produce up to 2 query items. Prioritize weak assumption quality dimensions.\n"
+        "Use public sources only; do not query paid terminals (FactSet, Bloomberg, Refinitiv).\n"
         f"- target_dimension: one of\n{format_dimension_list(ASSUMPTION_SEARCH_DIMENSIONS)}\n"
     )
 
@@ -209,7 +216,7 @@ def build_finalizer_prompt(deps: Any, ctx: dict[str, Any]) -> str:
 
     return (
         f"Write a concise assumption probe report for {ticker} "
-        f"(target 400-800 words, max {report_max_chars} characters).\n\n"
+        f"(target 400-800 words, aim for roughly {report_max_chars} characters).\n\n"
         f"Consensus report excerpt (context only — do not summarize again):\n{str(consensus_report)[:1500]}\n\n"
         f"Structured assumption map:\n{view_text}\n\n"
         f"Coverage evaluation:\n{coverage}\n\n"

@@ -9,7 +9,12 @@ from tradingagents.equity_research.agents.assumption.subgraph import create_run_
 from tradingagents.equity_research.agents.consensus.subgraph import ConsensusSubgraph, create_run_consensus_subgraph
 from tradingagents.equity_research.agents.consensus_agents import create_gap_finder
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
-from tradingagents.equity_research.runtime.nodes.executor import create_executor_node
+from tradingagents.equity_research.runtime.nodes.executor import (
+    create_executor_apply_node,
+    create_executor_dispatch_node,
+    create_executor_node,
+    create_executor_tools_node,
+)
 from tradingagents.equity_research.runtime.nodes.finalizer import create_finalizer_node
 from tradingagents.equity_research.runtime.nodes.human_review import create_human_review_node
 from tradingagents.equity_research.runtime.nodes.planner import create_planner_node
@@ -31,6 +36,10 @@ from tradingagents.equity_research.tasks.consensus.compliance import (
 from tradingagents.equity_research.tasks.consensus.merge import merge_view_update
 from tradingagents.equity_research.tasks.assumption.profile import ASSUMPTION_TASK_PROFILE
 from tradingagents.equity_research.tasks.consensus.profile import CONSENSUS_TASK_PROFILE
+from tradingagents.equity_research.tasks.consensus.prompts import (
+    apply_consensus_reflector_guards,
+    build_initial_planner_prompt,
+)
 
 
 def _tp(deps):
@@ -271,6 +280,170 @@ def test_search_memory_appended_after_query_executor():
     assert result["executed_queries"] == ["NVDA revenue estimates"]
 
 
+def test_split_executor_apply_populates_search_memory():
+    deps = _mock_deps(perplexity_citations=["https://example.com/a"])
+    base_state = {
+        "ticker": "NVDA",
+        "query_queue": [{
+            "query": "NVDA revenue estimates",
+            "target_dimension": "quantitative_estimates",
+            "mode": "targeted",
+            "priority": 5,
+        }],
+        "executed_queries": [],
+        "evidence_buffer": [],
+        "pending_evidence": [],
+        "search_memory": [],
+        "documents": [],
+        "api_calls": 0,
+        "errors": [],
+        "iterations": 0,
+        "messages": [],
+    }
+    dispatch = create_executor_dispatch_node(deps, CONSENSUS_TASK_PROFILE)
+    tools = create_executor_tools_node(deps)
+    apply = create_executor_apply_node(deps, CONSENSUS_TASK_PROFILE)
+
+    after_dispatch = {**base_state, **dispatch(base_state)}
+    after_tools = {**after_dispatch, **tools.invoke(after_dispatch)}
+    result = apply(after_tools)
+
+    assert len(result["search_memory"]) == 1
+    assert len(result["pending_evidence"]) == 1
+    assert result["search_memory"][0]["query"] == "NVDA revenue estimates"
+
+
+def test_split_executor_apply_without_batch_meta_still_populates_memory():
+    deps = _mock_deps(perplexity_citations=["https://example.com/a"])
+    dispatch = create_executor_dispatch_node(deps, CONSENSUS_TASK_PROFILE)
+    tools = create_executor_tools_node(deps)
+    apply = create_executor_apply_node(deps, CONSENSUS_TASK_PROFILE)
+
+    base_state = {
+        "ticker": "NVDA",
+        "query_queue": [{
+            "query": "NVDA revenue estimates",
+            "target_dimension": "quantitative_estimates",
+            "mode": "targeted",
+            "priority": 5,
+        }],
+        "evidence_buffer": [],
+        "pending_evidence": [],
+        "search_memory": [],
+        "documents": [],
+        "api_calls": 0,
+        "errors": [],
+        "iterations": 0,
+        "messages": [],
+    }
+    after_dispatch = {**base_state, **dispatch(base_state)}
+    after_tools = {**after_dispatch, **tools.invoke(after_dispatch)}
+    # Simulate LangGraph dropping undeclared ephemeral fields between nodes.
+    after_tools.pop("_executor_batch", None)
+    result = apply(after_tools)
+
+    assert len(result["search_memory"]) == 1
+    assert len(result["pending_evidence"]) == 1
+
+
+def test_initial_planner_prompt_mentions_no_terminal_access():
+    deps = _mock_deps()
+    prompt = build_initial_planner_prompt(deps, {
+        "ticker": "NVDA",
+        "sector": "Technology",
+        "report_type": "initiation",
+        "active_skill_context": {},
+        "search_memory": [],
+    })
+    lowered = prompt.lower()
+    assert "factset" in lowered
+    assert "bloomberg" in lowered
+    assert "refinitiv" in lowered
+    assert "public web sources" in lowered
+
+
+def test_consensus_reflector_guard_accepts_source_quality_limited_qe():
+    from tradingagents.equity_research.state.consensus_schemas import CoverageReport, QuantitativeEstimates
+
+    view = empty_structured_consensus_view("NVDA")
+    view.quantitative_estimates = QuantitativeEstimates(
+        sources=["https://example.com/aggregator"],
+        analyst_count=12,
+    )
+    report = CoverageReport(
+        dimension_scores={"quantitative_estimates": CoverageStatus.PARTIAL},
+        overall_score=0.6,
+        critical_gaps=["quantitative_estimates", "kpi_focus"],
+        suggested_focus=["quantitative_estimates"],
+    )
+    guarded = apply_consensus_reflector_guards(view, report)
+    assert "quantitative_estimates" not in guarded.critical_gaps
+    assert "kpi_focus" in guarded.critical_gaps
+
+
+def test_consensus_reflector_forces_exit_on_terminal_only_gaps():
+    deps = _mock_deps(
+        reflector_result=CoverageEvaluation(
+            dimension_scores={dim: CoverageStatus.SUFFICIENT for dim in CONSENSUS_DIMENSIONS},
+            overall_score=0.5,
+            critical_gaps=["quantitative_estimates"],
+            suggested_focus=["quantitative_estimates"],
+        ),
+    )
+    state = {
+        "ticker": "NVDA",
+        "structured_view": empty_structured_consensus_view("NVDA").model_dump(),
+        "iterations": 1,
+        "max_iterations": 5,
+        "search_memory": [],
+        "errors": [],
+    }
+    result = create_coverage_reflector(deps)(state)
+    assert result["coverage_report"]["routing_decision"] == "exit"
+
+
+def test_consensus_reflector_forces_exit_on_source_quality_only_gap():
+    deps = _mock_deps(
+        reflector_result=CoverageEvaluation(
+            dimension_scores={dim: CoverageStatus.SUFFICIENT for dim in CONSENSUS_DIMENSIONS},
+            overall_score=0.5,
+            critical_gaps=["source_quality"],
+            suggested_focus=["source_quality"],
+        ),
+    )
+    state = {
+        "ticker": "NVDA",
+        "structured_view": empty_structured_consensus_view("NVDA").model_dump(),
+        "iterations": 1,
+        "max_iterations": 5,
+        "search_memory": [],
+        "errors": [],
+    }
+    result = create_coverage_reflector(deps)(state)
+    assert result["coverage_report"]["routing_decision"] == "exit"
+
+
+def test_consensus_reflector_continues_on_mixed_gaps():
+    deps = _mock_deps(
+        reflector_result=CoverageEvaluation(
+            dimension_scores={dim: CoverageStatus.PARTIAL for dim in CONSENSUS_DIMENSIONS},
+            overall_score=0.5,
+            critical_gaps=["quantitative_estimates", "kpi_focus"],
+            suggested_focus=["kpi_focus"],
+        ),
+    )
+    state = {
+        "ticker": "NVDA",
+        "structured_view": empty_structured_consensus_view("NVDA").model_dump(),
+        "iterations": 1,
+        "max_iterations": 5,
+        "search_memory": [],
+        "errors": [],
+    }
+    result = create_coverage_reflector(deps)(state)
+    assert result["coverage_report"]["routing_decision"] == "continue"
+
+
 def test_coverage_reflector_router_exit_on_score():
     state = {"coverage_report": {"routing_decision": "exit"}}
     assert coverage_reflector_router(state) == "exit"
@@ -424,7 +597,8 @@ def test_assumption_subgraph_shares_topology_with_consensus():
     assumption_nodes = set(GenericResearchSubgraph(deps, ASSUMPTION_TASK_PROFILE).build().nodes.keys())
     core_nodes = {
         "skill_selector_agent", "skill_tools", "skill_context_apply",
-        "initial_planner", "executor", "synthesizer", "reflector",
+        "initial_planner", "executor", "executor_tools", "executor_apply",
+        "synthesizer", "reflector",
         "loop_planner", "finalizer",
     }
     assert core_nodes <= consensus_nodes
@@ -513,6 +687,29 @@ def test_finalizer_writes_consensus_report():
     }
     result = create_finalizer(deps)(state)
     assert "Key Assumptions Behind Consensus" in result["consensus_report"]
+
+
+def test_finalizer_does_not_truncate_report():
+    deps = _mock_deps()
+    long_report = "X" * 8000
+    report_resp = MagicMock()
+    report_resp.content = long_report
+    deps.quick_llm.invoke.return_value = report_resp
+    deps.config = {"equity_research": {"consensus_report_max_chars": 6000}}
+    state = {
+        "ticker": "NVDA",
+        "consensus_view": empty_structured_consensus_view("NVDA").model_dump(),
+        "consensus_assumptions": {},
+        "coverage_report": {},
+        "search_memory": [],
+        "active_skill_context": {},
+        "compliance_flags": [],
+        "evidence_buffer": [],
+        "consensus_iterations": 1,
+        "errors": [],
+    }
+    result = create_finalizer(deps)(state)
+    assert len(result["consensus_report"]) == 8000
 
 
 def test_human_review_pass_through():

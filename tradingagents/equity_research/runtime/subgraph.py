@@ -7,7 +7,12 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
-from tradingagents.equity_research.runtime.nodes.executor import create_executor_node
+from tradingagents.equity_research.runtime.nodes.executor import (
+    create_executor_apply_node,
+    create_executor_dispatch_node,
+    create_executor_tools_node,
+    executor_router,
+)
 from tradingagents.equity_research.runtime.nodes.finalizer import create_finalizer_node
 from tradingagents.equity_research.runtime.nodes.human_review import create_human_review_node
 from tradingagents.equity_research.runtime.nodes.planner import create_planner_node
@@ -39,6 +44,43 @@ class GenericResearchSubgraph:
     def __init__(self, deps: EquityResearchDeps, task_profile: TaskProfile) -> None:
         self.deps = deps
         self.tp = task_profile
+        self.tool_nodes_by_caller = self._init_tool_nodes_by_caller()
+        self.executor_tool_nodes = self.tool_nodes_for("executor")
+        self.executor_tool_node_name = self.preferred_tool_node_name("executor")
+
+    def _init_tool_nodes_by_caller(self) -> dict[str, dict[str, Any]]:
+        """Prebuild tool nodes grouped by caller node name."""
+        base = create_executor_tools_node(self.deps)
+        callers = (
+            "executor",
+            "initial_planner",
+            "loop_planner",
+            "synthesizer",
+            "reflector",
+            "finalizer",
+        )
+        by_caller: dict[str, dict[str, Any]] = {}
+        for caller in callers:
+            by_caller[caller] = {
+                f"{caller}_tools": base,
+                f"{caller}_tools_{self.tp.task_id}": base,
+            }
+        return by_caller
+
+    def tool_nodes_for(self, caller_name: str) -> dict[str, Any]:
+        return self.tool_nodes_by_caller.get(caller_name, {})
+
+    def preferred_tool_node_name(self, caller_name: str) -> str:
+        by_caller = self.tp.extra_config.get("tool_node_name_by_caller", {})
+        if caller_name in by_caller:
+            return str(by_caller[caller_name])
+        return f"{caller_name}_tools_{self.tp.task_id}"
+
+    def all_tool_nodes(self) -> dict[str, Any]:
+        merged: dict[str, Any] = {}
+        for mapping in self.tool_nodes_by_caller.values():
+            merged.update(mapping)
+        return merged
 
     def build(self) -> StateGraph:
         graph = StateGraph(AgentState)
@@ -48,7 +90,17 @@ class GenericResearchSubgraph:
         graph.add_node("skill_tools", create_skill_tools_node(self.deps, tp))
         graph.add_node("skill_context_apply", create_skill_context_apply(self.deps, tp))
         graph.add_node("initial_planner", create_planner_node(self.deps, tp, mode="initial"))
-        graph.add_node("executor", create_executor_node(self.deps, tp))
+        graph.add_node(
+            "executor",
+            create_executor_dispatch_node(
+                self.deps,
+                tp,
+                tool_node_name=self.executor_tool_node_name,
+            ),
+        )
+        for node_name, tool_node in self.all_tool_nodes().items():
+            graph.add_node(node_name, tool_node)
+        graph.add_node("executor_apply", create_executor_apply_node(self.deps, tp))
         graph.add_node("synthesizer", create_synthesizer_node(self.deps, tp))
         graph.add_node("reflector", create_reflector_node(self.deps, tp))
         graph.add_node("loop_planner", create_planner_node(self.deps, tp, mode="loop"))
@@ -66,7 +118,17 @@ class GenericResearchSubgraph:
         graph.add_edge("skill_tools", "skill_context_apply")
         graph.add_edge("skill_context_apply", "initial_planner")
         graph.add_edge("initial_planner", "executor")
-        graph.add_edge("executor", "synthesizer")
+        graph.add_conditional_edges(
+            "executor",
+            executor_router,
+            {
+                "apply": "executor_apply",
+                **{name: name for name in self.executor_tool_nodes},
+            },
+        )
+        for node_name in self.executor_tool_nodes:
+            graph.add_edge(node_name, "executor_apply")
+        graph.add_edge("executor_apply", "synthesizer")
         graph.add_edge("synthesizer", "reflector")
         graph.add_conditional_edges(
             "reflector",

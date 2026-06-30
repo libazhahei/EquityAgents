@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from tradingagents.equity_research.runtime.utils.dedupe import merge_list_by_similarity
 from tradingagents.equity_research.state.consensus_schemas import (
     ConflictRecord,
     CoverageStatus,
@@ -42,13 +43,24 @@ def _merge_scalar(old: Any, new: Any, *, conflicts: list[ConflictRecord] | None 
     return old
 
 
-def _merge_list(old: list[Any] | None, new: list[Any] | None) -> list[Any]:
+def _merge_string_list(
+    old: list[Any] | None,
+    new: list[Any] | None,
+    *,
+    semantic: bool = True,
+) -> list[Any]:
     combined = [*(old or []), *(new or [])]
     if not combined:
         return []
     if all(isinstance(item, str) for item in combined):
+        if semantic:
+            return merge_list_by_similarity(list(old or []), list(new or []))
         return _dedupe_preserve_order(combined)
     return combined
+
+
+def _merge_list(old: list[Any] | None, new: list[Any] | None) -> list[Any]:
+    return _merge_string_list(old, new, semantic=True)
 
 
 def _merge_coverage(old: CoverageStatus | str | None, new: CoverageStatus | str | None) -> CoverageStatus:
@@ -75,7 +87,7 @@ def _merge_model_dict(old: dict[str, Any], new: dict[str, Any], conflicts: list[
         if value is None:
             continue
         if key == "sources" and isinstance(value, list):
-            merged[key] = _merge_list(merged.get(key, []), value)
+            merged[key] = _merge_string_list(merged.get(key, []), value, semantic=False)
         elif key == "conflicts" and isinstance(value, list):
             merged[key] = _merge_list(merged.get(key, []), value)
         elif key == "dimension_coverage" and isinstance(value, dict):

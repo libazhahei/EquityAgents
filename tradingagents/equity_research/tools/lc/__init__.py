@@ -17,6 +17,7 @@ from tradingagents.equity_research.tools.lc import (
     human,
     legacy,
     memory,
+    planner,
     quality,
     search,
     stubs,
@@ -42,6 +43,7 @@ STATIC_LANGCHAIN_TOOLS: dict[str, BaseTool] = {
     "source_quality_check": search.source_quality_check,
     "citation_extractor": search.citation_extractor,
     "search_deduper": search.search_deduper,
+    "batch_light_grounding_search": planner.batch_light_grounding_search,
     # Finance
     "stock_quote": finance.stock_quote,
     "company_profile": finance.company_profile,

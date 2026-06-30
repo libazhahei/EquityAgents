@@ -7,6 +7,7 @@ from typing import Any, Callable
 from langchain_core.tools import BaseTool
 
 from tradingagents.equity_research.tools.lc import STATIC_LANGCHAIN_TOOLS, build_system_langchain_tools
+from tradingagents.equity_research.tools.lc.search import make_batch_perplexity_search_tool
 from tradingagents.equity_research.tools.perplexity_tool import make_perplexity_search_tool
 from tradingagents.equity_research.tools.tool_adapters import make_registry_callable
 
@@ -23,6 +24,10 @@ class ToolRegistry:
         self._bind_system_tools()
         if deps is not None:
             self._register_langchain_tool("perplexity_search", make_perplexity_search_tool(deps))
+            self._register_langchain_tool(
+                "batch_perplexity_search",
+                make_batch_perplexity_search_tool(deps),
+            )
 
     def set_skill_registry(self, skill_registry: Any) -> None:
         self._skill_registry = skill_registry

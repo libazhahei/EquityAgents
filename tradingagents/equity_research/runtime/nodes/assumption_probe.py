@@ -36,14 +36,9 @@ def create_assumption_probe_gate(deps: EquityResearchDeps, task_profile: TaskPro
 
 
 def create_assumption_query_planner(deps: EquityResearchDeps, task_profile: TaskProfile):
-    from collections.abc import Callable
-    from difflib import SequenceMatcher
-
+    from tradingagents.equity_research.runtime.utils.dedupe import similarity
     from tradingagents.equity_research.runtime.utils.structured_invoke import invoke_structured_with_retry
     from tradingagents.equity_research.state.consensus_schemas import QueryItem
-
-    def _similarity(a: str, b: str) -> float:
-        return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
     def assumption_query_planner(state: dict[str, Any]) -> dict[str, Any]:
         errors = list(state.get("errors", []))
@@ -63,7 +58,7 @@ def create_assumption_query_planner(deps: EquityResearchDeps, task_profile: Task
             executed = state.get("executed_queries", [])
             filtered = [
                 item for item in new_items
-                if not any(_similarity(item.query, prev) > 0.7 for prev in executed)
+                if not any(similarity(item.query, prev) > 0.7 for prev in executed)
             ]
             updates: dict[str, Any] = {"query_queue": [q.model_dump() for q in filtered]}
             updates.update(deps.trace({**state, **updates}, "assumption_query_planner"))

@@ -28,6 +28,7 @@ from tradingagents.equity_research.state.consensus_schemas import (
 )
 from tradingagents.equity_research.tasks.consensus.compliance import (
     COMPLIANCE_QUERY_SUFFIX,
+    PUBLIC_DATA_SOURCE_NOTE,
     append_compliance_suffix,
 )
 
@@ -135,8 +136,9 @@ def build_initial_planner_prompt(deps: Any, state: dict[str, Any]) -> str:
         f"Active skills:\n{format_skill_names(skill_ctx.get('names', []))}\n\n"
         f"{format_skill_context(skill_ctx)}\n"
         f"{memory_block}\n"
+        f"{PUBLIC_DATA_SOURCE_NOTE}\n\n"
         "Produce exactly 5 query items, one for each dimension. Each item must include:\n"
-        "- query: 10-80 English words\n"
+        "- query: 10-80 English words targeting public sources only (no FactSet, Bloomberg Terminal, or Refinitiv)\n"
         f"- target_dimension: one of\n{format_dimension_list(CONSENSUS_DIMENSIONS)}\n"
         "- mode: exploratory or targeted\n"
         "- priority: integer (higher = run first)\n\n"
@@ -171,14 +173,18 @@ def build_loop_planner_prompt(deps: Any, state: dict[str, Any]) -> str:
         f"Executed queries:\n{format_executed_queries(executed)}\n\n"
         f"{format_skill_context(skill_ctx)}\n"
         f"{human_block}\n"
+        f"{PUBLIC_DATA_SOURCE_NOTE}\n\n"
         "Produce a query plan with up to 2 items. Each item must include:\n"
-        "- query: 10-80 English words, different from prior queries\n"
+        "- query: 10-80 English words, different from prior queries; public sources only "
+        "(no FactSet, Bloomberg Terminal, or Refinitiv)\n"
         f"- target_dimension: one of\n{format_dimension_list(CONSENSUS_DIMENSIONS)}\n"
         "- mode: exploratory or targeted\n"
         "- priority: integer\n"
         "Prioritize dimensions still weak per the coverage evaluation above.\n"
         "Do not re-search topics already sufficient or strong.\n"
         "Do not repeat topics already covered in prior search memory.\n"
+        "If quantitative_estimates is partial due to source_quality limits on public data, "
+        "do not generate queries for paid terminal databases; focus on other weak dimensions.\n"
         "If there is any conflicts between existing content and new evidence, "
         "record conflicts structurally; do not rely on [CON] text markers.\n"
     )
@@ -214,6 +220,7 @@ def build_assumption_planner_prompt(deps: Any, state: dict[str, Any]) -> str:
         f"Coverage summary:\n{format_coverage_report_for_planner(report, state)}\n\n"
         f"Prior search memory:\n{build_search_memory_for_prompt(deps, search_memory)}\n\n"
         f"Probe themes (prioritize gaps, not every theme needs a query):\n{themes}\n\n"
+        f"{PUBLIC_DATA_SOURCE_NOTE}\n"
         f"{COMPLIANCE_QUERY_SUFFIX}\n\n"
         "Each query item must include:\n"
         "- query: 10-80 English words with compliance suffix if not already present\n"
@@ -291,6 +298,9 @@ def build_synthesizer_prompt(deps: Any, state: dict[str, Any], view: StructuredC
         "Attribute evidence only to its target_dimension.\n"
         "Update dimension_coverage for each dimension.\n"
         "For every numeric estimate include period, period_end, estimate_type, basis, and source_quality when known.\n"
+        "If evidence comes from public aggregators or news rather than paid terminals, still populate "
+        "quantitative_estimates with available fields and label source_quality accordingly; "
+        "do not leave the dimension empty solely due to missing terminal-grade precision.\n"
         "Do not use Reddit, YouTube, or social media as core estimate evidence.\n"
         "Do not fabricate numbers without citation in sources."
     )
@@ -306,6 +316,12 @@ def build_reflector_prompt(deps: Any, view: StructuredConsensusView, memory_summ
         f"{memory_summary}\n"
         "Score each dimension as empty, partial, sufficient, or strong.\n"
         "Also assess source_quality across dimensions (reliability of citations, period clarity).\n"
+        "For quantitative_estimates: distinguish missing content from source_quality limits. "
+        "If public-source evidence exists (aggregator/media/secondary) but terminal-grade precision "
+        "is unavailable, score partial or sufficient and do NOT list quantitative_estimates in "
+        "critical_gaps solely due to paid-database access limits.\n"
+        "If the only remaining weaknesses are quantitative_estimates and/or source_quality, "
+        "list those explicitly; the loop will exit rather than re-query paid terminals.\n"
         "Provide an overall_score between 0 and 1.\n"
         "List critical_gaps as dimension names still weak.\n"
         "List suggested_focus as dimensions to prioritize next."
@@ -352,7 +368,7 @@ def build_finalizer_prompt(deps: Any, ctx: dict[str, Any]) -> str:
 
     return (
         f"Write a moderate-length market consensus report for {ticker} "
-        f"(target 800-1500 words, max {report_max_chars} characters).\n\n"
+        f"(target 800-1500 words, aim for roughly {report_max_chars} characters).\n\n"
         f"Structured consensus view:\n{view_text}\n\n"
         f"Key assumptions behind consensus:\n{assumptions}\n\n"
         f"Coverage evaluation:\n{coverage}\n\n"
@@ -413,6 +429,44 @@ def evaluation_to_report(evaluation: Any) -> CoverageReport:
         critical_gaps=list(evaluation.critical_gaps),
         suggested_focus=list(evaluation.suggested_focus),
     )
+
+
+def _quantitative_estimates_has_public_evidence(view: StructuredConsensusView) -> bool:
+    qe = view.quantitative_estimates
+    if qe.sources or qe.analyst_count:
+        return True
+    for field_name in ("revenue_estimates", "earnings_estimates", "fcf_estimates"):
+        estimate_range = getattr(qe, field_name, None)
+        if not estimate_range:
+            continue
+        for year_key in ("year_1", "year_2", "year_3"):
+            year_est = getattr(estimate_range, year_key, None)
+            if year_est and any(
+                getattr(year_est, attr, "")
+                for attr in ("low", "median", "high", "period", "source_quality")
+            ):
+                return True
+    return False
+
+
+def apply_consensus_reflector_guards(
+    view: StructuredConsensusView,
+    report: CoverageReport,
+) -> CoverageReport:
+    if "quantitative_estimates" not in report.critical_gaps:
+        return report
+    if not _quantitative_estimates_has_public_evidence(view):
+        return report
+    score = report.dimension_scores.get("quantitative_estimates", CoverageStatus.EMPTY)
+    if score in (
+        CoverageStatus.PARTIAL,
+        CoverageStatus.SUFFICIENT,
+        CoverageStatus.STRONG,
+    ):
+        report.critical_gaps = [
+            gap for gap in report.critical_gaps if gap != "quantitative_estimates"
+        ]
+    return report
 
 
 def apply_evidence_heuristic(view: StructuredConsensusView, evidence: list[dict]) -> None:

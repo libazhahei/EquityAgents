@@ -32,8 +32,17 @@ def get_consensus_compliance_config(config: dict[str, Any] | None) -> dict[str, 
 
 COMPLIANCE_QUERY_SUFFIX = (
     "Use only publicly available sources: SEC filings, earnings calls, "
-    "broker research summaries, news, and consensus data providers. "
+    "broker research summaries, news, and free public consensus aggregators. "
     "Do not use MNPI, insider tips, or unauthorized expert network content."
+)
+
+PUBLIC_DATA_SOURCE_NOTE = (
+    "Data access: searches use public web sources only. "
+    "You do NOT have access to paid professional terminals or databases "
+    "(FactSet, Bloomberg Terminal, Refinitiv/Eikon, S&P Capital IQ, etc.). "
+    "Write queries for publicly available evidence only: SEC filings, earnings "
+    "call transcripts, broker research summaries, financial news, and free "
+    "consensus aggregator pages."
 )
 
 

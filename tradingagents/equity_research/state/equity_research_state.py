@@ -29,6 +29,7 @@ def empty_equity_research_state() -> dict[str, Any]:
         "broker_views": [],
         "consensus_view": {},
         "consensus_report": "",
+        "consensus_coverage_report": {},
         "consensus_assumptions": {},
         "consensus_iterations": 0,
         "max_consensus_iterations": 5,
@@ -37,6 +38,7 @@ def empty_equity_research_state() -> dict[str, Any]:
         "assumption_view": {},
         "assumption_map": [],
         "assumption_report": "",
+        "assumption_coverage_report": {},
         "assumption_search_memory": [],
         "assumption_evidence_buffer": [],
         "research_suggestions": [],
@@ -44,6 +46,8 @@ def empty_equity_research_state() -> dict[str, Any]:
         "max_assumption_iterations": 3,
         "expectation_gaps": [],
         "research_plan": {},
+        "section_plans": {},
+        "planner_exploration_graph": {"nodes": {}, "branch_roots": {}},
         "active_objective": "",
         "completed_objectives": [],
         "research_gaps": [],
@@ -62,6 +66,7 @@ def empty_equity_research_state() -> dict[str, Any]:
         "research_graph": {"nodes": {}, "edges": [], "best_node_id": None, "branches": {}},
         "research_strategy": {},
         "task_analysis": {},
+        "subgraph_outputs": {},
         "metric_store": {},
         "hypothesis_nodes": {},
         "active_hypothesis_ids": [],
@@ -133,6 +138,7 @@ class EquityResearchState(TypedDict, total=False):
     broker_views: list[dict]
     consensus_view: dict
     consensus_report: str
+    consensus_coverage_report: dict
     consensus_assumptions: dict
     consensus_iterations: int
     max_consensus_iterations: int
@@ -141,6 +147,7 @@ class EquityResearchState(TypedDict, total=False):
     assumption_view: dict
     assumption_map: list[dict]
     assumption_report: str
+    assumption_coverage_report: dict
     assumption_search_memory: list[dict]
     assumption_evidence_buffer: list[dict]
     research_suggestions: list[dict]
@@ -148,6 +155,8 @@ class EquityResearchState(TypedDict, total=False):
     max_assumption_iterations: int
     expectation_gaps: list[dict]
     research_plan: dict
+    section_plans: dict[str, dict]
+    planner_exploration_graph: dict
     active_objective: str
     completed_objectives: list[str]
     research_gaps: list[dict]
@@ -166,6 +175,7 @@ class EquityResearchState(TypedDict, total=False):
     research_graph: dict
     research_strategy: dict
     task_analysis: dict
+    subgraph_outputs: dict[str, dict[str, Any]]
     metric_store: dict
     hypothesis_nodes: dict[str, dict]
     active_hypothesis_ids: list[str]

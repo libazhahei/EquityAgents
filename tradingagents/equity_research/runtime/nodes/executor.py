@@ -1,18 +1,25 @@
-"""Batch search executor node for research subgraphs."""
+"""Batch search executor nodes for research subgraphs."""
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import json
+import uuid
 from typing import Any, Callable
+
+from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.tools import BaseTool
+from langgraph.prebuilt import ToolNode
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
 from tradingagents.equity_research.runtime.utils.search_memory import (
     append_search_record,
     queries_from_memory,
-    record_from_evidence,
 )
-from tradingagents.equity_research.tools.perplexity_tool import execute_perplexity_search
+from tradingagents.equity_research.state.consensus_schemas import SearchRecord
+from tradingagents.equity_research.tools.search_tools import _batch_concurrency
+
+BATCH_PERPLEXITY_TOOL_NAME = "batch_perplexity_search"
 
 
 def _append_documents(documents: list[dict], doc_ids: list[str]) -> list[dict]:
@@ -25,13 +32,172 @@ def _append_documents(documents: list[dict], doc_ids: list[str]) -> list[dict]:
     return new_docs
 
 
-def _batch_concurrency(deps: EquityResearchDeps, batch_size: int) -> int:
-    er = deps.config.get("equity_research", {}) or {}
-    configured = er.get("batch_search_concurrency", batch_size)
+def build_executor_tools(
+    deps: EquityResearchDeps,
+    *,
+    search_fn: Callable[..., Any] | None = None,
+    extra: list[BaseTool] | None = None,
+) -> list[BaseTool]:
+    from tradingagents.equity_research.tools.lc.search import make_batch_perplexity_search_tool
+
+    tools: list[BaseTool] = [make_batch_perplexity_search_tool(deps, search_fn=search_fn)]
+    if extra:
+        tools.extend(extra)
+    return tools
+
+
+def create_executor_tools_node(
+    deps: EquityResearchDeps,
+    *,
+    search_fn: Callable[..., Any] | None = None,
+    extra: list[BaseTool] | None = None,
+):
+    return ToolNode(build_executor_tools(deps, search_fn=search_fn, extra=extra))
+
+
+def executor_router(state: dict[str, Any]) -> str:
+    messages = state.get("messages", [])
+    if messages:
+        last = messages[-1]
+        if isinstance(last, AIMessage) and last.tool_calls:
+            return str(state.get("_executor_tool_node", "executor_tools"))
+    return "apply"
+
+
+def _parse_batch_search_result(content: str) -> dict[str, Any]:
     try:
-        return max(1, min(int(configured), batch_size))
-    except (TypeError, ValueError):
-        return max(1, batch_size)
+        return json.loads(content)
+    except json.JSONDecodeError:
+        return {"items": [], "api_calls": 0, "errors": [f"invalid tool result: {content[:120]}"]}
+
+
+def _latest_batch_tool_result(messages: list[Any]) -> dict[str, Any] | None:
+    for message in reversed(messages):
+        if isinstance(message, ToolMessage):
+            parsed = _parse_batch_search_result(str(message.content))
+            if parsed.get("items") is not None:
+                return parsed
+    return None
+
+
+def create_executor_dispatch_node(
+    deps: EquityResearchDeps,
+    task_profile: TaskProfile,
+    *,
+    batch_size: int = 5,
+    tool_node_name: str = "executor_tools",
+):
+    def executor_dispatch(state: dict[str, Any]) -> dict[str, Any]:
+        queue = list(state.get("query_queue", []))
+        if not queue:
+            return {}
+
+        queue.sort(key=lambda q: int(q.get("priority", 0)), reverse=True)
+        to_run = queue[:batch_size]
+        remaining = queue[batch_size:]
+        ticker = state.get("ticker", "")
+        iteration = int(state.get("iterations", state.get("consensus_iterations", 0)))
+        search_memory = list(state.get("search_memory", []))
+
+        tool_call_id = f"batch_{uuid.uuid4().hex[:8]}"
+        return {
+            "query_queue": remaining,
+            "_executor_tool_node": tool_node_name,
+            "_executor_batch": {
+                "batch_size": len(to_run),
+                "to_run": to_run,
+                "tool_call_id": tool_call_id,
+            },
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[{
+                        "id": tool_call_id,
+                        "name": BATCH_PERPLEXITY_TOOL_NAME,
+                        "args": {
+                            "ticker": ticker,
+                            "queries": to_run,
+                            "iteration": iteration,
+                            "search_memory": search_memory,
+                        },
+                    }],
+                ),
+            ],
+        }
+
+    return executor_dispatch
+
+
+def create_executor_apply_node(
+    deps: EquityResearchDeps,
+    task_profile: TaskProfile,
+    *,
+    trace_name: str | None = None,
+):
+    agent_trace = trace_name or f"{task_profile.task_id}_query_executor"
+
+    def executor_apply(state: dict[str, Any]) -> dict[str, Any]:
+        batch_meta = state.get("_executor_batch")
+        batch_result = _latest_batch_tool_result(state.get("messages", []))
+        if not batch_meta and not batch_result:
+            return {"messages": []}
+
+        errors = list(state.get("errors", []))
+        search_memory = list(state.get("search_memory", []))
+        buffer = list(state.get("evidence_buffer", []))
+        pending = list(state.get("pending_evidence", []))
+        new_docs = list(state.get("documents", []))
+        api_calls = int(state.get("api_calls", 0))
+        dimensions_run: list[str] = []
+
+        batch_result = batch_result or {"items": [], "api_calls": 0, "errors": []}
+
+        errors.extend(batch_result.get("errors") or [])
+        api_calls += int(batch_result.get("api_calls", 0))
+
+        items = list(batch_result.get("items") or [])
+        batch_size = int((batch_meta or {}).get("batch_size", 0)) or len(items) or 1
+        concurrency = _batch_concurrency(deps, batch_size)
+
+        items.sort(key=lambda item: int(item.get("priority", 0)), reverse=True)
+
+        for item in items:
+            dimensions_run.append(item.get("target_dimension", "narrative_framework"))
+            if item.get("error"):
+                errors.append(str(item["error"]))
+                continue
+            evidence = item.get("evidence")
+            record = item.get("record")
+            if not evidence or not record:
+                continue
+            buffer.append(evidence)
+            pending.append(evidence)
+            search_memory = append_search_record(search_memory, SearchRecord(**record))
+            new_docs = _append_documents(new_docs, list(item.get("doc_ids") or []))
+
+        executed = queries_from_memory(search_memory)
+        updates: dict[str, Any] = {
+            "query_queue": list(state.get("query_queue", [])),
+            "executed_queries": executed,
+            "search_memory": search_memory,
+            "evidence_buffer": buffer,
+            "pending_evidence": pending,
+            "documents": new_docs,
+            "api_calls": api_calls,
+            "messages": [],
+            "_executor_tool_node": None,
+            "_executor_batch": None,
+        }
+        if errors:
+            updates["errors"] = errors
+        updates.update(deps.trace({**state, **updates}, agent_trace, {
+            "batch_size": batch_size,
+            "dimensions": dimensions_run,
+            "concurrency": concurrency,
+        }))
+        return updates
+
+    return executor_apply
 
 
 def create_executor_node(
@@ -42,114 +208,30 @@ def create_executor_node(
     trace_name: str | None = None,
     search_fn: Callable[..., Any] | None = None,
 ):
-    run_search = search_fn or execute_perplexity_search
-    agent_trace = trace_name or f"{task_profile.task_id}_query_executor"
-
-    def _run_one_query(
-        item: dict[str, Any],
-        *,
-        ticker: str,
-        iteration: int,
-    ) -> tuple[dict[str, Any] | None, Any, list[str], int, str | None]:
-        query = item.get("query", "")
-        target_dimension = item.get("target_dimension", "narrative_framework")
-        mode = item.get("mode", "exploratory")
-        try:
-            evidence = run_search(
-                deps,
-                query=query,
-                mode=mode,
-                target_dimension=target_dimension,
-                ticker=ticker,
-            )
-            evidence_dict = evidence.model_dump()
-            record = record_from_evidence(
-                deps, evidence, iteration=iteration, mode=str(mode), query=query
-            )
-            return evidence_dict, record, evidence.doc_ids, 1, None
-        except Exception as exc:
-            return None, None, [], 0, f"query failed ({query[:60]}): {exc}"
+    dispatch = create_executor_dispatch_node(deps, task_profile, batch_size=batch_size)
+    tools = create_executor_tools_node(deps, search_fn=search_fn)
+    apply = create_executor_apply_node(deps, task_profile, trace_name=trace_name)
 
     def query_batch_executor(state: dict[str, Any]) -> dict[str, Any]:
-        errors = list(state.get("errors", []))
-        ticker = state.get("ticker", "")
-        queue = list(state.get("query_queue", []))
-        if not queue:
-            return {}
-
-        queue.sort(key=lambda q: int(q.get("priority", 0)), reverse=True)
-        to_run = queue[:batch_size]
-        remaining = queue[batch_size:]
-
-        search_memory = list(state.get("search_memory", []))
-        buffer = list(state.get("evidence_buffer", []))
-        pending = list(state.get("pending_evidence", []))
-        new_docs = list(state.get("documents", []))
-        api_calls = int(state.get("api_calls", 0))
-        iteration = int(state.get("iterations", state.get("consensus_iterations", 0)))
-        dimensions_run: list[str] = []
-        concurrency = _batch_concurrency(deps, len(to_run))
-
         try:
-            results_by_priority: dict[int, tuple] = {}
-            with ThreadPoolExecutor(max_workers=concurrency) as pool:
-                futures = {
-                    pool.submit(
-                        _run_one_query,
-                        item,
-                        ticker=ticker,
-                        iteration=iteration,
-                    ): item
-                    for item in to_run
-                }
-                for fut in as_completed(futures):
-                    item = futures[fut]
-                    priority = int(item.get("priority", 0))
-                    dimensions_run.append(item.get("target_dimension", "narrative_framework"))
-                    evidence_dict, record, doc_ids, calls, err = fut.result()
-                    if err:
-                        errors.append(err)
-                        continue
-                    if evidence_dict is None or record is None:
-                        continue
-                    results_by_priority[priority] = (evidence_dict, record, doc_ids, calls)
-
-            for priority in sorted(results_by_priority.keys(), reverse=True):
-                evidence_dict, record, doc_ids, calls = results_by_priority[priority]
-                buffer.append(evidence_dict)
-                pending.append(evidence_dict)
-                search_memory = append_search_record(search_memory, record)
-                new_docs = _append_documents(new_docs, doc_ids)
-                api_calls += calls
-
-            executed = queries_from_memory(search_memory)
-            updates: dict[str, Any] = {
-                "query_queue": remaining,
-                "executed_queries": executed,
-                "search_memory": search_memory,
-                "evidence_buffer": buffer,
-                "pending_evidence": pending,
-                "documents": new_docs,
-                "api_calls": api_calls,
-            }
-            if errors:
-                updates["errors"] = errors
-            updates.update(deps.trace({**state, **updates}, agent_trace, {
-                "batch_size": len(to_run),
-                "dimensions": dimensions_run,
-                "concurrency": concurrency,
-            }))
-            return updates
+            dispatch_updates = dispatch(state)
+            if not dispatch_updates:
+                return {}
+            working = {**state, **dispatch_updates}
+            if executor_router(working) != "apply":
+                working = {**working, **tools.invoke(working)}
+            return apply(working)
         except Exception as exc:
+            errors = list(state.get("errors", []))
             errors.append(f"query_batch_executor: {exc}")
             return {
                 "errors": errors,
-                "query_queue": remaining,
-                "evidence_buffer": buffer,
-                "pending_evidence": pending,
-                "search_memory": search_memory,
-                "documents": new_docs,
-                "api_calls": api_calls,
+                "query_queue": list(state.get("query_queue", [])),
+                "evidence_buffer": list(state.get("evidence_buffer", [])),
+                "pending_evidence": list(state.get("pending_evidence", [])),
+                "search_memory": list(state.get("search_memory", [])),
+                "documents": list(state.get("documents", [])),
+                "api_calls": int(state.get("api_calls", 0)),
             }
 
     return query_batch_executor

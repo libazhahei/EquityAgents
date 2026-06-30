@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
+from tradingagents.equity_research.runtime.utils.reflector_routing import TERMINAL_LIMITED_GAP_LABELS
 from tradingagents.equity_research.tasks.assumption.merge import merge_assumption_view
 from tradingagents.equity_research.tasks.assumption.prompts import (
     apply_evidence_heuristic,
@@ -62,5 +63,8 @@ ASSUMPTION_TASK_PROFILE = TaskProfile(
     default_coverage_report_fn=default_coverage_report,
     apply_evidence_heuristic_fn=apply_evidence_heuristic,
     evaluation_to_report_fn=_evaluation_to_report,
-    extra_config={"post_reflector_fn": apply_reflector_guards},
+    extra_config={
+        "post_reflector_fn": apply_reflector_guards,
+        "force_exit_gap_labels": TERMINAL_LIMITED_GAP_LABELS,
+    },
 )

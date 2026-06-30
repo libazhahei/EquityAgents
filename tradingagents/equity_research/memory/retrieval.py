@@ -28,7 +28,7 @@ def memory_score(
 
 
 def _text_similarity(query: str, text: str) -> float:
-    """Lightweight token overlap similarity (no embedding required)."""
+    """Asymmetric query→text token overlap for memory retrieval scoring."""
     if not query or not text:
         return 0.0
     q_tokens = set(query.lower().split())
@@ -36,6 +36,18 @@ def _text_similarity(query: str, text: str) -> float:
     if not q_tokens:
         return 0.0
     return len(q_tokens & t_tokens) / len(q_tokens)
+
+
+def text_similarity(a: str, b: str) -> float:
+    """Symmetric Jaccard token overlap for deduplication (no embedding required)."""
+    if not a or not b:
+        return 0.0
+    a_tokens = set(a.lower().split())
+    b_tokens = set(b.lower().split())
+    union = a_tokens | b_tokens
+    if not union:
+        return 0.0
+    return len(a_tokens & b_tokens) / len(union)
 
 
 def _recency_score(date_str: str) -> float:

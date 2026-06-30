@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+import json
+from typing import Annotated, Any, Callable
 
-from langchain_core.tools import tool
+from langchain_core.tools import BaseTool, tool
 
 from tradingagents.equity_research.tools import search_tools
 
@@ -51,3 +52,35 @@ def search_deduper(
 ) -> dict[str, Any]:
     """Deduplicate similar search results."""
     return search_tools.search_deduper(results)
+
+
+def make_batch_perplexity_search_tool(
+    deps: Any,
+    *,
+    search_fn: Callable[..., Any] | None = None,
+) -> BaseTool:
+    @tool
+    def batch_perplexity_search(
+        ticker: Annotated[str, "Ticker symbol"],
+        queries: Annotated[
+            str | list[str | dict[str, Any]],
+            "One query string, one query item dict, or a list of query items",
+        ],
+        iteration: Annotated[int, "Research iteration index"] = 0,
+        search_memory: Annotated[
+            list[dict] | None,
+            "Prior search records for exact-query cache reuse",
+        ] = None,
+    ) -> str:
+        """Run one or many Perplexity searches with batch dedup and memory cache."""
+        result = search_tools.batch_perplexity_search(
+            deps,
+            ticker=ticker,
+            queries=queries,
+            iteration=iteration,
+            search_memory=search_memory,
+            search_fn=search_fn,
+        )
+        return json.dumps(result)
+
+    return batch_perplexity_search

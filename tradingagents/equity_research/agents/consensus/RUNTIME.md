@@ -16,7 +16,10 @@ flowchart TD
     ST --> SA
     SA --> IP[initial_planner]
     IP --> EX[executor]
-    EX --> SY[synthesizer]
+    EX -->|tool_calls| ET[executor_tools]
+    EX -->|no_queue| EA[executor_apply]
+    ET --> EA
+    EA --> SY[synthesizer]
     SY --> RF[reflector]
     RF -->|exit| FN[finalizer]
     RF -->|run_existing_queue| EX
@@ -146,15 +149,24 @@ Do not repeat queries already covered in prior search memory.
 
 **输出**：`query_queue`（最多 5 条 `QueryItem`）；LLM 失败时用 `default_queries(ticker)` 兜底
 
+**Query 去重**：与 `executed_queries` / `search_memory` 中已有 query 做语义比对（`memory.retrieval.text_similarity`，Jaccard token overlap）；相似度 > 0.7 则过滤，避免重复搜索。
+
 ---
 
-### 4. executor
+### 4. executor（dispatch → tools → apply）
 
-**无 LLM Prompt**。对 `query_queue` 按 `priority` 取最多 5 条，并发调用 Perplexity（`execute_perplexity_search`）。
+**无 LLM Prompt**。`executor` 从 `query_queue` 按 `priority` 取最多 5 条，构造 `batch_perplexity_search` 工具调用；`executor_tools`（ToolNode）执行搜索；`executor_apply` 将结果写回状态。
+
+**工具**：`batch_perplexity_search`（[`search_tools.py`](../../tools/search_tools.py) + [`tools/lc/search.py`](../../tools/lc/search.py)）
+
+- 支持单条 query 或 query 列表
+- 批内相同 query（规范化精确匹配）只调一次 Perplexity，结果 fan-out 到各 item
+- `search_memory` 中已有相同 query 时复用缓存，不增加 `api_calls`
+- 多条未缓存 query 时按 `batch_search_concurrency` 并发
 
 **每条搜索输入**：`query`, `mode`, `target_dimension`, `ticker`
 
-**输出**：
+**输出**（由 `executor_apply` 写入）：
 
 | 字段 | 说明 |
 |------|------|
@@ -193,6 +205,16 @@ Do not fabricate numbers without citation in sources.
 **输入**：`structured_view`, `pending_evidence`
 
 **输出**：更新后的 `structured_view`（同步写 `consensus_view`），清空 `pending_evidence`
+
+#### Merge / 语义去重
+
+Synthesizer 产出的 `ConsensusViewUpdate` 经 `tasks/consensus/merge.merge_view_update` 增量合并：
+
+| 字段类型 | 去重策略 |
+|----------|----------|
+| 字符串列表（`key_debates`、`growth_drivers`、`risk_factors` 等） | `runtime/utils/dedupe.merge_list_by_similarity`（底层 `memory.retrieval.text_similarity`，threshold **0.85**）；相似命中时保留更长条目 |
+| `sources` / `source_doc_ids` | 精确去重（URL 不做语义合并） |
+| 标量冲突 | 写入 `ConflictRecord` 结构化对象，不用 `[CON]` 文本拼接 |
 
 ---
 
@@ -266,6 +288,8 @@ If there is any conflicts between existing content and new evidence, leave both 
 
 **输出**：追加到 `query_queue`；无新 query 则路由到 `finalizer`
 
+**Query 去重**：与 `executed_queries` / `search_memory` 比对，语义相似度 > 0.7 则过滤（同 planner）。
+
 ---
 
 ### 8. finalizer
@@ -275,7 +299,7 @@ If there is any conflicts between existing content and new evidence, leave both 
 **Prompt**（`build_finalizer_prompt`）：
 
 ```
-Write a moderate-length market consensus report for {ticker} (target 800-1500 words, max {report_max_chars} characters).
+Write a moderate-length market consensus report for {ticker} (target 800-1500 words, aim for roughly {report_max_chars} characters).
 
 Structured consensus view:
 {view_text}
@@ -299,7 +323,7 @@ Requirements:
 Return markdown only.
 ```
 
-**输出**：`final_report`（同时写 `consensus_report`）
+**输出**：`final_report`（同时写 `consensus_report`）；**不做硬截断**，`report_max_chars` 仅作为 prompt 软引导。
 
 ---
 
@@ -368,6 +392,6 @@ LLM 通过 `load_research_skills` 最多选 **2 个** skill。选中后 `build_s
 | 配置路径 | 默认值 | 作用 |
 |----------|--------|------|
 | `equity_research.consensus_human_review` | `enabled=false` | 人工审阅 |
-| `equity_research.consensus_report_max_chars` | 6000 | 报告长度上限 |
+| `equity_research.consensus_report_max_chars` | 6000 | finalizer prompt 软引导字数（不硬截断） |
 | `equity_research.structured_output_max_retries` | 3 | 结构化输出重试 |
 | `equity_research.batch_search_concurrency` | batch_size | 并发搜索数 |

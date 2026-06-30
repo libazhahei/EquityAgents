@@ -1,6 +1,10 @@
 """Tests for collaborative memory retrieval."""
 
-from tradingagents.equity_research.memory.retrieval import build_memory_context, memory_score
+from tradingagents.equity_research.memory.retrieval import (
+    build_memory_context,
+    memory_score,
+    text_similarity,
+)
 from tradingagents.equity_research.state.equity_research_state import empty_equity_research_state
 
 
@@ -33,3 +37,14 @@ def test_build_memory_context_samples_ledgers():
     assert ctx["query"]
     assert len(ctx["evidence"]) >= 1
     assert len(ctx["claims"]) >= 1
+
+
+def test_text_similarity_symmetric():
+    assert text_similarity("hello world", "world hello") == 1.0
+    assert text_similarity("", "hello") == 0.0
+
+
+def test_text_similarity_similar_phrases():
+    a = "Track Blackwell ramp and margin bridge"
+    b = "Track Blackwell ramp and gross margin bridge"
+    assert text_similarity(a, b) >= 0.85

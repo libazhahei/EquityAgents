@@ -1,12 +1,14 @@
 """Tests for task_analysis orchestration."""
 
 from unittest.mock import MagicMock, patch
+from typing import Any, cast
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.agents.task_analysis import create_analyze_research_task
+from tradingagents.equity_research.state.equity_research_state import EquityResearchState
 
 
-def _minimal_state():
+def _minimal_state() -> dict[str, Any]:
     return {
         "ticker": "NVDA",
         "sector": "Technology",
@@ -35,6 +37,7 @@ def test_analyze_research_task_runs_consensus_then_assumption():
         return {
             "consensus_view": {"ticker": "NVDA"},
             "consensus_report": "report",
+            "consensus_coverage_report": {"overall_score": 0.8},
             "consensus_search_memory": [],
             "consensus_evidence_buffer": [],
             "consensus_iterations": 1,
@@ -44,10 +47,12 @@ def test_analyze_research_task_runs_consensus_then_assumption():
         call_order.append("assumption")
         assert state.get("consensus_view") == {"ticker": "NVDA"}
         return {
+            "assumption_view": {"assumption_map": []},
             "consensus_assumptions": {"business_model": "chips"},
             "research_suggestions": [{"direction": "cloud KPI"}],
             "research_directions": ["cloud KPI"],
             "assumption_report": "assumption report",
+            "assumption_coverage_report": {"overall_score": 0.7},
         }
 
     with patch("tradingagents.equity_research.agents.task_analysis.prefetch_sec_filings"):
@@ -63,34 +68,13 @@ def test_analyze_research_task_runs_consensus_then_assumption():
                     "tradingagents.equity_research.agents.task_analysis.create_run_assumption_subgraph",
                     return_value=_assumption,
                 ):
-                    with patch(
-                        "tradingagents.equity_research.agents.task_analysis.create_load_report_template",
-                        return_value=lambda s: {"report_template": []},
-                    ):
-                        with patch(
-                            "tradingagents.equity_research.agents.task_analysis.create_define_research_mandate",
-                            return_value=lambda s: {"mandate": {}},
-                        ):
-                            with patch(
-                                "tradingagents.equity_research.agents.task_analysis.create_build_source_index",
-                                return_value=lambda s: {"source_index": []},
-                            ):
-                                with patch(
-                                    "tradingagents.equity_research.agents.task_analysis.create_extract_broker_views",
-                                    return_value=lambda s: {"broker_views": []},
-                                ):
-                                    with patch(
-                                        "tradingagents.equity_research.agents.task_analysis.create_gap_finder",
-                                        return_value=lambda s: {"expectation_gaps": []},
-                                    ):
-                                        with patch(
-                                            "tradingagents.equity_research.agents.task_analysis.create_generate_research_plan",
-                                            return_value=lambda s: {"research_plan": {}},
-                                        ):
-                                            run = create_analyze_research_task(deps)
-                                            result = run(_minimal_state())
+                    run = create_analyze_research_task(deps)
+                    result = run(cast(EquityResearchState, _minimal_state()))
 
     assert call_order == ["consensus", "assumption"]
     assert result["consensus_assumptions"]["business_model"] == "chips"
     assert result["research_directions"] == ["cloud KPI"]
-    assert "research_graph" in result
+    assert result["subgraph_outputs"]["consensus"]["report"] == "report"
+    assert result["subgraph_outputs"]["consensus"]["coverage_report"]["overall_score"] == 0.8
+    assert result["subgraph_outputs"]["assumption"]["report"] == "assumption report"
+    assert result["subgraph_outputs"]["assumption"]["coverage_report"]["overall_score"] == 0.7

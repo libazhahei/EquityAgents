@@ -11,12 +11,14 @@ from tradingagents.equity_research.state.consensus_schemas import (
     StructuredConsensusView,
     empty_structured_consensus_view,
 )
+from tradingagents.equity_research.runtime.utils.reflector_routing import TERMINAL_LIMITED_GAP_LABELS
 from tradingagents.equity_research.tasks.consensus.merge import (
     merge_view_update,
     preserve_citations_from_evidence,
     preserve_citations_from_memory,
 )
 from tradingagents.equity_research.tasks.consensus.prompts import (
+    apply_consensus_reflector_guards,
     apply_evidence_heuristic,
     build_assumption_planner_prompt,
     build_assumption_synth_prompt,
@@ -77,5 +79,9 @@ CONSENSUS_TASK_PROFILE = TaskProfile(
     apply_evidence_heuristic_fn=apply_evidence_heuristic,
     preserve_citations_fn=_preserve_citations,
     evaluation_to_report_fn=evaluation_to_report,
-    extra_config={"preserve_memory_citations_fn": preserve_citations_from_memory},
+    extra_config={
+        "preserve_memory_citations_fn": preserve_citations_from_memory,
+        "post_reflector_fn": apply_consensus_reflector_guards,
+        "force_exit_gap_labels": TERMINAL_LIMITED_GAP_LABELS,
+    },
 )

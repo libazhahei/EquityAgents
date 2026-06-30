@@ -40,13 +40,13 @@ def create_finalizer_node(deps: EquityResearchDeps, task_profile: TaskProfile):
             try:
                 response = deps.quick_llm.invoke(prompt)
                 report = response.content if hasattr(response, "content") else str(response)
-                report = str(report).strip()[:report_max_chars]
+                report = str(report).strip()
             except Exception:
                 report = view.to_legacy_summary()
                 assumptions = state.get("assumptions") or {}
                 if assumptions:
                     report += "\n\n## Key Assumptions Behind Consensus\n"
-                    report += str(assumptions)[:2000]
+                    report += str(assumptions)
                 compliance_flags = state.get("compliance_flags", [])
                 if compliance_flags:
                     report += "\n\n## Compliance Flags\n"

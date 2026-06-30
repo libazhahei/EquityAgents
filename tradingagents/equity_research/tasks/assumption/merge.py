@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from tradingagents.equity_research.runtime.utils.dedupe import merge_list_by_similarity, similarity
+from tradingagents.equity_research.runtime.utils.dedupe import (
+    find_similar_index,
+    merge_list_by_similarity,
+    similarity,
+)
 from tradingagents.equity_research.state.consensus_schemas import ConflictRecord, CoverageStatus
 from tradingagents.equity_research.tasks.assumption.schemas import (
     AssumptionItem,
@@ -50,7 +54,13 @@ def _merge_assumption_items(existing: list[AssumptionItem], incoming: list[Assum
                 if value is None:
                     continue
                 if isinstance(value, list) and isinstance(data.get(key), list):
-                    data[key] = list(dict.fromkeys([*(data.get(key) or []), *value]))
+                    existing_list = data.get(key) or []
+                    if value and all(isinstance(x, str) for x in value) and all(
+                        isinstance(x, str) for x in existing_list
+                    ):
+                        data[key] = merge_list_by_similarity(list(existing_list), list(value))
+                    else:
+                        data[key] = list(dict.fromkeys([*existing_list, *value]))
                 elif isinstance(value, str) and data.get(key):
                     if value and value != data[key]:
                         data.setdefault("evidence_against", [])
@@ -81,11 +91,10 @@ def _merge_suggestions(
 ) -> list[ResearchSuggestion]:
     merged = list(existing)
     for item in incoming:
-        match_idx = None
-        for idx, prev in enumerate(merged):
-            if similarity(item.direction, prev.direction) >= 0.85:
-                match_idx = idx
-                break
+        match_idx = find_similar_index(
+            [prev.direction for prev in merged],
+            item.direction,
+        )
         if match_idx is None:
             merged.append(item)
             continue

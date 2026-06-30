@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
-from tradingagents.equity_research.runtime.state import empty_agent_state
+from tradingagents.equity_research.runtime.state import AgentState, empty_agent_state
 from tradingagents.equity_research.runtime.subgraph import GenericResearchSubgraph
 from tradingagents.equity_research.runtime.subgraph_runner import create_run_profile_subgraph
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
@@ -35,7 +35,7 @@ class ConsensusSubgraph:
         )
 
 
-def _seed_consensus_state(parent: dict[str, Any], profile: TaskProfile) -> dict[str, Any]:
+def _seed_consensus_state(parent: dict[str, Any], profile: TaskProfile) -> AgentState:
     max_iter = int(parent.get("max_consensus_iterations", profile.max_iterations))
     subgraph_input = empty_agent_state(
         parent,
@@ -61,6 +61,7 @@ def _map_consensus_result(
     updates: dict[str, Any] = {
         "consensus_view": consensus_view,
         "consensus_report": result.get("final_report", ""),
+        "consensus_coverage_report": result.get("coverage_report", {}),
         "consensus_evidence_buffer": result.get("evidence_buffer", []),
         "consensus_search_memory": result.get("search_memory", []),
         "consensus_iterations": result.get("iterations", 0),
