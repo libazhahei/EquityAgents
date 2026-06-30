@@ -13,7 +13,7 @@
 | 3 | [equity_research/file-structure.md](../equity_research/file-structure.md) | 模块目录树与代码入口速查 |
 | 4 | [equity_research/agent-loop-and-tasks.md](../equity_research/agent-loop-and-tasks.md) | GenericResearchSubgraph PER 循环与 Task 分配 |
 | 5 | [runtime/consensus.md](runtime/consensus.md) → [runtime/assumption.md](runtime/assumption.md) → [runtime/section_planner.md](runtime/section_planner.md) | 初始化阶段三个子图的运行时说明 |
-| 6 | [equity_research/memory.md](../equity_research/memory.md) · [context.md](../equity_research/context.md) · [skills-and-tools.md](../equity_research/skills-and-tools.md) · [storage.md](../equity_research/storage.md) | 横切机制：记忆、上下文、技能/工具、存储 |
+| 6 | [equity_research/memory.md](../equity_research/memory.md) · [context.md](../equity_research/context.md) · [skills-and-tools.md](../equity_research/skills-and-tools.md) · [storage.md](../equity_research/storage.md) · [sec-filing-rag.md](../equity_research/sec-filing-rag.md) | 横切机制：记忆、上下文、技能/工具、存储、SEC RAG |
 | 7 | [ARCHITECTURE.md](../ARCHITECTURE.md) | 全项目架构设计（含交易图与数据流） |
 | 8 | [TRADINGAGENTS.md](TRADINGAGENTS.md) | 上游多智能体**交易框架**文档（与股票研究并行，非主路径） |
 
@@ -61,6 +61,7 @@
 | [context.md](../equity_research/context.md) | Context 四阶段注入、预算上限与 LLM 压缩 |
 | [skills-and-tools.md](../equity_research/skills-and-tools.md) | Skill/Tool 注册、可见性白名单、绑定与发现 |
 | [storage.md](../equity_research/storage.md) | PostgreSQL、Redis、本地文件的配置与数据流 |
+| [sec-filing-rag.md](../equity_research/sec-filing-rag.md) | SEC 申报 RAG：MVP1 现状与规划模块 |
 
 ### 全项目架构
 

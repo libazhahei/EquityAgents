@@ -99,6 +99,14 @@ print(final_state.get("final_report", "")[:2000])
 
 投资摘要**最后**撰写（IC 审阅之后），但在最终报告中**首先**展示。
 
+### SEC 申报文件（EDGAR）
+
+在共识/假设子图之前，`analyze_research_task` 通过 `edgartools` 预取最近 **10-K / 10-Q / 8-K**，缓存至 `{data_cache_dir}/equity_research/sec/{TICKER}/`，并登记到 PostgreSQL。须配置 `SEC_EDGAR_USER_AGENT`（SEC 要求的邮箱格式 User-Agent）。
+
+MVP1 每份 filing 仅保存较短 `text_excerpt`；对 10-K 全文的**语义分块 + 向量 RAG** 尚未接入 `research_loop`。可参考：
+
+- [docs/equity_research/sec-filing-rag.md](docs/equity_research/sec-filing-rag.md) — MVP1 摄取 + 规划中的 SEC Filing RAG 模块
+
 ---
 
 ## 架构 {#architecture}
@@ -199,7 +207,7 @@ tradingagents/equity_research/
 
 **源码：** `agents/task_analysis.py`
 
-预取 SEC 申报文件、摄取文档，然后运行 **共识 → 假设** 子图链（见[共识与假设](#consensus--assumption)）。输出供 `dynamic_planning` 及后续 `research_loop` 使用。
+预取 SEC 申报文件、摄取文档，然后运行 **共识 → 假设** 子图链（见[共识与假设](#consensus--assumption)）。SEC 缓存与 RAG 规划见 [sec-filing-rag.md](docs/equity_research/sec-filing-rag.md)。输出供 `dynamic_planning` 及后续 `research_loop` 使用。
 
 ### `dynamic_planning`
 
@@ -835,7 +843,8 @@ uv run python demo_planner.py NVDA --with-task-analysis --all-sections -o out/nv
 8. [docs/equity_research/context.md](docs/equity_research/context.md) — 上下文预算与技能注入
 9. [docs/equity_research/skills-and-tools.md](docs/equity_research/skills-and-tools.md) — 技能/工具注册表
 10. [docs/equity_research/storage.md](docs/equity_research/storage.md) — PostgreSQL、Redis、本地文件
-11. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 跨框架架构摘要
+11. [docs/equity_research/sec-filing-rag.md](docs/equity_research/sec-filing-rag.md) — SEC Filing RAG（MVP1 + 规划模块）
+12. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 跨框架架构摘要
 
 ### 按角色
 
@@ -849,6 +858,7 @@ uv run python demo_planner.py NVDA --with-task-analysis --all-sections -o out/nv
 | 修改 PER 子图         | agent-loop-and-tasks.md + `runtime/`                                     |
 | 修改章节规划器      | section_planner 运行时文档 + `tasks/section_planner/`                    |
 | 修改合规           | memory.md + `tasks/consensus/compliance.py`                              |
+| SEC 申报 RAG       | [sec-filing-rag.md](docs/equity_research/sec-filing-rag.md) |
 | 评估智能体质量      | 本 README § 评估 → LangSmith 项目 `equity-research`           |
 
 

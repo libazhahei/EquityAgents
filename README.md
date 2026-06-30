@@ -105,6 +105,14 @@ Or use the example entry point: `python equity_research_main.py`
 
 Investment summary is written **last** (after IC review) but displayed **first** in the final report.
 
+### SEC filings (EDGAR)
+
+Before consensus/assumption subgraphs, `analyze_research_task` prefetches recent **10-K / 10-Q / 8-K** via `edgartools`, caches metadata under `{data_cache_dir}/equity_research/sec/{TICKER}/`, and registers documents in PostgreSQL. Set `SEC_EDGAR_USER_AGENT` to a valid email (SEC requirement).
+
+MVP1 stores a short `text_excerpt` per filing; full **semantic chunking + vector RAG** over 10-K body text is not yet wired into `research_loop`. For a reference implementation (FAISS, section-aware chunking, LangGraph query decomposition), see:
+
+- [docs/equity_research/sec-filing-rag.md](docs/equity_research/sec-filing-rag.md) — MVP1 ingest + planned SEC Filing RAG module
+
 ---
 
 ## Architecture
@@ -205,7 +213,7 @@ The following nodes are documented in detail. Later phases (`research_loop` onwa
 
 **Source:** `agents/task_analysis.py`
 
-Prefetches SEC filings, ingests documents, then runs the **consensus → assumption** subgraph chain (see [Consensus & assumption](#consensus--assumption)). Outputs feed `dynamic_planning` and later `research_loop`.
+Prefetches SEC filings, ingests documents, then runs the **consensus → assumption** subgraph chain (see [Consensus & assumption](#consensus--assumption)). SEC cache and RAG roadmap: [sec-filing-rag.md](docs/equity_research/sec-filing-rag.md). Outputs feed `dynamic_planning` and later `research_loop`.
 
 ### `dynamic_planning`
 
@@ -841,7 +849,8 @@ Recommended reading order:
 8. [docs/equity_research/context.md](docs/equity_research/context.md) — Context budgets and skill injection
 9. [docs/equity_research/skills-and-tools.md](docs/equity_research/skills-and-tools.md) — Skill/Tool registry
 10. [docs/equity_research/storage.md](docs/equity_research/storage.md) — PostgreSQL, Redis, local files
-11. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Cross-framework architecture summary
+11. [docs/equity_research/sec-filing-rag.md](docs/equity_research/sec-filing-rag.md) — SEC Filing RAG (MVP1 + planned module)
+12. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Cross-framework architecture summary
 
 **中文文档：** [README.zh-CN.md](README.zh-CN.md) · [docs/zh/README.md](docs/zh/README.md)（完整索引）
 
@@ -857,6 +866,7 @@ Recommended reading order:
 | Modify PER subgraph         | agent-loop-and-tasks.md + `runtime/`                                     |
 | Modify section planner      | section_planner/RUNTIME.md + `tasks/section_planner/`                    |
 | Modify compliance           | memory.md + `tasks/consensus/compliance.py`                              |
+| SEC filing RAG              | [sec-filing-rag.md](docs/equity_research/sec-filing-rag.md) |
 | Evaluate agent quality      | This README § Evaluation → LangSmith project `equity-research`           |
 
 

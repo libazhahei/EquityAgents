@@ -2,7 +2,7 @@
 
 > 语言：[中文](file-structure.md) | [English](../../README.md) · [中文主文档](../../README.zh-CN.md) · [文档索引](../zh/README.md)  
 > 模块路径：`tradingagents/equity_research/`  
-> 相关文档：[产品概览](../EQUITY_RESEARCH.md) · [Agent Loop 与 Task 分配](agent-loop-and-tasks.md) · [Memory](memory.md) · [Context](context.md) · [Skills & Tools](skills-and-tools.md)
+> 相关文档：[产品概览](../EQUITY_RESEARCH.md) · [Agent Loop 与 Task 分配](agent-loop-and-tasks.md) · [Memory](memory.md) · [Context](context.md) · [Skills & Tools](skills-and-tools.md) · [SEC Filing RAG](sec-filing-rag.md)
 
 ## 模块定位
 

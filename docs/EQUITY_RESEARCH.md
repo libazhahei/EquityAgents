@@ -226,6 +226,7 @@ IC review uses `aggregate_ic_scores()` and records blocking issues to `issue_led
 | [equity_research/context.md](equity_research/context.md) | Context 注入链路、预算上限与 LLM 压缩 |
 | [equity_research/skills-and-tools.md](equity_research/skills-and-tools.md) | Skill/Tool 注册、可见性、绑定与发现工具 |
 | [equity_research/storage.md](equity_research/storage.md) | Redis、PostgreSQL、本地文件的配置与数据流 |
+| [equity_research/sec-filing-rag.md](equity_research/sec-filing-rag.md) | SEC Filing RAG：MVP1 现状与规划模块 |
 
 ## Design constraints
 
