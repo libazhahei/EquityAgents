@@ -1,5 +1,8 @@
 # Equity R&D-Agent
 
+> **Full technical documentation:** [README.md](../README.md) (English) · [README.zh-CN.md](../README.zh-CN.md) (中文)  
+> **Trading framework:** [TRADINGAGENTS.md](TRADINGAGENTS.md) · [中文版](zh/TRADINGAGENTS.md)
+
 > Optional feature alongside the main TradingAgents trading workflow.  
 > Evolved from the earlier Hybrid Equity Research spine into an R&D-Agent research paradigm.
 
@@ -239,6 +242,8 @@ IC review uses `aggregate_ic_scores()` and records blocking issues to `issue_led
 pytest tests/equity_research/ -m "not integration" -q
 ```
 
+For **LangSmith-based evaluation** (end-to-end, trajectory, faithfulness), see [README.md § Evaluation](../README.md#evaluation).
+
 Key test files:
 
 | File | Covers |
@@ -254,3 +259,9 @@ Key test files:
 ## In-memory fallback
 
 Set `equity_research_use_memory=True` in config to run without PostgreSQL/Redis.
+
+---
+
+See [README.md](../README.md) for the complete Equity Research technical guide (architecture through `dynamic_planning`, memory current vs roadmap, trace, compliance, and documentation index).
+
+中文版：[README.zh-CN.md](../README.zh-CN.md) · [docs/zh/EQUITY_RESEARCH.md](zh/EQUITY_RESEARCH.md) · [文档索引](zh/README.md)

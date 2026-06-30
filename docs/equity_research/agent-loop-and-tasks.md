@@ -1,5 +1,6 @@
 # Agent Loop 与 Task 分配
 
+> 语言：[中文](agent-loop-and-tasks.md) | [English](../../README.md) · [中文主文档](../../README.zh-CN.md) · [文档索引](../zh/README.md)  
 > 模块路径：`tradingagents/equity_research/runtime/`、`tradingagents/equity_research/tasks/`  
 > 相关文档：[产品概览](../EQUITY_RESEARCH.md) · [文件结构](file-structure.md) · [Skills & Tools](skills-and-tools.md)
 

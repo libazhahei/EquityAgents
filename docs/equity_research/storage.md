@@ -1,5 +1,6 @@
 # Equity Research 存储方案：Redis、PostgreSQL 与本地文件
 
+> 语言：[中文](storage.md) | [English](../../README.md) · [中文主文档](../../README.zh-CN.md) · [文档索引](../zh/README.md)  
 > 模块路径：`tradingagents/equity_research/storage/`、`integrations/redis_cache.py`、`export/`  
 > 相关文档：[文件结构](file-structure.md) · [Memory](memory.md) · [产品概览](../EQUITY_RESEARCH.md)
 

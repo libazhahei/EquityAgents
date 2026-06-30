@@ -1,5 +1,7 @@
 # TradingAgents 项目架构设计
 
+> 语言：[中文](ARCHITECTURE.md) | [English](../README.md) · [中文文档索引](zh/README.md)
+
 > 版本参考：v0.2.5  
 > 最后更新：2026-06-22  
 > 用途：供后续开发、扩展与代码审查时快速引用

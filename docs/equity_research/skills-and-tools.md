@@ -1,5 +1,6 @@
 # Equity Research Skills 与 Tools 控制方案
 
+> 语言：[中文](skills-and-tools.md) | [English](../../README.md) · [中文主文档](../../README.zh-CN.md) · [文档索引](../zh/README.md)  
 > 模块路径：`tradingagents/equity_research/skills/`、`tradingagents/equity_research/tools/`  
 > 相关文档：[文件结构](file-structure.md) · [Memory](memory.md) · [Context](context.md) · [Storage](storage.md)
 

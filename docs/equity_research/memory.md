@@ -1,5 +1,6 @@
 # Equity Research Memory 控制方案
 
+> 语言：[中文](memory.md) | [English](../../README.md#memory-design) · [中文主文档](../../README.zh-CN.md#memory-design) · [文档索引](../zh/README.md)  
 > 模块路径：`tradingagents/equity_research/memory/` 及相关 ledger / storage 代码  
 > 相关文档：[文件结构](file-structure.md) · [Context](context.md) · [Skills & Tools](skills-and-tools.md) · [Storage](storage.md)
 
