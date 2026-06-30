@@ -61,6 +61,10 @@ def create_reflector_node(deps: EquityResearchDeps, task_profile: TaskProfile):
             except StructuredOutputUnsupported:
                 report = task_profile.default_coverage_report_fn(view)
 
+            post_fn = task_profile.extra_config.get("post_reflector_fn")
+            if post_fn:
+                report = post_fn(view, report)
+
             max_iter = int(state.get("max_iterations", state.get("max_consensus_iterations", task_profile.max_iterations)))
             if report.overall_score >= task_profile.coverage_threshold and not report.critical_gaps:
                 report.routing_decision = "exit"

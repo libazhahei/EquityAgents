@@ -10,7 +10,11 @@ from tradingagents.equity_research.runtime.state import empty_agent_state
 from tradingagents.equity_research.runtime.subgraph_runner import create_run_profile_subgraph
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
 from tradingagents.equity_research.tasks.assumption.profile import ASSUMPTION_TASK_PROFILE
-from tradingagents.equity_research.tasks.assumption.schemas import AssumptionView, empty_assumption_view
+from tradingagents.equity_research.tasks.assumption.schemas import (
+    AssumptionView,
+    assumption_map_to_legacy_shim,
+    empty_assumption_view,
+)
 
 
 def _seed_assumption_state(parent: dict[str, Any], profile: TaskProfile) -> dict[str, Any]:
@@ -22,8 +26,10 @@ def _seed_assumption_state(parent: dict[str, Any], profile: TaskProfile) -> dict
         max_iterations=max_iter,
     )
     subgraph_input["structured_view"] = empty_assumption_view(ticker).model_dump()
+    # search_memory for dedupe only; do not inherit consensus evidence
     subgraph_input["search_memory"] = list(parent.get("consensus_search_memory", []))
-    subgraph_input["evidence_buffer"] = list(parent.get("consensus_evidence_buffer", []))
+    subgraph_input["evidence_buffer"] = []
+    subgraph_input["pending_evidence"] = []
     subgraph_input["parent_context"] = {
         **dict(parent.get("parent_context", {})),
         "consensus_view": parent.get("consensus_view", {}),
@@ -44,19 +50,25 @@ def _map_assumption_result(
     assumptions: dict[str, Any] = {}
     suggestions: list[dict] = []
     directions: list[str] = []
+    assumption_map: list[dict] = []
     try:
         view = AssumptionView.model_validate(view_raw)
-        assumptions = view.current_assumptions.model_dump()
+        assumption_map = [item.model_dump() for item in view.assumption_map]
+        assumptions = assumption_map_to_legacy_shim(view)
         suggestions = [s.model_dump() for s in view.research_suggestions]
-        directions = list(view.research_directions)
+        directions = list(view.top_research_priorities)
     except Exception:
         if isinstance(view_raw, dict):
-            assumptions = view_raw.get("current_assumptions", {})
+            assumption_map = list(view_raw.get("assumption_map", []))
+            assumptions = view_raw.get("consensus_assumptions", {})
+            if not assumptions and assumption_map:
+                assumptions = {item.get("id", f"A{i}"): item.get("statement", "") for i, item in enumerate(assumption_map)}
             suggestions = view_raw.get("research_suggestions", [])
-            directions = view_raw.get("research_directions", [])
+            directions = view_raw.get("top_research_priorities", view_raw.get("research_directions", []))
 
     updates: dict[str, Any] = {
         "assumption_view": view_raw,
+        "assumption_map": assumption_map,
         "consensus_assumptions": assumptions,
         "research_suggestions": suggestions,
         "research_directions": directions,
@@ -81,6 +93,7 @@ def _map_assumption_result(
         "iterations": result.get("iterations", 0),
         "evidence_count": len(result.get("evidence_buffer", [])),
         "suggestions": len(suggestions),
+        "assumption_items": len(assumption_map),
     }))
     return updates
 

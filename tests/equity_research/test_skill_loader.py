@@ -97,10 +97,10 @@ def test_filename_must_match_name(tmp_path):
 
 def test_filter_eligible_by_tags():
     catalog = [
-        SkillCatalogEntry(name="a", description="d", when_to_use="w", tags=["consensus"]),
+        SkillCatalogEntry(name="a", description="d", when_to_use="w", tags=["planning"]),
         SkillCatalogEntry(name="b", description="d", when_to_use="w", tags=["writing"]),
     ]
-    vis = AGENT_SKILL_VISIBILITY["consensus_subgraph"]
+    vis = AGENT_SKILL_VISIBILITY["dynamic_planning"]
     eligible = filter_eligible_catalog(catalog, vis)
     names = {e.name for e in eligible}
     assert "a" in names
@@ -111,5 +111,12 @@ def test_get_eligible_catalog_consensus_subgraph():
     registry = SkillRegistry(known_tools=set(ToolRegistry().list_tools()))
     eligible = registry.get_eligible_catalog("consensus_subgraph")
     names = {e.name for e in eligible}
-    assert "broker_consensus_mining" in names
-    assert "section_writing" not in names
+    assert names == {"broker_consensus_mining", "variant_view_discovery"}
+    assert "market_assumption_decomposition" not in names
+
+
+def test_get_eligible_catalog_assumption_subgraph():
+    registry = SkillRegistry(known_tools=set(ToolRegistry().list_tools()))
+    eligible = registry.get_eligible_catalog("assumption_subgraph")
+    names = {e.name for e in eligible}
+    assert names == {"market_assumption_decomposition"}

@@ -17,6 +17,7 @@ from tradingagents.equity_research.skills.runnable import RunnableSkill
 
 OBJECTIVE_SKILL_MAP = {
     "consensus": "broker_consensus_mining",
+    "assumption": "market_assumption_decomposition",
     "variant_view": "variant_view_discovery",
     "business_model": "business_model_analysis",
     "historical_financials": "historical_financial_analysis",

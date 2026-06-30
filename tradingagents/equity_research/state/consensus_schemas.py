@@ -37,6 +37,27 @@ class YearEstimate(BaseModel):
     median: str = ""
     high: str = ""
     currency: str = "USD"
+    period: str = ""
+    period_end: str = ""
+    estimate_type: str = ""
+    basis: str = ""
+    as_of: str = ""
+    source_quality: str = ""
+
+
+class SourceCitation(BaseModel):
+    url: str = ""
+    source_type: str = ""
+    reliability: str = ""
+    used_for: str = ""
+
+
+class ConflictRecord(BaseModel):
+    claim_a: str = ""
+    claim_b: str = ""
+    interpretation: str = ""
+    resolution_status: str = "unresolved"
+    next_check: str = ""
 
 
 class EstimateRange(BaseModel):
@@ -72,6 +93,21 @@ class QuantitativeEstimates(BaseModel):
     fcf_estimates: EstimateRange = Field(default_factory=EstimateRange)
     analyst_count: int = 0
     sources: list[str] = Field(default_factory=list)
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def normalize_sources(cls, value: Any) -> list[str]:
+        if not value:
+            return []
+        out: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                out.append(item)
+            elif isinstance(item, dict):
+                out.append(str(item.get("url", "")))
+            elif hasattr(item, "url"):
+                out.append(str(item.url))
+        return [u for u in out if u]
 
 
 class KPIFocus(BaseModel):
@@ -156,6 +192,7 @@ class ConsensusViewUpdate(BaseModel):
     narrative_framework: NarrativeFramework | None = None
     recent_delta: RecentDelta | None = None
     dimension_coverage: dict[str, CoverageStatus] | None = None
+    conflicts: list[ConflictRecord] | None = None
 
 
 class CoverageEvaluation(BaseModel):
@@ -224,6 +261,7 @@ class StructuredConsensusView(BaseModel):
     recent_delta: RecentDelta = Field(default_factory=RecentDelta)
     dimension_coverage: dict[str, CoverageStatus] = Field(default_factory=dict)
     source_doc_ids: list[str] = Field(default_factory=list)
+    conflicts: list[ConflictRecord] = Field(default_factory=list)
 
     def to_legacy_summary(self) -> str:
         parts: list[str] = []

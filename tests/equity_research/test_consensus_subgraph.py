@@ -449,7 +449,8 @@ def test_assumption_seed_passes_consensus_state():
     assert seeded["parent_context"]["consensus_view"] == parent["consensus_view"]
     assert seeded["parent_context"]["consensus_report"] == "consensus report text"
     assert seeded["search_memory"] == [{"query": "prior"}]
-    assert seeded["evidence_buffer"] == [{"answer": "ev"}]
+    assert seeded["evidence_buffer"] == []
+    assert seeded["pending_evidence"] == []
     assert seeded["structured_view"]["ticker"] == "NVDA"
 
 

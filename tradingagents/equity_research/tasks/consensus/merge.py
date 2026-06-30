@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from tradingagents.equity_research.state.consensus_schemas import (
+    ConflictRecord,
     CoverageStatus,
     StructuredConsensusView,
 )
@@ -22,14 +23,23 @@ def _dedupe_preserve_order(items: list[str]) -> list[str]:
     return list(dict.fromkeys(items))
 
 
-def _merge_scalar(old: Any, new: Any) -> Any:
+def _merge_scalar(old: Any, new: Any, *, conflicts: list[ConflictRecord] | None = None) -> Any:
     if not old:
         return new
     if not new:
         return old
     if old == new:
         return old
-    return f"{old}\n[CON] {new}"
+    if conflicts is not None:
+        conflicts.append(
+            ConflictRecord(
+                claim_a=str(old)[:500],
+                claim_b=str(new)[:500],
+                interpretation="Conflicting values merged as structured conflict",
+                resolution_status="unresolved",
+            )
+        )
+    return old
 
 
 def _merge_list(old: list[Any] | None, new: list[Any] | None) -> list[Any]:
@@ -59,12 +69,14 @@ def _merge_coverage(old: CoverageStatus | str | None, new: CoverageStatus | str 
     return new if _COVERAGE_ORDER.get(new, 0) > _COVERAGE_ORDER.get(old, 0) else old
 
 
-def _merge_model_dict(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
+def _merge_model_dict(old: dict[str, Any], new: dict[str, Any], conflicts: list[ConflictRecord]) -> dict[str, Any]:
     merged = dict(old)
     for key, value in new.items():
         if value is None:
             continue
         if key == "sources" and isinstance(value, list):
+            merged[key] = _merge_list(merged.get(key, []), value)
+        elif key == "conflicts" and isinstance(value, list):
             merged[key] = _merge_list(merged.get(key, []), value)
         elif key == "dimension_coverage" and isinstance(value, dict):
             existing = merged.get(key, {})
@@ -73,11 +85,11 @@ def _merge_model_dict(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any
                 coverage_merged[dim] = _merge_coverage(existing.get(dim), status)
             merged[key] = coverage_merged
         elif isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = _merge_model_dict(merged[key], value)
+            merged[key] = _merge_model_dict(merged[key], value, conflicts)
         elif isinstance(value, list) and isinstance(merged.get(key), list):
             merged[key] = _merge_list(merged.get(key, []), value)
         elif isinstance(value, str):
-            merged[key] = _merge_scalar(merged.get(key, ""), value)
+            merged[key] = _merge_scalar(merged.get(key, ""), value, conflicts=conflicts)
         else:
             if not merged.get(key):
                 merged[key] = value
@@ -85,7 +97,11 @@ def _merge_model_dict(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any
 
 
 def merge_view_update(view: StructuredConsensusView, update: Any) -> StructuredConsensusView:
-    merged = _merge_model_dict(view.model_dump(), update.model_dump(exclude_none=True))
+    conflicts: list[ConflictRecord] = list(view.conflicts)
+    merged = _merge_model_dict(view.model_dump(), update.model_dump(exclude_none=True), conflicts)
+    if update.conflicts:
+        conflicts.extend(update.conflicts)
+    merged["conflicts"] = [c.model_dump() if hasattr(c, "model_dump") else c for c in conflicts]
     merged["ticker"] = view.ticker or update.ticker
     if update.dimension_coverage:
         for dim, status in update.dimension_coverage.items():

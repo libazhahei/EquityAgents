@@ -8,6 +8,11 @@ from typing import Annotated, Any
 
 from langchain_core.tools import tool
 
+from tradingagents.equity_research.runtime.utils.domain_denylist import (
+    denylists_to_api_filter,
+    filter_citation_urls,
+    resolve_search_domain_denylist,
+)
 from tradingagents.equity_research.state.consensus_schemas import EvidenceItem
 from tradingagents.llm_clients.perplexity_client import SearchMode as PerplexitySearchMode
 
@@ -48,10 +53,17 @@ def execute_perplexity_search(
     citations: list[str] = []
     doc_ids: list[str] = []
 
+    denylist = resolve_search_domain_denylist(getattr(deps, "config", None))
+    api_filter = denylists_to_api_filter(denylist) if denylist else None
+
     if deps.perplexity and getattr(deps.perplexity, "api_key", None):
-        result = deps.perplexity.search(query, mode=search_mode)
+        result = deps.perplexity.search(
+            query,
+            mode=search_mode,
+            search_domain_filter=api_filter,
+        )
         answer = result.get("answer", "")
-        citations = list(result.get("citations", []))
+        citations = filter_citation_urls(list(result.get("citations", [])), denylist)
         for url in citations:
             doc = deps.documents.register(
                 ticker=ticker,

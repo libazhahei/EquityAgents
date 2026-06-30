@@ -146,7 +146,11 @@ class PerplexityClient(BaseLLMClient):
 
     # ── 1. Chat LLM — LangChain 原生 ChatPerplexity ─────────────────────────
 
-    def get_llm(self) -> ChatPerplexity:
+    def get_llm(
+        self,
+        *,
+        search_domain_filter: list[str] | None = None,
+    ) -> ChatPerplexity:
         """返回 ChatPerplexity 实例。
 
         该实例与 LangChain / LangGraph 完全兼容：
@@ -166,6 +170,8 @@ class PerplexityClient(BaseLLMClient):
             "model": self.model,
             "pplx_api_key": self.api_key,
         }
+        if search_domain_filter:
+            kwargs["search_domain_filter"] = search_domain_filter
         for key in _PASSTHROUGH_KWARGS:
             if key in self.kwargs and key not in ("api_key",):
                 kwargs[key] = self.kwargs[key]
@@ -293,6 +299,7 @@ class PerplexityClient(BaseLLMClient):
         query: str,
         *,
         mode: SearchMode = SearchMode.EXPLORATORY,
+        search_domain_filter: list[str] | None = None,
     ) -> dict[str, Any]:
         """通过 ChatPerplexity 进行 grounded 搜索（自动记录 LangSmith trace）。
 
@@ -304,7 +311,7 @@ class PerplexityClient(BaseLLMClient):
             return self._empty_result(query, mode)
 
         try:
-            llm = self.get_llm()
+            llm = self.get_llm(search_domain_filter=search_domain_filter)
             response = llm.invoke([
                 SystemMessage(content=_SYSTEM_PROMPTS[mode]),
                 HumanMessage(content=query),
@@ -330,6 +337,7 @@ class PerplexityClient(BaseLLMClient):
         mode: SearchMode = SearchMode.EXPLORATORY,
         *,
         max_results: int = 5,  # noqa: ARG002  保留参数签名兼容性
+        search_domain_filter: list[str] | None = None,
     ) -> dict[str, Any]:
         """向后兼容的 search 方法，内部委托给 chat_search。
 
@@ -344,7 +352,11 @@ class PerplexityClient(BaseLLMClient):
             result["rate_limited"] = True
             return result
 
-        return self.chat_search(query, mode=mode)
+        return self.chat_search(
+            query,
+            mode=mode,
+            search_domain_filter=search_domain_filter,
+        )
 
     # ── 金融验证（保持不变） ─────────────────────────────────────────────────
 

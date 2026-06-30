@@ -6,6 +6,7 @@ from tradingagents.equity_research.runtime.task_profile import TaskProfile
 from tradingagents.equity_research.tasks.assumption.merge import merge_assumption_view
 from tradingagents.equity_research.tasks.assumption.prompts import (
     apply_evidence_heuristic,
+    apply_reflector_guards,
     build_finalizer_prompt,
     build_initial_planner_prompt,
     build_loop_planner_prompt,
@@ -18,17 +19,23 @@ from tradingagents.equity_research.tasks.assumption.prompts import (
 )
 from tradingagents.equity_research.tasks.assumption.queries import default_queries, normalize_query_items
 from tradingagents.equity_research.tasks.assumption.schemas import (
-    ASSUMPTION_DIMENSIONS,
+    ASSUMPTION_QUALITY_DIMENSIONS,
     AssumptionCoverageEvaluation,
     AssumptionView,
     AssumptionViewUpdate,
     empty_assumption_view,
 )
 
+
+def _evaluation_to_report(evaluation):
+    from tradingagents.equity_research.tasks.assumption.prompts import evaluation_to_report
+    return evaluation_to_report(evaluation)
+
+
 ASSUMPTION_TASK_PROFILE = TaskProfile(
     task_id="assumption",
     objective="Probe key assumptions behind market consensus and derive research directions",
-    dimensions=ASSUMPTION_DIMENSIONS,
+    dimensions=ASSUMPTION_QUALITY_DIMENSIONS,
     output_schema=AssumptionView,
     view_update_schema=AssumptionViewUpdate,
     coverage_eval_schema=AssumptionCoverageEvaluation,
@@ -54,5 +61,6 @@ ASSUMPTION_TASK_PROFILE = TaskProfile(
     build_skill_prompt=build_skill_prompt,
     default_coverage_report_fn=default_coverage_report,
     apply_evidence_heuristic_fn=apply_evidence_heuristic,
-    evaluation_to_report_fn=evaluation_to_report,
+    evaluation_to_report_fn=_evaluation_to_report,
+    extra_config={"post_reflector_fn": apply_reflector_guards},
 )

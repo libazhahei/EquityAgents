@@ -179,7 +179,8 @@ def build_loop_planner_prompt(deps: Any, state: dict[str, Any]) -> str:
         "Prioritize dimensions still weak per the coverage evaluation above.\n"
         "Do not re-search topics already sufficient or strong.\n"
         "Do not repeat topics already covered in prior search memory.\n"
-        "If there is any conflicts between existing content and new evidence, leave both side view.\n"
+        "If there is any conflicts between existing content and new evidence, "
+        "record conflicts structurally; do not rely on [CON] text markers.\n"
     )
 
 
@@ -285,9 +286,12 @@ def build_synthesizer_prompt(deps: Any, state: dict[str, Any], view: StructuredC
         f"New search evidence (this round only):\n{evidence_text}\n\n"
         "Merge incrementally — do not erase existing content.\n"
         "If there is any conflict between existing content and new evidence, "
-        "keep both views and label the conflict with [CON].\n"
+        "add a structured conflict record (claim_a, claim_b, interpretation) in conflicts; "
+        "do not append [CON] tags to field text.\n"
         "Attribute evidence only to its target_dimension.\n"
         "Update dimension_coverage for each dimension.\n"
+        "For every numeric estimate include period, period_end, estimate_type, basis, and source_quality when known.\n"
+        "Do not use Reddit, YouTube, or social media as core estimate evidence.\n"
         "Do not fabricate numbers without citation in sources."
     )
 
@@ -301,6 +305,7 @@ def build_reflector_prompt(deps: Any, view: StructuredConsensusView, memory_summ
         f"View:\n{view_text}\n"
         f"{memory_summary}\n"
         "Score each dimension as empty, partial, sufficient, or strong.\n"
+        "Also assess source_quality across dimensions (reliability of citations, period clarity).\n"
         "Provide an overall_score between 0 and 1.\n"
         "List critical_gaps as dimension names still weak.\n"
         "List suggested_focus as dimensions to prioritize next."

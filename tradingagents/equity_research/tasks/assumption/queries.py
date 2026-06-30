@@ -3,17 +3,32 @@
 from __future__ import annotations
 
 from tradingagents.equity_research.state.consensus_schemas import QueryItem, QueryPlan, SearchMode
-from tradingagents.equity_research.tasks.assumption.schemas import ASSUMPTION_DIMENSIONS
+from tradingagents.equity_research.tasks.assumption.schemas import ASSUMPTION_SEARCH_DIMENSIONS
 from tradingagents.equity_research.tasks.consensus.compliance import append_compliance_suffix
 
 
 def default_queries(ticker: str) -> list[QueryItem]:
     specs = [
-        ("business_model", f"{ticker} how does the company make money revenue model margins"),
-        ("market_sentiment", f"{ticker} market sentiment bull bear analyst rating consensus"),
-        ("key_metrics", f"{ticker} key KPI metrics investors watch earnings focus"),
-        ("debates", f"{ticker} key investment debates bull bear variant view"),
-        ("stress_test", f"{ticker} consensus assumptions stress test risks"),
+        (
+            "demand_assumptions",
+            f"{ticker} end-market demand durability customer spending plans backlog order visibility",
+        ),
+        (
+            "product_ramp_assumptions",
+            f"{ticker} product ramp timing transition risk shipment cadence supply constraints",
+        ),
+        (
+            "margin_assumptions",
+            f"{ticker} gross margin bridge product mix pricing power ramp costs",
+        ),
+        (
+            "competition_assumptions",
+            f"{ticker} market share custom silicon risk alternative suppliers pricing pressure",
+        ),
+        (
+            "falsification_tests",
+            f"{ticker} downside scenario key assumption failure leading indicators early warning",
+        ),
     ]
     items: list[QueryItem] = []
     for idx, (dim, query) in enumerate(specs):
@@ -36,8 +51,8 @@ def normalize_query_items(
     normalized: list[QueryItem] = []
     for item in items:
         dim = item.target_dimension
-        if dim not in ASSUMPTION_DIMENSIONS:
-            dim = "debates"
+        if dim not in ASSUMPTION_SEARCH_DIMENSIONS:
+            dim = "demand_assumptions"
         normalized.append(
             QueryItem(
                 query=append_compliance_suffix(str(item.query)),

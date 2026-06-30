@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
-from tradingagents.equity_research.state.consensus_schemas import CoverageStatus
-from tradingagents.equity_research.tasks.assumption.schemas import AssumptionView, AssumptionViewUpdate
+from tradingagents.equity_research.runtime.utils.dedupe import merge_list_by_similarity, similarity
+from tradingagents.equity_research.state.consensus_schemas import ConflictRecord, CoverageStatus
+from tradingagents.equity_research.tasks.assumption.schemas import (
+    AssumptionItem,
+    AssumptionView,
+    AssumptionViewUpdate,
+    ResearchSuggestion,
+)
 
 _COVERAGE_ORDER = {
     CoverageStatus.EMPTY: 0,
@@ -31,37 +37,99 @@ def _merge_coverage(old: CoverageStatus | str | None, new: CoverageStatus | str 
     return new if _COVERAGE_ORDER.get(new, 0) > _COVERAGE_ORDER.get(old, 0) else old
 
 
+def _merge_assumption_items(existing: list[AssumptionItem], incoming: list[AssumptionItem]) -> list[AssumptionItem]:
+    by_id: dict[str, AssumptionItem] = {item.id: item for item in existing if item.id}
+    merged = list(existing)
+
+    for item in incoming:
+        if item.id and item.id in by_id:
+            current = by_id[item.id]
+            data = current.model_dump()
+            upd = item.model_dump(exclude_unset=True)
+            for key, value in upd.items():
+                if value is None:
+                    continue
+                if isinstance(value, list) and isinstance(data.get(key), list):
+                    data[key] = list(dict.fromkeys([*(data.get(key) or []), *value]))
+                elif isinstance(value, str) and data.get(key):
+                    if value and value != data[key]:
+                        data.setdefault("evidence_against", [])
+                        if value not in data["evidence_against"]:
+                            data["evidence_against"].append(value)
+                else:
+                    data[key] = value
+            replacement = AssumptionItem.model_validate(data)
+            merged = [replacement if x.id == item.id else x for x in merged]
+            by_id[item.id] = replacement
+            continue
+
+        duplicate = False
+        for prev in merged:
+            if similarity(item.statement, prev.statement) >= 0.85:
+                duplicate = True
+                break
+        if not duplicate:
+            merged.append(item)
+            if item.id:
+                by_id[item.id] = item
+    return merged
+
+
+def _merge_suggestions(
+    existing: list[ResearchSuggestion],
+    incoming: list[ResearchSuggestion],
+) -> list[ResearchSuggestion]:
+    merged = list(existing)
+    for item in incoming:
+        match_idx = None
+        for idx, prev in enumerate(merged):
+            if similarity(item.direction, prev.direction) >= 0.85:
+                match_idx = idx
+                break
+        if match_idx is None:
+            merged.append(item)
+            continue
+        prev = merged[match_idx]
+        merged[match_idx] = ResearchSuggestion(
+            direction=prev.direction,
+            rationale=(prev.rationale + " " + item.rationale).strip()[:500],
+            priority=min(prev.priority, item.priority),
+            related_assumption=prev.related_assumption or item.related_assumption,
+            related_assumptions=list(dict.fromkeys([*prev.related_assumptions, *item.related_assumptions])),
+            next_checks=list(dict.fromkeys([*prev.next_checks, *item.next_checks])),
+        )
+    return merged
+
+
 def merge_assumption_view(view: AssumptionView, update: AssumptionViewUpdate) -> AssumptionView:
     data = view.model_dump()
-    upd = update.model_dump(exclude_unset=True)
 
-    if update.current_assumptions is not None:
-        existing = view.current_assumptions.model_dump()
-        for key, value in update.current_assumptions.model_dump(exclude_unset=True).items():
-            if value is None:
-                continue
-            if isinstance(value, list) and isinstance(existing.get(key), list):
-                existing[key] = list(dict.fromkeys([*(existing.get(key) or []), *value]))
-            elif isinstance(value, str) and existing.get(key):
-                if value and value != existing[key]:
-                    existing[key] = f"{existing[key]}\n[CON] {value}"
-            else:
-                existing[key] = value
-        data["current_assumptions"] = existing
+    if update.assumption_map is not None:
+        data["assumption_map"] = [
+            item.model_dump() for item in _merge_assumption_items(view.assumption_map, update.assumption_map)
+        ]
+
+    if update.conflicts is not None:
+        existing = list(view.conflicts)
+        existing.extend(update.conflicts)
+        data["conflicts"] = [c.model_dump() for c in existing]
 
     if update.research_suggestions is not None:
-        seen = {s.direction for s in view.research_suggestions}
-        merged = list(view.research_suggestions)
-        for item in update.research_suggestions:
-            if item.direction and item.direction not in seen:
-                merged.append(item)
-                seen.add(item.direction)
-        data["research_suggestions"] = [s.model_dump() for s in merged]
+        data["research_suggestions"] = [
+            s.model_dump() for s in _merge_suggestions(view.research_suggestions, update.research_suggestions)
+        ]
 
-    if update.research_directions is not None:
-        data["research_directions"] = list(
-            dict.fromkeys([*(view.research_directions or []), *update.research_directions])
+    if update.top_research_priorities is not None:
+        data["top_research_priorities"] = merge_list_by_similarity(
+            list(view.top_research_priorities),
+            list(update.top_research_priorities),
         )
+
+    if update.open_questions is not None:
+        data["open_questions"] = merge_list_by_similarity(view.open_questions, update.open_questions)
+
+    if update.watchlist is not None:
+        data["watchlist"] = merge_list_by_similarity(view.watchlist, update.watchlist)
 
     if update.dimension_coverage is not None:
         coverage = dict(view.dimension_coverage)

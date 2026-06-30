@@ -4,7 +4,7 @@ description: Rebuild the market consensus framework via search and structured ex
 when_to_use: |
   Use when analyst revenue/EPS estimates, KPI focus, or mainstream investment logic must be mapped before gap_finder runs.
 tags: [consensus, analyst, perplexity, estimates]
-tools: [perplexity_search, analyst_estimates_fetch, valuation_multiples_fetch, transcript_search, store_evidence, store_claim]
+tools: []
 compatible_with: [variant_view_discovery]
 composable: true
 handler: tradingagents.equity_research.skills.handlers.impl:BrokerConsensusHandler
@@ -17,7 +17,9 @@ version: 1
 
 - Collect public market information only; do not invent forecasts
 - Cover all five consensus dimensions
-- Attribute source reliability for each dimension
+- Attribute source reliability for each dimension (primary / institutional / aggregator / media / social)
+- Normalize fiscal/calendar period, quarter, GAAP/non-GAAP, actual vs guidance vs consensus for every numeric estimate
+- Do not use Reddit, YouTube, or social sources as core estimate evidence
 
 ## Prompt Template
 

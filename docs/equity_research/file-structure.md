@@ -23,7 +23,7 @@ final_state, summary = graph.propagate("NVDA")
 ```bash
 uv run python demo_consensus.py NVDA --sector Technology --max-iterations 3
 uv run python demo_consensus.py NVDA --mode subgraph --json -o ./out/nvda.json
-uv run python scripts/visualize_consensus_trace.py ./out/nvda.json -o ./out/nvda_trace.html
+uv run python scripts/visualize_consensus_trace.py ./out/nvda.json -o ./out/nvda_trace.html --phase all
 
 # 生成 HTML（默认），浏览器打开即可
 uv run python scripts/visualize_consensus_trace.py out/nvda.json -o out/nvda_trace.html
@@ -35,7 +35,7 @@ uv run python scripts/visualize_consensus_trace.py out/nvda.json
 uv run python scripts/visualize_consensus_trace.py out/nvda.json --format md -o out/nvda_trace.md
 
 # 仅输出 mermaid 源码
-uv run python scripts/visualize_consensus_trace.py out/nvda.json --format mermaid --diagram process
+uv run python scripts/visualize_consensus_trace.py out/nvda.json --format mermaid --diagram assumption_map
 
 uv run python demo_consensus.py NVDA --max-iterations 3 -o out/nvda.json
 uv run python scripts/visualize_consensus_trace.py out/nvda.json -o out/nvda_trace.html

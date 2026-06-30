@@ -158,6 +158,18 @@ DEFAULT_CONFIG = _apply_env_overrides({
         "max_hypothesis_iterations": 3,
         "max_recur_limit": 200,
         "perplexity_rate_limit": 20,
+        # Perplexity search_domain_filter denylist (prefix "-" added at call time).
+        # Set to [] to disable; omit key to use built-in defaults.
+        "search_domain_denylist": [
+            "reddit.com",
+            "pinterest.com",
+            "quora.com",
+            "medium.com",
+            "twitter.com",
+            "x.com",
+            "facebook.com",
+            "tiktok.com",
+        ],
         "embedding_provider": "hash",
         "embedding_model": "text-embedding-3-small",
         "embedding_dim": 1024,

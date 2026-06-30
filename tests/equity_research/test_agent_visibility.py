@@ -18,15 +18,26 @@ def test_consensus_subgraph_visibility():
     vis = AGENT_SKILL_VISIBILITY["consensus_subgraph"]
     catalog = [
         _entry("broker_consensus_mining", ["consensus", "analyst"]),
-        _entry("variant_view_discovery", ["variant_view"]),
+        _entry("variant_view_discovery", ["variant_view", "consensus"]),
+        _entry("market_assumption_decomposition", ["assumption", "consensus"]),
         _entry("section_writing", ["writing"]),
         _entry("valuation", ["valuation"]),
     ]
     eligible = filter_eligible_catalog(catalog, vis)
     names = {e.name for e in eligible}
-    assert "broker_consensus_mining" in names
-    assert "variant_view_discovery" in names
-    assert "section_writing" not in names
+    assert names == {"broker_consensus_mining", "variant_view_discovery"}
+
+
+def test_assumption_subgraph_visibility():
+    vis = AGENT_SKILL_VISIBILITY["assumption_subgraph"]
+    catalog = [
+        _entry("market_assumption_decomposition", ["assumption", "consensus"]),
+        _entry("broker_consensus_mining", ["consensus", "analyst"]),
+        _entry("variant_view_discovery", ["variant_view", "consensus"]),
+        _entry("valuation", ["valuation"]),
+    ]
+    eligible = filter_eligible_catalog(catalog, vis)
+    assert [e.name for e in eligible] == ["market_assumption_decomposition"]
 
 
 def test_research_loop_excludes_writing_and_qa():

@@ -26,7 +26,7 @@ class BrokerConsensusHandler:
                 hypothesis_id="consensus",
                 section_id="1_investment_summary",
                 claim_type=ClaimType.RECOMMENDATION,
-                text=f"Broker consensus snapshot for {ticker}: {summary[:500]}",
+                text=f"Broker consensus snapshot for {ticker}: {summary}",
                 status=ClaimStatus.PARTIALLY_SUPPORTED,
                 confidence=0.6,
             )
@@ -64,6 +64,27 @@ class VariantViewDiscoveryHandler:
                 tools["store_claim"](state, claim)
         summary = "; ".join(g.get("description", "") for g in gaps[:3])
         return SkillOutput(summary=summary, claims=claims, confidence=0.65)
+
+
+class MarketAssumptionDecompositionHandler:
+    def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
+        state = input.state_snapshot
+        ticker = state.get("ticker", "")
+        assumption_view = state.get("assumption_view") or state.get("structured_view") or {}
+        assumption_map = assumption_view.get("assumption_map", [])
+        priorities = assumption_view.get("top_research_priorities", [])
+        summary = (
+            f"Assumption decomposition for {ticker}: "
+            f"{len(assumption_map)} assumptions, {len(priorities)} research priorities"
+        )
+        return SkillOutput(
+            summary=summary[:2000],
+            confidence=0.65,
+            artifacts={
+                "assumption_map": assumption_map,
+                "top_research_priorities": priorities,
+            },
+        )
 
 
 class BusinessModelAnalysisHandler:

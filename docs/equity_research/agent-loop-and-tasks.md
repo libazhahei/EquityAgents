@@ -187,17 +187,18 @@ sequenceDiagram
 |---------------------|------------|
 | `consensus_view` | `parent_context["consensus_view"]` |
 | `consensus_report` | `parent_context["consensus_report"]` |
-| `consensus_search_memory` | `search_memory`（继承，避免重复搜索） |
-| `consensus_evidence_buffer` | `evidence_buffer` |
-| — | `structured_view` 初始为空的 `AssumptionView` |
+| `consensus_search_memory` | `search_memory`（仅 dedupe，不在 planner 中 summarize） |
+| — | `evidence_buffer` 保持空（不继承 consensus evidence） |
+| — | `structured_view` 初始为空的 `AssumptionView`（含 `assumption_map`） |
 
 **Assumption 子图 → 父 state**
 
 | AgentState | EquityResearchState |
 |------------|---------------------|
-| `structured_view.current_assumptions` | `consensus_assumptions` |
+| `structured_view.assumption_map` | `assumption_map` |
+| `assumption_map` 兼容导出 | `consensus_assumptions`（`{id: statement}` shim） |
 | `structured_view.research_suggestions` | `research_suggestions` |
-| `structured_view.research_directions` | `research_directions` |
+| `structured_view.top_research_priorities` | `research_directions` |
 | `structured_view`（完整） | `assumption_view` |
 | `final_report` | `assumption_report` |
 | `search_memory` | `assumption_search_memory` |
@@ -215,7 +216,7 @@ sequenceDiagram
 真实样例：[`out/nvda.json`](../../out/nvda.json)（1 轮、coverage 0.94）。可视化：
 
 ```bash
-uv run python scripts/visualize_consensus_trace.py out/nvda.json -o out/nvda_trace.html
+uv run python scripts/visualize_consensus_trace.py out/nvda.json -o out/nvda_trace.html --phase all
 ```
 
 ---
@@ -259,8 +260,9 @@ assumption = get_task_registry().get("assumption")
 
 [`tasks/assumption/profile.py`](../../tradingagents/equity_research/tasks/assumption/profile.py) 要点：
 
-- 十一维 assumption 主题（`business_model`, `debates`, `stress_test` 等）；
-- 输出 `AssumptionView`（含 `current_assumptions`, `research_suggestions`, `research_directions`）；
+- Search 维度：`demand_assumptions`, `product_ramp_assumptions`, `margin_assumptions` 等（见 `ASSUMPTION_SEARCH_DIMENSIONS`）；
+- Reflector 质量维度：`assumption_identification`, `falsifiability`, `model_driver_linkage` 等（见 `ASSUMPTION_QUALITY_DIMENSIONS`）；
+- 输出 `AssumptionView`（含 `assumption_map`, `research_suggestions`, `top_research_priorities`）；
 - `enable_human_review=False`，`max_iterations=3`。
 
 ### 4.3 新增 Task 扩展指南
@@ -495,8 +497,8 @@ flowchart TD
 | 字段 | 来源 / 含义 |
 |------|-------------|
 | `structured_view` | 重置为空 `AssumptionView` |
-| `search_memory` | 继承 `consensus_search_memory` |
-| `evidence_buffer` | 继承 `consensus_evidence_buffer` |
+| `search_memory` | 继承 `consensus_search_memory`（dedupe only） |
+| `evidence_buffer` | 空（assumption 专用证据独立累积） |
 | `parent_context` | 携带 `consensus_view`、`consensus_report` |
 
 **assumption 额外产出**：`consensus_assumptions`、`research_suggestions`、`research_directions`、`assumption_report`、`assumption_view` 等（字段映射见 [§3.2](#32-与父-state-的映射)）。

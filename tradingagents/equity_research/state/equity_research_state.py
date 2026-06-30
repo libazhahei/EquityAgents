@@ -35,6 +35,7 @@ def empty_equity_research_state() -> dict[str, Any]:
         "consensus_evidence_buffer": [],
         "consensus_search_memory": [],
         "assumption_view": {},
+        "assumption_map": [],
         "assumption_report": "",
         "assumption_search_memory": [],
         "assumption_evidence_buffer": [],
@@ -138,6 +139,7 @@ class EquityResearchState(TypedDict, total=False):
     consensus_evidence_buffer: list[dict]
     consensus_search_memory: list[dict]
     assumption_view: dict
+    assumption_map: list[dict]
     assumption_report: str
     assumption_search_memory: list[dict]
     assumption_evidence_buffer: list[dict]

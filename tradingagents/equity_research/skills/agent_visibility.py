@@ -20,8 +20,13 @@ class AgentSkillVisibility:
 AGENT_SKILL_VISIBILITY: dict[str, AgentSkillVisibility] = {
     "consensus_subgraph": AgentSkillVisibility(
         agent_id="consensus_subgraph",
-        include_tags_any=["consensus", "analyst", "estimates"],
         include_names=["broker_consensus_mining", "variant_view_discovery"],
+        exclude_names=["market_assumption_decomposition"],
+    ),
+    "assumption_subgraph": AgentSkillVisibility(
+        agent_id="assumption_subgraph",
+        include_names=["market_assumption_decomposition", "variant_view_discovery"],
+        exclude_names=["broker_consensus_mining"],
     ),
     "research_loop": AgentSkillVisibility(
         agent_id="research_loop",

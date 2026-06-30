@@ -103,6 +103,7 @@ RunnableSkill.run(SkillInput, tools)
 | objective | 默认 skill |
 |-----------|-----------|
 | `consensus` | `broker_consensus_mining` |
+| `assumption` | `market_assumption_decomposition` |
 | `memory` | `collaborative_memory` |
 | `planning` | `dynamic_research_planning` |
 | `thesis` | `thesis_exploration_dag` |
@@ -118,7 +119,8 @@ RunnableSkill.run(SkillInput, tools)
 
 | agent_id | 规则 |
 |----------|------|
-| `consensus_subgraph` | `include_tags_any`: consensus, analyst, estimates；`include_names`: broker_consensus_mining, variant_view_discovery |
+| `consensus_subgraph` | `include_names`: broker_consensus_mining, variant_view_discovery（严格白名单，不按 tag 扩展） |
+| `assumption_subgraph` | `include_names`: market_assumption_decomposition only |
 | `dynamic_planning` | `include_tags_any`: planning, thesis, reasoning, memory |
 | `research_loop` | `exclude_tags_any`: writing, qa |
 | `risk_mapping` | `include_names`: risk_counterthesis |
