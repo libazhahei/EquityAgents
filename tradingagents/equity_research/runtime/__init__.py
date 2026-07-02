@@ -13,6 +13,16 @@ __all__ = [
     "ExplorationGraph",
     "ExplorationNode",
     "GenericResearchSubgraph",
+    "SectionResearchSubgraph",
     "TaskProfile",
     "empty_agent_state",
 ]
+
+
+def __getattr__(name: str):
+    if name == "SectionResearchSubgraph":
+        from tradingagents.equity_research.runtime.section_research_subgraph import (
+            SectionResearchSubgraph,
+        )
+        return SectionResearchSubgraph
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

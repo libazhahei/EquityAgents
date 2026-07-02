@@ -30,7 +30,15 @@ AGENT_SKILL_VISIBILITY: dict[str, AgentSkillVisibility] = {
     ),
     "research_loop": AgentSkillVisibility(
         agent_id="research_loop",
-        exclude_tags_any=["writing", "qa"],
+        include_tags_any=["section_research"],
+        include_names=["variant_view_discovery"],
+        exclude_tags_any=["legacy", "writing", "qa"],
+    ),
+    "section_research_subgraph": AgentSkillVisibility(
+        agent_id="section_research_subgraph",
+        include_tags_any=["section_research"],
+        include_names=["variant_view_discovery"],
+        exclude_tags_any=["legacy", "writing", "qa"],
     ),
     "dynamic_planning": AgentSkillVisibility(
         agent_id="dynamic_planning",

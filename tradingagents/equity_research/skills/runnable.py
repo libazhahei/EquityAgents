@@ -29,11 +29,11 @@ class PromptSkillRunner:
         tool_summaries = []
         for name, fn in tools.items():
             try:
-                if name == "get_consensus_estimates":
+                if name == "analyst_estimates_fetch":
                     tool_summaries.append(json.dumps(fn(state.get("ticker", "")), default=str)[:500])
-                elif name == "get_financial_statements":
+                elif name == "financial_statement_fetch":
                     tool_summaries.append(json.dumps(fn(state.get("ticker", "")), default=str)[:500])
-                elif name == "get_news":
+                elif name == "news_search":
                     tool_summaries.append(str(fn(state.get("ticker", "")))[:500])
                 elif name == "retrieve_claims_by_section":
                     tool_summaries.append(json.dumps(fn(state, ""), default=str)[:500])

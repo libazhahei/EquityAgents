@@ -1,4 +1,5 @@
 ---
+status: legacy
 name: collaborative_memory
 description: Retrieve cross-branch collaborative memory for research iterations.
 when_to_use: |

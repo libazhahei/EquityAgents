@@ -1,4 +1,5 @@
 ---
+status: legacy
 name: business_model_analysis
 description: Analyze business model structure and revenue drivers.
 when_to_use: |

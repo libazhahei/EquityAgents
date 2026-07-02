@@ -19,21 +19,20 @@ OBJECTIVE_SKILL_MAP = {
     "consensus": "broker_consensus_mining",
     "assumption": "market_assumption_decomposition",
     "variant_view": "variant_view_discovery",
-    "business_model": "business_model_analysis",
-    "historical_financials": "historical_financial_analysis",
-    "valuation": "valuation",
-    "risk": "risk_counterthesis",
-    "company_overview": "business_model_analysis",
-    "industry": "industry_analysis",
-    "planning": "dynamic_research_planning",
-    "thesis": "thesis_exploration_dag",
-    "reasoning": "scientific_investment_reasoning",
-    "memory": "collaborative_memory",
-    "forecast": "forecast_assumption_builder",
-    "catalyst": "catalyst_monitoring",
-    "qa": "standardized_qa",
+    "section_research": "section_3_business_model",
     "default": "variant_view_discovery",
 }
+
+_SECTION_SKILL_PREFIX = "section_"
+
+
+def section_skill_for_id(section_id: str) -> str:
+    normalized = section_id.strip().lower().replace("-", "_")
+    return f"{_SECTION_SKILL_PREFIX}{normalized}"
+
+
+def section_skill_objective(section_id: str) -> str:
+    return section_skill_for_id(section_id)
 
 
 class SkillRegistry:
@@ -115,6 +114,9 @@ class SkillRegistry:
 
     def select_for_objective(self, objective: str) -> str:
         objective_lower = objective.lower()
+        if objective_lower.startswith(_SECTION_SKILL_PREFIX):
+            if objective_lower in self._catalog:
+                return objective_lower
         for key, skill_name in OBJECTIVE_SKILL_MAP.items():
             if key in objective_lower and skill_name in self._catalog:
                 return skill_name

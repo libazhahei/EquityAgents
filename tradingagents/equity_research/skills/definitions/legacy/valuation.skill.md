@@ -1,4 +1,5 @@
 ---
+status: legacy
 name: valuation
 description: Compute valuation using trading multiples and structured facts.
 when_to_use: |

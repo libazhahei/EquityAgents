@@ -56,6 +56,27 @@ class AgentState(TypedDict, total=False):
 
     _executor_batch: dict[str, Any] | None
     _executor_tool_node: str | None
+    _executor_tool_group: str | None
+
+    # Section research fields
+    section_id: str
+    research_brief: dict[str, Any]
+    research_plan: dict[str, Any]
+    research_todo_list: dict[str, Any]
+    question_graph: dict[str, Any]
+    task_queue: list[dict]
+    active_task: dict[str, Any] | None
+    active_step: dict[str, Any] | None
+    plan_history: list[dict]
+    answer_cards: dict[str, dict]
+    fact_store: list[dict]
+    calculation_store: list[dict]
+    section_draft: str
+    unresolved_gaps: list[dict]
+    status: str
+    _executor_step_calls: int
+    bfs_wave_index: int
+    bfs_levels: list[list[str]]
 
 
 def empty_agent_state(

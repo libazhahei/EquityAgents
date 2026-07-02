@@ -1,4 +1,5 @@
 ---
+status: legacy
 name: industry_analysis
 description: Analyze industry structure and competitive landscape.
 when_to_use: |

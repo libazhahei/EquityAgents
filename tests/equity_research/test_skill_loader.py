@@ -16,7 +16,8 @@ from tradingagents.equity_research.skills.runnable import RunnableSkill
 from tradingagents.equity_research.tools.registry import ToolRegistry
 
 
-DEFINITIONS_DIR = Path(__file__).resolve().parents[2] / "tradingagents/equity_research/skills/definitions"
+DEFINITIONS_DIR = Path(__file__).resolve().parents[2] / "tradingagents/equity_research/skills/definitions/active"
+LEGACY_DEFINITIONS_DIR = Path(__file__).resolve().parents[2] / "tradingagents/equity_research/skills/definitions/legacy"
 
 
 def test_scan_catalog_skips_body_validation(tmp_path):
@@ -79,9 +80,25 @@ def test_format_catalog_for_prompt_fields_only():
 
 def test_get_returns_runnable_skill():
     registry = SkillRegistry()
-    skill = registry.get("valuation")
+    skill = registry.get("broker_consensus_mining")
     assert isinstance(skill, RunnableSkill)
-    assert skill.manifest.allowed_tools
+    assert skill.manifest.name == "broker_consensus_mining"
+
+
+def test_active_catalog_excludes_legacy_files():
+    registry = SkillRegistry(known_tools=set(ToolRegistry().list_tools()))
+    names = set(registry.list())
+    assert "broker_consensus_mining" in names
+    assert "section_3_business_model" in names
+    assert "valuation" not in names
+    assert "business_model_analysis" not in names
+    assert len(names) == 13
+
+
+def test_legacy_directory_not_scanned_by_default():
+    loader = SkillLoader(definitions_dir=LEGACY_DEFINITIONS_DIR)
+    catalog = loader.scan_catalog()
+    assert catalog == {}
 
 
 def test_filename_must_match_name(tmp_path):
@@ -119,4 +136,4 @@ def test_get_eligible_catalog_assumption_subgraph():
     registry = SkillRegistry(known_tools=set(ToolRegistry().list_tools()))
     eligible = registry.get_eligible_catalog("assumption_subgraph")
     names = {e.name for e in eligible}
-    assert names == {"market_assumption_decomposition"}
+    assert names == {"market_assumption_decomposition", "variant_view_discovery"}

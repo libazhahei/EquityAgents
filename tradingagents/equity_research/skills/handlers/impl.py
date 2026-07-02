@@ -1,4 +1,9 @@
-"""Python skill handlers — execution logic decoupled from .skill.md manifests."""
+"""Python skill handlers — execution logic decoupled from .skill.md manifests.
+
+Active runtime skills: broker_consensus_mining, variant_view_discovery,
+market_assumption_decomposition. Handlers below marked LEGACY are kept for
+reference; their .skill.md files live under definitions/legacy/.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +22,7 @@ class BrokerConsensusHandler:
     def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         ticker = state.get("ticker", "")
-        fetch_estimates = tools.get("analyst_estimates_fetch") or tools.get("get_consensus_estimates")
+        fetch_estimates = tools.get("analyst_estimates_fetch")
         consensus_data = fetch_estimates(ticker) if fetch_estimates else {}
         summary = json.dumps(consensus_data, default=str)[:2000]
         claim = claim_to_dict(
@@ -87,11 +92,11 @@ class MarketAssumptionDecompositionHandler:
         )
 
 
-class BusinessModelAnalysisHandler:
+class BusinessModelAnalysisHandler:  # LEGACY: not loaded at runtime
     def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         ticker = state.get("ticker", "")
-        fetch_financials = tools.get("financial_statement_fetch") or tools.get("get_financial_statements")
+        fetch_financials = tools.get("financial_statement_fetch")
         financials = fetch_financials(ticker) if fetch_financials else {}
         drivers = state.get("business_drivers", [])
         text = f"Business drivers for {ticker}: {json.dumps(drivers, default=str)[:800]}"
@@ -116,11 +121,11 @@ class BusinessModelAnalysisHandler:
         )
 
 
-class HistoricalFinancialAnalysisHandler:
+class HistoricalFinancialAnalysisHandler:  # LEGACY: not loaded at runtime
     def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         ticker = state.get("ticker", "")
-        fetch_financials = tools.get("financial_statement_fetch") or tools.get("get_financial_statements")
+        fetch_financials = tools.get("financial_statement_fetch")
         financials = fetch_financials(ticker) if fetch_financials else {}
         claim = claim_to_dict(
             Claim(
@@ -143,13 +148,13 @@ class HistoricalFinancialAnalysisHandler:
         )
 
 
-class ValuationHandler:
+class ValuationHandler:  # LEGACY: not loaded at runtime
     def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         ticker = state.get("ticker", "")
         current_price = float(state.get("current_price") or 0)
         if current_price <= 0:
-            quote_fn = tools.get("stock_quote") or tools.get("get_current_price")
+            quote_fn = tools.get("stock_quote")
             if quote_fn:
                 quote = quote_fn(ticker)
                 if isinstance(quote, dict):
@@ -191,7 +196,7 @@ class ValuationHandler:
         )
 
 
-class RiskCounterThesisHandler:
+class RiskCounterThesisHandler:  # LEGACY: not loaded at runtime
     def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         contradictions = (
@@ -232,7 +237,7 @@ class RiskCounterThesisHandler:
         )
 
 
-class SectionWritingHandler:
+class SectionWritingHandler:  # LEGACY: not loaded at runtime
     def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         section_id = input.constraints.get("section_id", "") if input.constraints else ""
         claims = (
@@ -247,7 +252,7 @@ class SectionWritingHandler:
         )
 
 
-class DynamicResearchPlanningHandler:
+class DynamicResearchPlanningHandler:  # LEGACY: not loaded at runtime
     def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         iterations = int(state.get("research_iterations", 0))
@@ -260,7 +265,7 @@ class DynamicResearchPlanningHandler:
         )
 
 
-class ThesisExplorationDAGHandler:
+class ThesisExplorationDAGHandler:  # LEGACY: not loaded at runtime
     def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         graph = init_research_graph_from_gaps(state.get("expectation_gaps", []))
@@ -271,7 +276,7 @@ class ThesisExplorationDAGHandler:
         )
 
 
-class ScientificInvestmentReasoningHandler:
+class ScientificInvestmentReasoningHandler:  # LEGACY: not loaded at runtime
     def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         return SkillOutput(
             summary="Scientific reasoning delegated to research loop",
@@ -280,7 +285,7 @@ class ScientificInvestmentReasoningHandler:
         )
 
 
-class CollaborativeMemoryHandler:
+class CollaborativeMemoryHandler:  # LEGACY: not loaded at runtime
     def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         graph = state.get("research_graph", {})
@@ -293,7 +298,7 @@ class CollaborativeMemoryHandler:
         )
 
 
-class IndustryAnalysisHandler:
+class IndustryAnalysisHandler:  # LEGACY: not loaded at runtime
     def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         ticker = state.get("ticker", "")
@@ -302,8 +307,6 @@ class IndustryAnalysisHandler:
         if "news_search" in tools:
             news_result = tools["news_search"](f"{ticker} {industry} industry competition")
             news = json.dumps(news_result, default=str)[:500]
-        elif "get_news" in tools:
-            news = str(tools["get_news"](ticker))[:500]
         text = f"Industry analysis for {ticker} in {industry}: competitive dynamics review."
         claim = claim_to_dict(
             Claim(
@@ -321,7 +324,7 @@ class IndustryAnalysisHandler:
         return SkillOutput(summary=text[:500], claims=[claim], confidence=0.55, artifacts={"news_snippet": str(news)[:500]})
 
 
-class ForecastAssumptionBuilderHandler:
+class ForecastAssumptionBuilderHandler:  # LEGACY: not loaded at runtime
     def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         drivers = state.get("business_drivers", [])
@@ -352,7 +355,7 @@ class ForecastAssumptionBuilderHandler:
         )
 
 
-class CatalystMonitoringHandler:
+class CatalystMonitoringHandler:  # LEGACY: not loaded at runtime
     def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         ticker = state.get("ticker", "")
@@ -385,7 +388,7 @@ class CatalystMonitoringHandler:
         )
 
 
-class StandardizedQAHandler:
+class StandardizedQAHandler:  # LEGACY: not loaded at runtime
     def run(self, loaded: LoadedSkill, input: SkillInput, tools: dict[str, Any]) -> SkillOutput:
         state = input.state_snapshot
         result = aggregate_ic_scores(state)

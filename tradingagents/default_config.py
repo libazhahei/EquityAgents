@@ -158,6 +158,10 @@ DEFAULT_CONFIG = _apply_env_overrides({
         "max_hypothesis_iterations": 3,
         "max_recur_limit": 200,
         "perplexity_rate_limit": 20,
+        "document_root": os.getenv(
+            "TRADINGAGENTS_EQUITY_RESEARCH_DOCS_DIR",
+            os.path.join(_TRADINGAGENTS_HOME, "equity_research", "docs"),
+        ),
         # Perplexity search_domain_filter denylist (prefix "-" added at call time).
         # Set to [] to disable; omit key to use built-in defaults.
         "search_domain_denylist": [

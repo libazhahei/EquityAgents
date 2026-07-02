@@ -1,4 +1,5 @@
 ---
+status: legacy
 name: risk_counterthesis
 description: Map risks to the thesis and gather counter-evidence.
 when_to_use: |

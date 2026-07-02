@@ -8,9 +8,11 @@ import pytest
 
 from tradingagents.equity_research.skills.registry import SkillRegistry
 from tradingagents.equity_research.tools.errors import ToolNotImplementedError
+from tradingagents.equity_research.tools.lc import STATIC_LANGCHAIN_TOOLS
 from tradingagents.equity_research.tools.lc.stubs import STUB_LANGCHAIN_TOOLS
 from tradingagents.equity_research.tools.registry import ToolRegistry
 from tradingagents.equity_research.tools import search_tools, data_tools, artifact_tools
+from tradingagents.equity_research.tools.tool_catalog import EQUITY_TOOLS_CATEGORIES
 from tradingagents.equity_research.tools.workspace_utils import get_document_root
 
 
@@ -157,9 +159,9 @@ def test_langchain_tool_annotations():
 
 
 @pytest.mark.parametrize("tool_name", sorted(STUB_LANGCHAIN_TOOLS.keys()))
-def test_stub_tools_registered(tool_name: str):
+def test_stub_tools_not_registered(tool_name: str):
     registry = ToolRegistry()
-    assert tool_name in registry.list_tools()
+    assert tool_name not in registry.list_tools()
 
 
 @pytest.mark.parametrize(
@@ -172,9 +174,8 @@ def test_stub_tools_registered(tool_name: str):
     ],
 )
 def test_stub_tools_raise_not_implemented(tool_name: str, invoke_kwargs: dict):
-    registry = ToolRegistry()
     with pytest.raises(ToolNotImplementedError) as exc:
-        registry.call(tool_name, **invoke_kwargs)
+        STUB_LANGCHAIN_TOOLS[tool_name].invoke(invoke_kwargs)
     assert exc.value.tool_name == tool_name
 
 
@@ -192,3 +193,38 @@ def test_ls_tools_marks_unimplemented_tools():
     assert result["level"] == "tools"
     for tool in result["tools"]:
         assert tool["implemented"] is False
+
+
+def test_catalog_covers_static_registry_tools():
+    catalog_tools = {
+        name
+        for category in EQUITY_TOOLS_CATEGORIES.values()
+        for name in category.get("tools", {}).keys()
+    }
+    static_tools = set(STATIC_LANGCHAIN_TOOLS.keys())
+    missing = static_tools - catalog_tools
+    assert not missing, f"static tools missing from catalog: {sorted(missing)}"
+
+
+def test_legacy_tool_names_removed_from_catalog_and_registry():
+    legacy_tools = {
+        "get_financial_statements",
+        "get_consensus_estimates",
+        "yfinance_consensus",
+        "get_current_price",
+        "search_web",
+        "search_company_filings",
+        "get_news",
+        "calculate_cagr",
+        "calculate_total_return",
+        "calculate_trading_multiple_valuation",
+        "calculate_sensitivity_table",
+    }
+    catalog_tools = {
+        name
+        for category in EQUITY_TOOLS_CATEGORIES.values()
+        for name in category.get("tools", {}).keys()
+    }
+    registry_tools = set(ToolRegistry().list_tools())
+    assert not (legacy_tools & catalog_tools)
+    assert not (legacy_tools & registry_tools)

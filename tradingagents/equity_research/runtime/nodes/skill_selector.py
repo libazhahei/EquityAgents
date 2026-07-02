@@ -11,7 +11,7 @@ from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
 from tradingagents.equity_research.skills.catalog import format_catalog_for_prompt
 from tradingagents.equity_research.skills.loader import format_skill_prompt
-from tradingagents.equity_research.skills.registry import SkillRegistry
+from tradingagents.equity_research.skills.registry import SkillRegistry, section_skill_for_id
 from tradingagents.equity_research.tools.skill_tools import (
     make_load_research_skills_tool,
     parse_load_skills_result,
@@ -122,13 +122,21 @@ def create_skill_context_apply(
     skill_reg = registry or SkillRegistry(deps=deps)
     graph_name = task_profile.agent_visibility_id
     agent_trace = trace_name or f"{task_profile.task_id}_skill_selector"
-    fallback_name = skill_reg.select_for_objective(task_profile.skill_objective)
+    default_fallback = skill_reg.select_for_objective(task_profile.skill_objective)
 
     def skill_context_apply(state: dict[str, Any]) -> dict[str, Any]:
         errors = list(state.get("errors", []))
         messages = list(state.get("messages", []))
         skill_names: list[str] = []
         catalog_snapshot = [e.to_prompt_dict() for e in skill_reg.get_eligible_catalog(graph_name)]
+        fallback_name = default_fallback
+
+        if task_profile.task_id == "section_research":
+            section_id = str(state.get("section_id", ""))
+            if section_id:
+                section_skill = section_skill_for_id(section_id)
+                if section_skill in skill_reg.list():
+                    fallback_name = section_skill
 
         try:
             for message in reversed(messages):

@@ -1,4 +1,5 @@
 ---
+status: legacy
 name: scientific_investment_reasoning
 description: Formulate testable investment hypotheses with structured scoring.
 when_to_use: |

@@ -16,7 +16,8 @@ REQUIRED_SECTIONS = ("Constraints", "Prompt Template")
 OPTIONAL_SECTIONS = ("Query Guidance",)
 ALLOWED_SECTIONS = set(REQUIRED_SECTIONS + OPTIONAL_SECTIONS)
 
-DEFAULT_DEFINITIONS_DIR = Path(__file__).resolve().parent / "definitions"
+DEFAULT_DEFINITIONS_DIR = Path(__file__).resolve().parent / "definitions" / "active"
+LEGACY_DEFINITIONS_DIR = Path(__file__).resolve().parent / "definitions" / "legacy"
 
 
 @dataclass
@@ -53,7 +54,19 @@ class SkillLoader:
     def scan_definitions(self) -> list[Path]:
         if not self.definitions_dir.exists():
             return []
-        return sorted(self.definitions_dir.glob("*.skill.md"))
+        paths = sorted(self.definitions_dir.glob("*.skill.md"))
+        filtered: list[Path] = []
+        for path in paths:
+            try:
+                data = _parse_frontmatter_dict(path.read_text(encoding="utf-8"))
+            except Exception:
+                filtered.append(path)
+                continue
+            if str(data.get("status", "active")).lower() == "legacy":
+                self.load_warnings.append(f"Skipping legacy skill at {path.name}")
+                continue
+            filtered.append(path)
+        return filtered
 
     def scan_catalog(self) -> dict[str, SkillCatalogEntry]:
         catalog: dict[str, SkillCatalogEntry] = {}
@@ -233,7 +246,13 @@ def _resolve_definitions_dir() -> Path:
     override = os.environ.get("EQUITY_RESEARCH_SKILLS_DIR")
     if override:
         return Path(override)
-    return DEFAULT_DEFINITIONS_DIR
+    active = DEFAULT_DEFINITIONS_DIR
+    if active.exists():
+        return active
+    legacy_parent = active.parent
+    if legacy_parent.exists():
+        return legacy_parent
+    return active
 
 
 def _split_frontmatter(text: str) -> tuple[str | None, str]:

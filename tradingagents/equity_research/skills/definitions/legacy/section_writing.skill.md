@@ -1,4 +1,5 @@
 ---
+status: legacy
 name: section_writing
 description: Prepare report section context from verified claims.
 when_to_use: |

@@ -2,19 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Callable
 
 from tradingagents.dataflows import equity_vendors
 from tradingagents.dataflows.config import get_config
-from tradingagents.dataflows.interface import route_to_vendor
 from tradingagents.dataflows.vendor_routing import (
     DEFAULT_VENDOR_ORDER,
     build_vendor_chain,
     execute_vendor_chain,
 )
 from tradingagents.equity_research.computation.valuation_mock import compute_valuation_mock
-from tradingagents.equity_research.integrations.info_sources import default_registry
 from tradingagents.equity_research.tools.tool_catalog import (
     EQUITY_TOOLS_CATEGORIES,
     get_category_for_tool,
@@ -35,8 +32,6 @@ DEFAULT_VENDOR_ORDER.update({
     "filing_reader": ["edgar"],
     "peer_comps_fetch": ["yfinance", "fmp"],
     "valuation_multiples_fetch": ["yfinance", "fmp"],
-    "get_financial_statements": ["yfinance", "info_sources"],
-    "get_consensus_estimates": ["info_sources", "fmp", "yfinance"],
 })
 
 WRAP_VENDOR_METADATA = {
@@ -63,20 +58,6 @@ EQUITY_METHOD_CATEGORIES: dict[str, str] = {
 }
 
 EQUITY_VENDOR_METHODS: dict[str, dict[str, Callable[..., Any]]] = {
-    "get_financial_statements": {
-        "yfinance": lambda ticker, **_: _yfinance_financials(ticker),
-        "info_sources": lambda ticker, **_: _info_sources_financials(ticker),
-    },
-    "get_consensus_estimates": {
-        "info_sources": lambda ticker, **_: _info_sources_consensus(ticker),
-        "fmp": equity_vendors.analyst_estimates_fetch_fmp,
-        "yfinance": equity_vendors.analyst_estimates_fetch_yfinance,
-    },
-    "get_current_price": {
-        "yfinance": lambda ticker, **_: route_to_vendor(
-            "get_briefing_stock_info", ticker, datetime.utcnow().strftime("%Y-%m-%d")
-        ),
-    },
     "calculate_trading_multiple_valuation": {
         "internal": lambda ticker, current_price, forecast_model, facts, **_: compute_valuation_mock(
             ticker, float(current_price or 0), forecast_model, facts
@@ -176,26 +157,6 @@ def route_equity_tool(method: str, *args, **kwargs) -> Any:
     if isinstance(result, dict):
         return {**result, "vendor_used": vendor_chain[0] if vendor_chain else None, "fallback_attempted": vendor_chain}
     return {"data": result, "vendor_used": vendor_chain[0] if vendor_chain else None, "fallback_attempted": vendor_chain}
-
-
-def _yfinance_financials(ticker: str) -> dict[str, Any]:
-    today = datetime.utcnow().strftime("%Y-%m-%d")
-    return {
-        "fundamentals": route_to_vendor("get_fundamentals", ticker, today),
-        "income_statement": route_to_vendor("get_income_statement", ticker, "annual", today),
-        "balance_sheet": route_to_vendor("get_balance_sheet", ticker, "annual", today),
-        "cashflow": route_to_vendor("get_cashflow", ticker, "annual", today),
-    }
-
-
-def _info_sources_financials(ticker: str) -> dict[str, Any]:
-    results = default_registry().fetch_all(ticker, "fundamentals")
-    return results[0] if results else {}
-
-
-def _info_sources_consensus(ticker: str) -> dict[str, Any]:
-    results = default_registry().fetch_all(ticker, "consensus")
-    return results[0] if results else {}
 
 
 def _calculate_cagr(values: list[float], periods: int) -> dict[str, float]:

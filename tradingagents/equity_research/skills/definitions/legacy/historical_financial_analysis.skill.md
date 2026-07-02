@@ -1,4 +1,5 @@
 ---
+status: legacy
 name: historical_financial_analysis
 description: Analyze historical financial performance and trends.
 when_to_use: |

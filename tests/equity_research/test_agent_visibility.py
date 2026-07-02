@@ -37,19 +37,24 @@ def test_assumption_subgraph_visibility():
         _entry("valuation", ["valuation"]),
     ]
     eligible = filter_eligible_catalog(catalog, vis)
-    assert [e.name for e in eligible] == ["market_assumption_decomposition"]
+    names = {e.name for e in eligible}
+    assert names == {"market_assumption_decomposition", "variant_view_discovery"}
 
 
-def test_research_loop_excludes_writing_and_qa():
+def test_research_loop_section_research_tags_only():
     vis = AGENT_SKILL_VISIBILITY["research_loop"]
     catalog = [
         _entry("section_writing", ["writing"]),
         _entry("standardized_qa", ["qa"]),
-        _entry("business_model_analysis", ["business_model"]),
+        _entry("business_model_analysis", ["business_model", "legacy"]),
+        _entry("section_3_business_model", ["section_research", "business_model"]),
+        _entry("variant_view_discovery", ["variant_view"]),
     ]
     eligible = filter_eligible_catalog(catalog, vis)
     names = {e.name for e in eligible}
-    assert "business_model_analysis" in names
+    assert "section_3_business_model" in names
+    assert "variant_view_discovery" in names
+    assert "business_model_analysis" not in names
     assert "section_writing" not in names
     assert "standardized_qa" not in names
 

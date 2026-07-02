@@ -1,44 +1,35 @@
 """Tests for research loop runtime."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
-from tradingagents.equity_research.agents.research_loop import ResearchLoopRuntime
+from tradingagents.equity_research.agents.research_loop import create_research_loop
 from tradingagents.equity_research.state.equity_research_state import empty_equity_research_state
-from tradingagents.equity_research.state.research_graph import empty_research_graph
 
 
-def test_research_loop_updates_graph_and_status():
+def test_research_loop_delegates_to_section_subgraph():
     deps = MagicMock()
     deps.trace = lambda state, *args, **kwargs: {}
-    deps.config = {"equity_research": {"thesis_score_threshold": 0.9, "max_hypotheses_per_section": 5}}
-    deps.quick_llm.invoke.return_value = MagicMock(
-        content='{"hypotheses": [{"hypothesis": "test thesis", "category": "Revenue Growth", '
-        '"overall_score": 7, "recommended_next_action": "develop"}]}'
-    )
-    deps.deep_llm.invoke.return_value = MagicMock(
-        content='{"hypotheses": [{"hypothesis": "test thesis", "category": "Revenue Growth", '
-        '"overall_score": 7, "recommended_next_action": "develop"}]}'
-    )
-    deps.redis.budget_get.return_value = 0
-    deps.perplexity.api_key = ""
-    deps.edgar.fetch_recent_filings.return_value = []
 
-    runtime = ResearchLoopRuntime(deps)
-    state = empty_equity_research_state()
-    state["ticker"] = "TEST"
-    state["report_id"] = "r1"
-    state["research_graph"] = empty_research_graph()
-    state["research_plan"] = {
-        "core_questions": [{
-            "id": "Q1",
-            "question": "variant_view discovery",
-            "required_skills": ["variant_view_discovery"],
-        }]
+    mock_updates = {
+        "research_status": "continue",
+        "research_iterations": 1,
+        "section_research_outputs": {"3_business_model": {"section_id": "3_business_model"}},
+        "research_plan": {"tasks": [{"task_id": "t_q1"}]},
+        "answer_cards": {},
     }
-    state["expectation_gaps"] = [{"gap_id": "g1", "description": "gap", "category": "consensus_gap"}]
 
-    result = runtime.run(state)
-    assert "research_status" in result
+    with patch(
+        "tradingagents.equity_research.agents.research_loop.subgraph.create_run_section_research_subgraph",
+    ) as mock_factory:
+        mock_factory.return_value = lambda state: mock_updates
+        loop = create_research_loop(deps)
+        state = empty_equity_research_state()
+        state["ticker"] = "TEST"
+        state["section_plans"] = {
+            "3_business_model": {"root_question": "q", "nodes": []},
+        }
+        result = loop(state)
+
     assert result["research_iterations"] == 1
-    assert "research_graph" in result
-    assert len(result["research_graph"].get("nodes", {})) >= 1
+    assert "research_status" in result
+    assert "section_research_outputs" in result

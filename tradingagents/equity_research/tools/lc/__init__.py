@@ -15,27 +15,14 @@ from tradingagents.equity_research.tools.lc import (
     document,
     finance,
     human,
-    legacy,
     memory,
     planner,
     quality,
     search,
-    stubs,
+    todo,
 )
 
 STATIC_LANGCHAIN_TOOLS: dict[str, BaseTool] = {
-    # Legacy data + calculators
-    "get_financial_statements": legacy.get_financial_statements,
-    "get_consensus_estimates": legacy.get_consensus_estimates,
-    "yfinance_consensus": legacy.yfinance_consensus,
-    "get_current_price": legacy.get_current_price,
-    "search_web": legacy.search_web,
-    "search_company_filings": legacy.search_company_filings,
-    "get_news": legacy.get_news,
-    "calculate_cagr": legacy.calculate_cagr,
-    "calculate_total_return": legacy.calculate_total_return,
-    "calculate_trading_multiple_valuation": legacy.calculate_trading_multiple_valuation,
-    "calculate_sensitivity_table": legacy.calculate_sensitivity_table,
     # Search
     "web_search": search.web_search,
     "web_fetch": search.web_fetch,
@@ -94,6 +81,12 @@ STATIC_LANGCHAIN_TOOLS: dict[str, BaseTool] = {
     "link_evidence_to_claim": memory.link_evidence_to_claim,
     "retrieve_claims_by_section": memory.retrieve_claims_by_section,
     "retrieve_contradictory_evidence": memory.retrieve_contradictory_evidence,
+    # Research todo list
+    "list_research_todos": todo.list_research_todos,
+    "add_research_todo": todo.add_research_todo,
+    "remove_research_todo": todo.remove_research_todo,
+    "update_research_todo_status": todo.update_research_todo_status,
+    "get_next_research_todo": todo.get_next_research_todo,
     # Code
     "code_reader": code.code_reader,
     "code_search": code.code_search,
@@ -101,7 +94,10 @@ STATIC_LANGCHAIN_TOOLS: dict[str, BaseTool] = {
     "python_exec_sandbox": code.python_exec_sandbox,
     "shell_exec_sandbox": code.shell_exec_sandbox,
 }
-STATIC_LANGCHAIN_TOOLS.update(stubs.STUB_LANGCHAIN_TOOLS)
+
+# NOTE: Tools backed by ToolNotImplementedError stubs are intentionally not
+# registered here. Keep them out of the registry until they have real
+# implementations.
 
 
 def build_system_langchain_tools(

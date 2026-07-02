@@ -1,4 +1,5 @@
 ---
+status: legacy
 name: standardized_qa
 description: Run standardized quality assessment on report state.
 when_to_use: |

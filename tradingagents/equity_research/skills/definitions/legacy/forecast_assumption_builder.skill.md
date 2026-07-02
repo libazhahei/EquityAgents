@@ -1,4 +1,5 @@
 ---
+status: legacy
 name: forecast_assumption_builder
 description: Build forecast assumptions from business drivers and claims.
 when_to_use: |

@@ -1,4 +1,5 @@
 ---
+status: legacy
 name: dynamic_research_planning
 description: Stage-aware dynamic research planning.
 when_to_use: |

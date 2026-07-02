@@ -1,4 +1,5 @@
 ---
+status: legacy
 name: catalyst_monitoring
 description: Build a catalyst calendar from gaps and earnings events.
 when_to_use: |

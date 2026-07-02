@@ -11,7 +11,7 @@ from typing import Any
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.state.equity_research_state import EquityResearchState
 from tradingagents.equity_research.state.ledgers import ResearchMandate, ResearchPlan, ResearchPlanQuestion
-from tradingagents.equity_research.tools.data_retrieval import get_financial_statements
+from tradingagents.equity_research.tools.finance_tools import financial_statement_fetch
 
 
 def create_define_research_mandate(deps: EquityResearchDeps):
@@ -153,7 +153,7 @@ def create_generate_research_plan(deps: EquityResearchDeps):
 def create_historical_financials(deps: EquityResearchDeps):
     def historical_financials(state: dict[str, Any]) -> dict[str, Any]:
         ticker = state["ticker"]
-        data = get_financial_statements(ticker)
+        data = financial_statement_fetch(ticker, period="annual")
         updates = {
             "historical_financials": data,
             "last_updated": datetime.utcnow().isoformat(),
@@ -273,6 +273,23 @@ def create_risk_to_thesis_mapping(deps: EquityResearchDeps):
         from tradingagents.equity_research.tools.registry import ToolRegistry
 
         registry = SkillRegistry(deps=deps, known_tools=set(ToolRegistry(deps).list_tools()), config=deps.config)
+        if "risk_counterthesis" not in registry.list():
+            gaps = state.get("expectation_gaps", [])
+            risk_map = [
+                {
+                    "risk_id": str(uuid.uuid4()),
+                    "description": g.get("description", ""),
+                    "thesis_link": g.get("alpha_source", ""),
+                }
+                for g in gaps[:5]
+            ]
+            updates = {
+                "risk_map": risk_map,
+                "last_updated": datetime.utcnow().isoformat(),
+            }
+            updates.update(deps.trace({**state, **updates}, "risk_to_thesis_mapping"))
+            return updates
+
         skill = registry.get("risk_counterthesis")
         tools = ToolRegistry(deps).for_skill(skill.manifest.allowed_tools)
         output = skill.run(SkillInput(state_snapshot=state, objective="risk mapping"), tools)

@@ -1,4 +1,5 @@
 ---
+status: legacy
 name: thesis_exploration_dag
 description: Initialize and extend thesis exploration branches in the research graph.
 when_to_use: |
