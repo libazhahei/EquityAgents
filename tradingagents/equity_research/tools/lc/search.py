@@ -54,6 +54,25 @@ def search_deduper(
     return search_tools.search_deduper(results)
 
 
+def make_web_search_tool(deps: Any) -> BaseTool:
+    @tool
+    def web_search_deps(
+        query: Annotated[str, "Search query"],
+        ticker: Annotated[str, "Ticker symbol for document registration"] = "",
+        recency: Annotated[str | None, "Recency window: day, week, month, or year"] = None,
+    ) -> dict[str, Any]:
+        """Run a general web search and fetch/store content for result URLs."""
+        return search_tools.web_search_with_url_storage(
+            query,
+            recency=recency,
+            deps=deps,
+            ticker=ticker,
+        )
+
+    web_search_deps.name = "web_search"
+    return web_search_deps
+
+
 def make_batch_perplexity_search_tool(
     deps: Any,
     *,

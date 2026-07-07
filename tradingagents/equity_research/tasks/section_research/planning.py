@@ -6,9 +6,11 @@ import uuid
 from typing import Any
 
 from tradingagents.equity_research.tasks.section_research.schemas import (
+    PlannerTaskOutline,
     ResearchStep,
     ResearchTask,
     SectionResearchPlan,
+    SectionResearchPlanOutlineLLMOutput,
 )
 
 _ACTION_BY_KEYWORD: list[tuple[tuple[str, ...], str, list[str]]] = [
@@ -105,6 +107,139 @@ def _default_steps_for_question(
         ),
     )
     return steps
+
+
+def _compact_steps_for_outline(
+    qid: str,
+    objective: str,
+    approach: str,
+    question: dict[str, Any] | None = None,
+) -> list[ResearchStep]:
+    q = question or {}
+    expected = str(q.get("expected_output", ""))
+    action, tools = _infer_action_and_tools(f"{objective} {approach}", expected)
+    steps = [
+        ResearchStep(
+            step_id=f"{qid}_s1",
+            order=1,
+            action="orient",
+            description=f"Orient: {objective}",
+            tool_hints=["memory_retrieve", "list_research_todos"],
+            expected_output="Evidence plan",
+        ),
+    ]
+    mid_description = approach or objective
+    if action == "fetch_primary":
+        steps.append(
+            ResearchStep(
+                step_id=f"{qid}_s2",
+                order=2,
+                action="fetch_primary",
+                description=mid_description,
+                tool_hints=["filings_search", "filing_reader", "financial_statement_fetch"],
+                inputs_from=[f"{qid}_s1"],
+                expected_output="Primary source documents",
+            ),
+        )
+    else:
+        steps.append(
+            ResearchStep(
+                step_id=f"{qid}_s2",
+                order=2,
+                action="search",
+                description=mid_description,
+                tool_hints=tools,
+                inputs_from=[f"{qid}_s1"],
+                expected_output=expected or "Relevant evidence snippets",
+            ),
+        )
+    steps.append(
+        ResearchStep(
+            step_id=f"{qid}_s3",
+            order=3,
+            action="synthesize",
+            description=f"Synthesize answer for {qid}",
+            tool_hints=["store_evidence", "memory_write"],
+            inputs_from=[f"{qid}_s2"],
+            expected_output="Answer card with citations",
+        ),
+    )
+    return steps
+
+
+def expand_outline_to_plan(
+    outline: SectionResearchPlanOutlineLLMOutput,
+    brief: dict[str, Any],
+    *,
+    section_id: str,
+    plan_id: str | None = None,
+) -> SectionResearchPlan:
+    questions_by_id = {str(q.get("id", "")): q for q in (brief.get("questions") or [])}
+    tasks: list[ResearchTask] = []
+    execution_order = list(outline.execution_order) or [t.task_id for t in outline.tasks]
+    order_set = set(execution_order)
+    for outline_task in outline.tasks:
+        if outline_task.task_id not in order_set:
+            execution_order.append(outline_task.task_id)
+        q = questions_by_id.get(outline_task.question_id, {})
+        priority = max(50, 100 - int(q.get("priority", 5)) * 5)
+        objective = outline_task.objective or str(q.get("question", ""))
+        tasks.append(
+            ResearchTask(
+                task_id=outline_task.task_id,
+                question_id=outline_task.question_id,
+                objective=objective,
+                task_type=str(q.get("downstream_agent") or "evidence_search"),
+                priority=priority,
+                steps=_compact_steps_for_outline(
+                    outline_task.question_id,
+                    objective,
+                    outline_task.approach,
+                    q,
+                ),
+                required_sources=list(q.get("suggested_sources") or q.get("required_evidence") or []),
+                expected_artifacts=[str(q.get("expected_output", ""))],
+                success_criteria={"confidence_threshold": 0.7, "min_primary_sources": 1},
+            ),
+        )
+    return SectionResearchPlan(
+        plan_id=plan_id or f"plan_{section_id}_{uuid.uuid4().hex[:6]}",
+        section_id=section_id,
+        tasks=tasks,
+        execution_order=execution_order,
+        plan_rationale=outline.plan_rationale,
+    )
+
+
+def expand_task_outlines(
+    outlines: list[PlannerTaskOutline],
+    brief: dict[str, Any],
+) -> list[ResearchTask]:
+    questions_by_id = {str(q.get("id", "")): q for q in (brief.get("questions") or [])}
+    tasks: list[ResearchTask] = []
+    for outline_task in outlines:
+        q = questions_by_id.get(outline_task.question_id, {})
+        priority = max(50, 100 - int(q.get("priority", 5)) * 5)
+        objective = outline_task.objective or str(q.get("question", ""))
+        tasks.append(
+            ResearchTask(
+                task_id=outline_task.task_id,
+                question_id=outline_task.question_id,
+                objective=objective,
+                task_type=str(q.get("downstream_agent") or "evidence_search"),
+                priority=priority,
+                steps=_compact_steps_for_outline(
+                    outline_task.question_id,
+                    objective,
+                    outline_task.approach,
+                    q,
+                ),
+                required_sources=list(q.get("suggested_sources") or q.get("required_evidence") or []),
+                expected_artifacts=[str(q.get("expected_output", ""))],
+                success_criteria={"confidence_threshold": 0.7, "min_primary_sources": 1},
+            ),
+        )
+    return tasks
 
 
 def build_fallback_plan(

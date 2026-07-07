@@ -23,18 +23,51 @@ def _filing_cache_path(cache_dir: Path, filing: dict[str, Any]) -> Path:
     return cache_dir / f"{form}_{suffix}.json"
 
 
-def prefetch_sec_filings(deps: Any, ticker: str) -> list[dict[str, Any]]:
-    """Download recent SEC filings and persist to cache dir."""
-    ticker = ticker.upper()
-    cache_dir = sec_cache_dir(deps.config, ticker)
-    cache_dir.mkdir(parents=True, exist_ok=True)
+def _resolve_full_text(filing: dict[str, Any]) -> str:
+    if filing.get("full_text"):
+        return str(filing["full_text"])
+    path = filing.get("full_text_path")
+    if path and Path(path).is_file():
+        return Path(path).read_text(encoding="utf-8")
+    return str(filing.get("text_excerpt", ""))
 
-    filings = deps.edgar.fetch_recent_filings(ticker)
+
+def write_filings_to_cache(config: dict[str, Any], ticker: str, filings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Persist filing metadata and full text to the local SEC cache."""
+    ticker = ticker.upper()
+    cache_dir = sec_cache_dir(config, ticker)
+    cache_dir.mkdir(parents=True, exist_ok=True)
     cached: list[dict[str, Any]] = []
     for filing in filings:
-        path = _filing_cache_path(cache_dir, filing)
-        path.write_text(json.dumps(filing, ensure_ascii=False, indent=2), encoding="utf-8")
-        cached.append(filing)
+        entry = dict(filing)
+        path = _filing_cache_path(cache_dir, entry)
+        if entry.get("full_text") and len(entry["full_text"]) > 500_000:
+            accession = str(entry.get("accession_number", "")).replace("/", "-")
+            txt_path = cache_dir / f"{entry.get('form', 'filing')}_{accession}.txt"
+            txt_path.write_text(entry["full_text"], encoding="utf-8")
+            entry["full_text_path"] = str(txt_path)
+            entry.pop("full_text", None)
+        path.write_text(json.dumps(entry, ensure_ascii=False, indent=2), encoding="utf-8")
+        if not entry.get("full_text") and entry.get("full_text_path"):
+            entry["full_text"] = Path(entry["full_text_path"]).read_text(encoding="utf-8")
+        cached.append(entry)
+    return cached
+
+
+def prefetch_sec_filings(deps: Any, ticker: str) -> list[dict[str, Any]]:
+    """Download recent SEC filings, persist to cache, and build RAG index."""
+    ticker = ticker.upper()
+    filings = deps.edgar.fetch_recent_filings(ticker)
+    cached = write_filings_to_cache(deps.config, ticker, filings)
+
+    if hasattr(deps, "rag") and deps.rag is not None:
+        from tradingagents.rag.types import CorpusScope
+
+        try:
+            deps.rag.ingest("sec_filings", CorpusScope(ticker=ticker))
+        except Exception as exc:
+            logger.warning("SEC filing RAG ingest failed for %s: %s", ticker, exc)
+
     return cached
 
 
@@ -46,7 +79,10 @@ def load_cached_filings(config: dict[str, Any], ticker: str) -> list[dict[str, A
     filings: list[dict[str, Any]] = []
     for path in sorted(cache_dir.glob("*.json")):
         try:
-            filings.append(json.loads(path.read_text(encoding="utf-8")))
+            filing = json.loads(path.read_text(encoding="utf-8"))
+            if not filing.get("full_text"):
+                filing["full_text"] = _resolve_full_text(filing)
+            filings.append(filing)
         except Exception as exc:
             logger.debug("Skip corrupt SEC cache file %s: %s", path, exc)
     return filings

@@ -66,11 +66,18 @@ class EquityResearchGraph:
             base_url=self.config.get("backend_url"),
             **llm_kwargs,
         )
+        nano_client = create_llm_client(
+            provider=self.config["llm_provider"],
+            model=self.config.get("nano_think_llm", "gpt-5.4-nano"),
+            base_url=self.config.get("backend_url"),
+            **llm_kwargs,
+        )
 
         self.deps = EquityResearchDeps(
             config=self.config,
             deep_llm=deep_client.get_llm(),
-            quick_llm=quick_client.get_llm()
+            quick_llm=quick_client.get_llm(),
+            nano_llm=nano_client.get_llm(),
         )
         self.propagator = EquityPropagator(
             max_recur_limit=self.config.get("equity_research", {}).get("max_recur_limit", 100),

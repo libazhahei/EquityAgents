@@ -8,6 +8,7 @@ from typing import Any
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
+from tradingagents.equity_research.runtime.utils.llm_resolve import resolve_research_llm
 from tradingagents.equity_research.runtime.utils.structured_invoke import (
     StructuredOutputUnsupported,
     invoke_structured_with_retry,
@@ -20,10 +21,14 @@ from tradingagents.equity_research.tasks.section_research.bfs_todos import (
     has_next_bfs_wave,
     wave_complete,
 )
-from tradingagents.equity_research.tasks.section_research.planning import build_fallback_plan
+from tradingagents.equity_research.tasks.section_research.planning import (
+    build_fallback_plan,
+    expand_outline_to_plan,
+    expand_task_outlines,
+)
 from tradingagents.equity_research.tasks.section_research.schemas import (
     SectionResearchPlan,
-    SectionResearchPlanLLMOutput,
+    SectionResearchPlanOutlineLLMOutput,
     SectionReplanLLMOutput,
 )
 from tradingagents.equity_research.tasks.section_research.todo_sync import (
@@ -127,23 +132,23 @@ def create_section_planner_node(
         try:
             if is_initial:
                 plan: SectionResearchPlan
+                llm = resolve_research_llm(deps, "deep")
                 try:
                     prompt = prompt_builder(deps, state)
                     llm_out = invoke_structured_with_retry(
-                        deps.deep_llm,
-                        SectionResearchPlanLLMOutput,
+                        llm,
+                        SectionResearchPlanOutlineLLMOutput,
                         prompt,
                         agent_name=agent_name,
                         max_attempts=_max_retries(deps),
-                        fallback=lambda: SectionResearchPlanLLMOutput(),
+                        fallback=lambda: SectionResearchPlanOutlineLLMOutput(),
                     )
                     if llm_out.tasks:
-                        plan = SectionResearchPlan(
-                            plan_id=f"plan_{section_id}_{uuid.uuid4().hex[:6]}",
+                        plan = expand_outline_to_plan(
+                            llm_out,
+                            brief_raw,
                             section_id=section_id,
-                            tasks=llm_out.tasks,
-                            execution_order=llm_out.execution_order or [t.task_id for t in llm_out.tasks],
-                            plan_rationale=llm_out.plan_rationale,
+                            plan_id=f"plan_{section_id}_{uuid.uuid4().hex[:6]}",
                         )
                     else:
                         raise StructuredOutputUnsupported("empty plan")
@@ -178,8 +183,9 @@ def create_section_planner_node(
 
             try:
                 prompt = prompt_builder(deps, state)
+                llm = resolve_research_llm(deps, "deep")
                 replan = invoke_structured_with_retry(
-                    deps.deep_llm,
+                    llm,
                     SectionReplanLLMOutput,
                     prompt,
                     agent_name=agent_name,
@@ -187,7 +193,8 @@ def create_section_planner_node(
                     fallback=lambda: SectionReplanLLMOutput(),
                 )
                 tasks = list(current.tasks)
-                for new_task in replan.new_tasks:
+                expanded_new = expand_task_outlines(replan.new_tasks, brief_raw)
+                for new_task in expanded_new:
                     tasks.append(new_task)
                 for append in replan.append_steps:
                     task_id = append.get("task_id")
@@ -196,7 +203,7 @@ def create_section_planner_node(
                             from tradingagents.equity_research.tasks.section_research.schemas import ResearchStep
                             task.steps.append(ResearchStep.model_validate(append["step"]))
                 execution_order = list(current.execution_order)
-                for t in replan.new_tasks:
+                for t in expanded_new:
                     execution_order.append(t.task_id)
                 current = SectionResearchPlan(
                     plan_id=current.plan_id,

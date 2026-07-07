@@ -9,7 +9,12 @@ from langchain_core.tools import BaseTool
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
 from tradingagents.equity_research.tools.lc import STATIC_LANGCHAIN_TOOLS
-from tradingagents.equity_research.tools.lc.search import make_batch_perplexity_search_tool
+from tradingagents.equity_research.tools.lc.memory import make_memory_search_tools
+from tradingagents.equity_research.tools.lc.finance import make_filings_search_tool
+from tradingagents.equity_research.tools.lc.search import (
+    make_batch_perplexity_search_tool,
+    make_web_search_tool,
+)
 
 ToolGroupId = Literal["retrieval", "computation", "action"]
 
@@ -29,6 +34,13 @@ EXECUTOR_TOOL_SETS: dict[ToolGroupId, tuple[str, ...]] = {
         "document_chunker",
         "reference_parser",
         "memory_retrieve",
+        "search_evidence",
+        "search_claims",
+        "search_assumptions",
+        "search_consensus",
+        "search_conflicts",
+        "search_memory_timeline",
+        "search_research_context",
     ),
     "computation": (
         "calculator",
@@ -156,11 +168,21 @@ def build_tools_for_group(
     group_id: ToolGroupId,
 ) -> list[BaseTool]:
     tools: list[BaseTool] = []
-    for name in resolve_executor_tool_names(task_profile, group_id):
+    names = resolve_executor_tool_names(task_profile, group_id)
+    if group_id == "retrieval":
+        dynamic = {t.name: t for t in make_memory_search_tools(deps)}
+        dynamic["web_search"] = make_web_search_tool(deps)
+        dynamic["filings_search"] = make_filings_search_tool(deps)
+        for name in names:
+            if name in dynamic:
+                tools.append(dynamic[name])
+            elif name in STATIC_LANGCHAIN_TOOLS:
+                tools.append(STATIC_LANGCHAIN_TOOLS[name])
+        tools.append(make_batch_perplexity_search_tool(deps))
+        return tools
+    for name in names:
         if name in STATIC_LANGCHAIN_TOOLS:
             tools.append(STATIC_LANGCHAIN_TOOLS[name])
-    if group_id == "retrieval":
-        tools.append(make_batch_perplexity_search_tool(deps))
     return tools
 
 
@@ -175,5 +197,13 @@ def build_executor_tool_set_nodes(
     nodes: dict[str, Any] = {}
     for group_id in TOOL_GROUP_IDS:
         node_name = tool_group_node_name(group_id, prefix=prefix)
-        nodes[node_name] = ToolNode(build_tools_for_group(deps, task_profile, group_id))
+        base_node = ToolNode(build_tools_for_group(deps, task_profile, group_id))
+
+        def _make_wrapped(node, group):
+            def wrapped(state: dict[str, Any]) -> dict[str, Any]:
+                return node.invoke(state)
+
+            return wrapped
+
+        nodes[node_name] = _make_wrapped(base_node, group_id)
     return nodes

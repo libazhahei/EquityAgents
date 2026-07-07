@@ -152,46 +152,118 @@ def analyst_estimates_fetch_yfinance(ticker: str, **_: Any) -> dict[str, Any]:
     return analyst_estimates_fetch_info_sources(ticker)
 
 
-def transcript_search_fmp(ticker: str, quarter: str | None = None, **_: Any) -> list[dict[str, Any]]:
-    from tradingagents.equity_research.integrations.fmp import FMPClient
+def transcript_search_alpha_vantage(
+    ticker: str,
+    quarter: str | None = None,
+    query: str | None = None,
+    **_: Any,
+) -> list[dict[str, Any]]:
+    from tradingagents.dataflows.alpha_vantage_transcript import get_earnings_call_transcript
 
-    client = FMPClient()
+    data = get_earnings_call_transcript(ticker, quarter=quarter)
+    if query:
+        needle = query.strip().lower()
+        data = [
+            item for item in data
+            if needle in str(item.get("content") or "").lower()
+        ]
+        if not data:
+            raise NoMarketDataError(symbol=ticker, detail="no transcript match for query")
+    return data
+
+
+def transcript_search_fmp(ticker: str, quarter: str | None = None, **_: Any) -> list[dict[str, Any]]:
+    from tradingagents.dataflows.config import get_config
+    from tradingagents.equity_research.integrations.fmp import FMPClient, FMPSubscriptionError
+
+    client = FMPClient(get_config())
     if not client.available:
         raise VendorNotConfiguredError("FMP_API_KEY is not set")
-    data = client.fetch_earnings_call_transcripts(ticker)
+    try:
+        data = client.fetch_earnings_call_transcripts(ticker, quarter=quarter)
+    except FMPSubscriptionError as exc:
+        raise NoMarketDataError(symbol=ticker, detail=str(exc)) from exc
     if not data:
         raise NoMarketDataError(symbol=ticker, detail="no transcripts")
     return data
 
 
-def transcript_search_perplexity(ticker: str, quarter: str | None = None, **_: Any) -> list[dict[str, Any]]:
+def transcript_search_perplexity(ticker: str, quarter: str | None = None, query: str | None = None, **_: Any) -> list[dict[str, Any]]:
     from tradingagents.llm_clients.perplexity_client import PerplexityClient
 
     client = PerplexityClient.from_config({})
     if not client.api_key:
         raise VendorNotConfiguredError("PERPLEXITY_API_KEY is not set")
     q = f"{ticker} earnings call transcript {quarter or 'latest'}"
+    if query:
+        q += f"Query: {query}"
+    q += "Return the transcript content only, with keys: ticker, quarter, content."
     result = client.search(q)
     if not result.get("answer"):
         raise NoMarketDataError(symbol=ticker, detail="no perplexity transcript")
     return [{"ticker": ticker, "quarter": quarter, "content": result.get("answer", "")}]
 
 
-def filings_search_edgar(ticker: str, form_type: str | None = None, **_: Any) -> list[dict[str, Any]]:
+def filings_search_edgar(
+    ticker: str,
+    form_type: str | None = None,
+    section: str | None = None,
+    keywords: str | None = None,
+    top_k: int = 8,
+    max_chars: int = 8000,
+    dedupe: bool = True,
+    rerank: bool = True,
+    prefer_recent: bool | None = None,
+    max_per_group: int = 2,
+    **_: Any,
+) -> dict[str, Any] | list[dict[str, Any]]:
+    """Vendor fallback — RAG-backed search when keywords provided."""
+    if not keywords or not keywords.strip():
+        from tradingagents.dataflows.vendor_errors import NoMarketDataError
+
+        raise NoMarketDataError(
+            symbol=ticker,
+            detail="keywords required for filings_search; use hybrid RAG retrieval",
+        )
+    from tradingagents.equity_research.agents.deps import EquityResearchDeps
+    from tradingagents.dataflows.config import get_config
+    from tradingagents.equity_research.tools.filings_rag_tools import filings_search_rag
+
+    deps = EquityResearchDeps(config=get_config())
+    return filings_search_rag(
+        deps,
+        ticker,
+        keywords,
+        form_type=form_type,
+        section=section,
+        top_k=top_k,
+        max_chars=max_chars,
+        dedupe=dedupe,
+        rerank=rerank,
+        prefer_recent=prefer_recent,
+        max_per_group=max_per_group,
+    )
+
+
+def filing_reader_edgar(
+    filing_url: str | None = None,
+    filing_id: str | None = None,
+    section: str | None = None,
+    **_: Any,
+) -> dict[str, Any]:
     from tradingagents.equity_research.integrations.edgar import EdgarClient
 
-    forms = [form_type] if form_type else ["10-K", "10-Q", "8-K"]
-    data = EdgarClient().fetch_recent_filings(ticker, forms)
-    if not data:
-        raise NoMarketDataError(symbol=ticker, detail="no filings")
-    return data
-
-
-def filing_reader_edgar(filing_url: str | None = None, filing_id: str | None = None, **_: Any) -> dict[str, Any]:
     url = filing_url or filing_id or ""
     if not url:
         raise NoMarketDataError(symbol="filing", detail="filing_url or filing_id required")
-    return JinaClient().fetch_url(url)
+    result = EdgarClient().read_filing_section(
+        filing_url=url if url.startswith("http") else None,
+        accession_number=url if not url.startswith("http") else None,
+        section=section or "full",
+    )
+    if result.get("error") and not result.get("text_excerpt"):
+        return JinaClient().fetch_url(url if url.startswith("http") else filing_url or "")
+    return result
 
 
 def peer_comps_fetch_yfinance(ticker: str, **_: Any) -> dict[str, Any]:

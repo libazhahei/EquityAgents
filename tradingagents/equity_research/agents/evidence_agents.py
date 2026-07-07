@@ -63,25 +63,37 @@ def create_retrieve_evidence(deps: EquityResearchDeps):
                 if mode == SearchMode.CONTRADICTION:
                     contradiction_fragments.append(frag)
 
-        # EDGAR supplement
-        for filing in deps.edgar.fetch_recent_filings(ticker)[:2]:
-            doc = deps.documents.register(
-                ticker=ticker,
-                source_type=filing.get("form", "10-K"),
-                title=f"{ticker} {filing.get('form', '')}",
-                source_url=filing.get("url", ""),
-                published_date=filing.get("filing_date"),
+        # SEC filing evidence via RAG search (indexed at prefetch)
+        if deps.rag is not None and hypothesis.get("research_question"):
+            from tradingagents.rag.types import SearchQuery
+
+            sec_hits = deps.rag.search(
+                "sec_filings",
+                SearchQuery(
+                    keywords=str(hypothesis.get("research_question", ""))[:200],
+                    filters={"ticker": ticker},
+                    top_k=3,
+                    max_chars=4000,
+                ),
             )
-            documents.append(doc)
-            if filing.get("text_excerpt"):
+            for hit in sec_hits.hits:
+                doc = deps.documents.register(
+                    ticker=ticker,
+                    source_type=hit.metadata.get("form", "10-K"),
+                    title=f"{ticker} SEC {hit.metadata.get('form', '')}",
+                    source_url=hit.metadata.get("source_url", ""),
+                    published_date=hit.metadata.get("filing_date"),
+                )
+                documents.append(doc)
+                emb = deps.embeddings.embed(hit.text)
                 frag = deps.evidence.insert(
                     ticker=ticker,
                     doc_id=doc["doc_id"],
-                    excerpt_text=filing["text_excerpt"][:2000],
+                    excerpt_text=hit.text[:2000],
                     hypothesis_id=hid,
                     fragment_type="filing",
                     source_reliability="high",
-                    embedding=deps.embeddings.embed(filing["text_excerpt"][:2000]),
+                    embedding=emb,
                 )
                 fragments.append(frag)
 

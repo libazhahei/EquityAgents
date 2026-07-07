@@ -555,7 +555,7 @@ sequenceDiagram
 | 节点 | 读入 | 做什么 | 写出 | 下一步 |
 |------|------|--------|------|--------|
 | `executor` | `query_queue`（按 `priority` 降序） | 取最多 5 条 query，**并行**调用 Perplexity（[`execute_perplexity_search`](../../tradingagents/equity_research/tools/perplexity_tool.py)）；每条产出 evidence 与 search record | `search_memory`（搜索历史）、`pending_evidence`（待合并证据）、`evidence_buffer`（累积证据）、`documents`（`doc_id` 列表）、`api_calls` 递增；剩余条目写回 `query_queue` | → `synthesizer` |
-| `synthesizer` | `structured_view`、`pending_evidence`、`search_memory` | `quick_llm` 结构化输出 `ConsensusViewUpdate`，经 `merge_view_update` 合并进 `StructuredConsensusView`；`preserve_citations_fn` 保留引用；无 LLM 时可用 heuristic fallback | 更新后的 `structured_view`；清空 `pending_evidence` | → `reflector` |
+| `synthesizer` | `structured_view`、`pending_evidence`、`search_memory` | 总是运行 `apply_evidence_heuristic_fn` 将 evidence 合并到 `answer_cards`（snippet → `verified_facts`，bump `confidence`）；仅在有 pending evidence 时调用 `quick_llm` 生成结构化 `ConsensusViewUpdate` 并 merge；`preserve_citations_fn` 保留引用 | 更新后的 `structured_view`；清空 `pending_evidence` | → `reflector` |
 | `reflector` | `structured_view`、`search_memory` | `quick_llm` 对各维度打 coverage 分，输出 `CoverageEvaluation`；`iterations` 加 1；向 `ExplorationGraph` 追加本轮 snapshot 节点 | `coverage_report`（含 `overall_score`、`dimension_scores`、`critical_gaps`、`routing_decision`）、`coverage_history`、`exploration_graph`、`current_node_id`、`iterations` | 由 router 决定（见下） |
 
 **Reflector 退出条件**（[`reflector.py`](../../tradingagents/equity_research/runtime/nodes/reflector.py)）：

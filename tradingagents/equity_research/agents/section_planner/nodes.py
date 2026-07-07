@@ -27,6 +27,7 @@ from tradingagents.equity_research.tasks.section_planner.schemas import (
 from tradingagents.equity_research.tasks.section_planner.template import interpret_section_template
 from tradingagents.equity_research.tasks.section_planner.validate import finalize_plan_from_llm_output
 from tradingagents.equity_research.templates.report_template import build_grounding_queries
+from tradingagents.equity_research.runtime.utils.messages import clear_messages_update
 from tradingagents.equity_research.tools.lc.planner import batch_light_grounding_search
 
 BATCH_GROUNDING_TOOL_NAME = "batch_light_grounding_search"
@@ -176,7 +177,7 @@ def create_grounding_apply_node(deps: EquityResearchDeps):
         updates: dict[str, Any] = {
             "grounding_notes": notes,
             "api_calls": api_calls,
-            "messages": [],
+            **clear_messages_update(),
             "_grounding_batch": None,
         }
         errors = list(state.get("errors", []))

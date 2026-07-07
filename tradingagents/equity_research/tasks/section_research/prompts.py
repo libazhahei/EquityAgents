@@ -6,6 +6,8 @@ import json
 from typing import Any
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
+from tradingagents.equity_research.runtime.task_profile import TaskProfile
+from tradingagents.equity_research.runtime.utils.context_compact import compact_prompt_block
 from tradingagents.equity_research.runtime.utils.search_memory import build_search_memory_for_prompt
 from tradingagents.equity_research.state.consensus_schemas import get_consensus_view_for_prompt
 from tradingagents.equity_research.tasks.section_research.schemas import (
@@ -14,27 +16,41 @@ from tradingagents.equity_research.tasks.section_research.schemas import (
 )
 
 
-def _format_consensus_context(brief: ResearchBrief) -> str:
+def _format_consensus_context(deps: EquityResearchDeps, brief: ResearchBrief) -> str:
     if not brief.consensus_view:
         return "{}"
     if isinstance(brief.consensus_view, str):
-        return brief.consensus_view[:2000]
-    return get_consensus_view_for_prompt({"consensus_view": brief.consensus_view})[:2000]
+        raw = brief.consensus_view
+    else:
+        raw = get_consensus_view_for_prompt({"consensus_view": brief.consensus_view})
+    return compact_prompt_block(deps, raw, purpose="consensus view for section planner")
 
 
-def _format_assumption_context(brief: ResearchBrief) -> str:
+def _format_assumption_context(deps: EquityResearchDeps, brief: ResearchBrief) -> str:
     if brief.assumption_report:
-        return str(brief.assumption_report)[:2000]
-    if brief.assumption_view:
-        return str(brief.assumption_view)[:2000]
-    return "{}"
+        raw = str(brief.assumption_report)
+    elif brief.assumption_view:
+        raw = json.dumps(brief.assumption_view, default=str)
+    else:
+        return "{}"
+    return compact_prompt_block(deps, raw, purpose="assumption context for section planner")
 
 
 def build_initial_plan_prompt(deps: EquityResearchDeps, state: dict[str, Any]) -> str:
     brief = ResearchBrief.model_validate(state.get("research_brief") or {})
     skills = state.get("active_skill_context") or {}
     bfs_levels_data = state.get("bfs_levels") or []
-    return f"""You are a senior equity research planner. Build a multi-step research plan for one report section.
+    questions_block = compact_prompt_block(
+        deps,
+        json.dumps(brief.questions[:12], indent=2),
+        purpose="section planner questions",
+    )
+    skills_block = compact_prompt_block(
+        deps,
+        json.dumps(skills),
+        purpose="active skills for section planner",
+    )
+    return f"""You are a senior equity research planner. Build a concise research plan for one report section.
 
 Ticker: {state.get("ticker", "")}
 Section: {brief.section_id} — {brief.section_title}
@@ -44,25 +60,26 @@ Required coverage outputs: {json.dumps(brief.coverage_outputs[:15])}
 Data quality flags: {json.dumps(brief.data_quality_flags[:10])}
 
 Questions (from section planner):
-{json.dumps(brief.questions[:12], indent=2)[:6000]}
+{questions_block}
 
 BFS question waves (executor runs wave-by-wave): {json.dumps(bfs_levels_data[:8])}
 
 Consensus view (structured):
-{_format_consensus_context(brief)}
+{_format_consensus_context(deps, brief)}
 
-Assumption context (excerpt):
-{_format_assumption_context(brief)}
+Assumption context:
+{_format_assumption_context(deps, brief)}
 
-Active skills: {json.dumps(skills)[:1500]}
+Active skills: {skills_block}
 
-For each question across ALL BFS waves, create a ResearchTask with ordered steps.
-Each step must have: step_id, order, action (orient|search|fetch_primary|extract|calculate|compare|verify|synthesize),
-description, tool_hints, expected_output.
+For each priority question in the current BFS wave, output a task with:
+- task_id, question_id
+- objective: what to learn (one clear goal)
+- approach: rough how to research it (1-2 sentences, tools/sources)
 
-Return JSON matching SectionResearchPlanLLMOutput schema with tasks and execution_order.
-Prioritize questions with priority=1 and those blocking coverage outputs.
-Limit to at most 8 tasks and 6 steps per task. The executor will run only the current BFS wave first."""
+Return JSON matching SectionResearchPlanOutlineLLMOutput: plan_rationale, tasks, execution_order.
+Prioritize priority=1 questions and those blocking coverage outputs.
+Limit to at most 6 tasks. Do NOT list detailed steps — the system expands your outline."""
 
 
 def build_replan_prompt(deps: EquityResearchDeps, state: dict[str, Any]) -> str:
@@ -72,6 +89,20 @@ def build_replan_prompt(deps: EquityResearchDeps, state: dict[str, Any]) -> str:
     wave_index = int(state.get("bfs_wave_index", 0))
     bfs_levels_data = state.get("bfs_levels") or []
     next_wave = bfs_levels_data[wave_index + 1] if wave_index + 1 < len(bfs_levels_data) else []
+    answer_summary = {
+        k: v.get("short_answer", "")
+        for k, v in (state.get("answer_cards") or {}).items()
+    }
+    cards_block = compact_prompt_block(
+        deps,
+        json.dumps(answer_summary, indent=2),
+        purpose="answer cards summary for replan",
+    )
+    gaps_block = compact_prompt_block(
+        deps,
+        json.dumps(gaps[:10], indent=2),
+        purpose="critical gaps for replan",
+    )
     return f"""You are replanning section research based on coverage gaps or BFS wave advance.
 
 Ticker: {state.get("ticker", "")}
@@ -81,14 +112,14 @@ Current BFS wave index: {wave_index}
 Next wave question ids (if advancing): {json.dumps(next_wave)}
 
 Critical gaps:
-{json.dumps(gaps[:10], indent=2)}
+{gaps_block}
 
 Answer cards summary:
-{json.dumps({k: v.get("short_answer", "")[:200] for k, v in (state.get("answer_cards") or {}).items()}, indent=2)[:3000]}
+{cards_block}
 
-If this is a wave-advance replan, do not duplicate existing tasks; only ensure next-wave questions have tasks.
-Otherwise add follow-up tasks or steps ONLY for the gaps. Do not replan completed work.
-Return JSON matching SectionReplanLLMOutput: new_tasks, append_steps, new_todo_items, rationale."""
+If wave-advance: add tasks only for next-wave questions (objective + approach each).
+Otherwise add follow-up tasks ONLY for gaps. Do not replan completed work.
+Return JSON matching SectionReplanLLMOutput: new_tasks (objective + approach only), append_steps, rationale."""
 
 
 def build_synthesizer_prompt(
@@ -99,11 +130,16 @@ def build_synthesizer_prompt(
 ) -> str:
     evidence_text = build_search_memory_for_prompt(deps, pending, max_chars=8000)
     active = state.get("active_task") or {}
+    active_block = compact_prompt_block(
+        deps,
+        json.dumps(active),
+        purpose="active task for synthesizer",
+    )
     return f"""Synthesize pending evidence into section research view updates.
 
 Ticker: {state.get("ticker", "")}
 Section: {view.section_id}
-Active task: {json.dumps(active)[:1000]}
+Active task: {active_block}
 Current answer cards: {list(view.answer_cards.keys())}
 
 Pending evidence:
@@ -113,30 +149,145 @@ Update answer_cards for relevant question_ids. Include verified_facts, calculati
 Return SectionResearchViewUpdate JSON."""
 
 
+def build_reflector_system_prompt(task_profile: TaskProfile) -> str:
+    dimensions = ", ".join(task_profile.dimensions)
+    return f"""You are a section research coverage evaluator for equity research.
+
+Score coverage across dimensions: {dimensions}.
+
+Rules:
+- Assess plan_completion, question_scores, and critical_gaps.
+- recommended_next_action must be exactly one of: run_existing_queue, plan_more, needs_human, exit.
+- Use evidence quality and primary-source coverage when scoring.
+- Flag contradictions and data quality issues explicitly.
+    - Double-check todo items: if an item is still "pending" or "in_progress" but the corresponding
+      answer card already has sufficient evidence (confidence >= 0.7 and non-empty verified_facts),
+      list its item_id in completed_todo_ids. Only mark items that are genuinely finished.
+    - Do NOT mark items as completed if the answer card has low confidence or missing primary evidence.
+
+Iteration budget rules (critical — follow strictly):
+- You will be told how many iterations remain out of the total budget.
+- If remaining_iterations <= 1: set recommended_next_action to "exit" unless
+  overall_score >= coverage_threshold and there are no critical gaps already met.
+  Prioritize consolidating existing evidence over requesting more work.
+- If remaining_iterations <= 2: do NOT recommend "plan_more"; only recommend
+  "run_existing_queue" (to finish already-planned steps) or "exit".
+- If remaining_iterations >= 3: normal evaluation rules apply.
+Return structured JSON matching SectionCoverageEvaluation."""
+
+
+def build_reflector_user_prompt(
+    deps: EquityResearchDeps,
+    view: SectionResearchView,
+    memory_summary: str,
+    state: dict[str, Any] | None = None,
+    *,
+    executor_context: str = "",
+    iteration_budget: dict[str, int] | None = None,
+) -> str:
+    state = state or {}
+    plan = state.get("research_plan") or {}
+    todo = state.get("research_todo_list") or {}
+    cards_payload = {
+        k: {"confidence": v.confidence, "gaps": v.open_gaps}
+        for k, v in view.answer_cards.items()
+    }
+    cards_block = compact_prompt_block(
+        deps,
+        json.dumps(cards_payload, indent=2),
+        purpose="answer cards for reflector",
+    )
+    coverage_outputs = compact_prompt_block(
+        deps,
+        json.dumps((state.get("research_brief") or {}).get("coverage_outputs", [])[:12]),
+        purpose="coverage outputs for reflector",
+    )
+    executor_block = ""
+    if executor_context:
+        executor_block = compact_prompt_block(
+            deps,
+            executor_context,
+            purpose="executor context for reflector",
+        )
+    memory_block = memory_summary
+    if memory_summary.strip():
+        memory_block = compact_prompt_block(
+            deps,
+            memory_summary,
+            purpose="search memory for reflector",
+        )
+    todo_items_raw = todo.get("items") or []
+    todo_summary_lines = []
+    for item in todo_items_raw:
+        if item.get("status") in ("pending", "in_progress"):
+            todo_summary_lines.append(
+                f"  - [{item.get('item_id')}] {item.get('title', '')[:80]}"
+                f" | qid={item.get('question_id', '')}"
+                f" | status={item.get('status')}"
+            )
+    todo_block = "\n".join(todo_summary_lines) if todo_summary_lines else "(none pending)"
+    
+    # Build budget block at the END to preserve prompt cache on static prefix
+    budget = iteration_budget or {}
+    current_iter = budget.get("current", int(state.get("iterations", 0)))
+    max_iter = budget.get("max", int(state.get("max_iterations", 0)))
+    remaining = budget.get("remaining", max(0, max_iter - current_iter))
+    pending_tasks = budget.get("pending_tasks", 0)
+    pending_steps = budget.get("pending_steps", 0)
+    budget_block = (
+        f"\n── Iteration Budget ──\n"
+        f"Iteration budget: {current_iter}/{max_iter} completed, "
+        f"{remaining} remaining. "
+        f"Pending plan: {pending_tasks} tasks, {pending_steps} steps.\n"
+    )
+    if remaining <= 1:
+        budget_block += (
+            "\u26a0 CRITICAL BUDGET: You must recommend exit unless all required "
+            "coverage outputs are already satisfied. Consolidate what you have.\n"
+        )
+    elif remaining <= 2:
+        budget_block += (
+            "\u26a0 LOW BUDGET: Prioritize finishing existing evidence over new research. "
+            "Do NOT recommend plan_more. Recommend run_existing_queue or exit.\n"
+        )
+    
+    # Static prefix first (for prompt cache), dynamic content after
+    return f"""Evaluate section research coverage and plan completion.
+
+Ticker: {view.ticker}
+Section: {view.section_id}
+Coverage outputs required: {coverage_outputs}
+Answer cards: {cards_block}
+
+Research plan tasks: {len(plan.get("tasks", []))}
+Todo items to double-check (mark genuinely finished ones in completed_todo_ids):
+{todo_block}
+
+Executor context (this iteration):
+{executor_block or "(none)"}
+
+{memory_block}{budget_block}"""
+
+
 def build_reflector_prompt(
     deps: EquityResearchDeps,
     view: SectionResearchView,
     memory_summary: str,
     state: dict[str, Any] | None = None,
 ) -> str:
-    state = state or {}
-    plan = state.get("research_plan") or {}
-    todo = state.get("research_todo_list") or {}
-    return f"""Evaluate section research coverage and plan completion.
-
-Ticker: {view.ticker}
-Section: {view.section_id}
-Coverage outputs required: {json.dumps((state.get("research_brief") or {}).get("coverage_outputs", [])[:12])}
-Answer cards: {json.dumps({k: {"confidence": v.confidence, "gaps": v.open_gaps[:3]} for k, v in view.answer_cards.items()}, indent=2)[:3000]}
-
-Research plan tasks: {len(plan.get("tasks", []))}
-Todo items pending: {sum(1 for i in (todo.get("items") or []) if i.get("status") == "pending")}
-
-{memory_summary}
-
-Assess plan_completion, question_scores, critical_gaps.
-recommended_next_action must be one of: run_existing_queue, plan_more, needs_human, exit.
-Return SectionCoverageEvaluation JSON."""
+    """Legacy single-string prompt; prefer system + user split in reflector node."""
+    from tradingagents.equity_research.tasks.section_research.profile import (
+        SECTION_RESEARCH_TASK_PROFILE,
+    )
+    system = build_reflector_system_prompt(SECTION_RESEARCH_TASK_PROFILE)
+    user = build_reflector_user_prompt(
+        deps,
+        view,
+        memory_summary,
+        state,
+        executor_context=str((state or {}).get("executor_context_snapshot", "")),
+    )
+    return f"{system}\n\n{user}"
 
 
 def build_finalizer_prompt(deps: EquityResearchDeps, ctx: dict[str, Any]) -> str:
@@ -144,24 +295,47 @@ def build_finalizer_prompt(deps: EquityResearchDeps, ctx: dict[str, Any]) -> str
     view: SectionResearchView | None = ctx.get("view")
     brief = state.get("research_brief") or {}
     cards = view.answer_cards if view else {}
+    intent_block = compact_prompt_block(
+        deps,
+        str(brief.get("intent_hint", "")),
+        purpose="intent hint for finalizer",
+    )
+    cards_block = compact_prompt_block(
+        deps,
+        json.dumps({k: c.model_dump() for k, c in cards.items()}, indent=2),
+        purpose="answer cards for finalizer",
+    )
+    coverage_block = compact_prompt_block(
+        deps,
+        json.dumps(ctx.get("coverage") or {}, indent=2),
+        purpose="coverage for finalizer",
+    )
     return f"""Write the final section research report draft.
 
 Ticker: {state.get("ticker", "")}
 Section: {brief.get("section_title", "")} ({brief.get("section_id", "")})
 Root question: {brief.get("root_question", "")}
-Intent: {str(brief.get("intent_hint", ""))[:1500]}
+Intent: {intent_block}
 
 Answer cards:
-{json.dumps({k: c.model_dump() for k, c in cards.items()}, indent=2)[:8000]}
+{cards_block}
 
-Coverage: {json.dumps(ctx.get("coverage") or {}, indent=2)[:2000]}
+Coverage: {coverage_block}
 
 Produce professional equity research prose with citations. Max {ctx.get("report_max_chars", 6000)} chars.
 Include executive summary at top."""
 
 
-def build_skill_prompt(skill_ctx: dict, objective: str, ticker: str) -> str:
-    return f"Section research for {ticker}. Objective: {objective}. Skills: {json.dumps(skill_ctx)[:2000]}"
+def build_skill_prompt(state: dict[str, Any], catalog_table: str, ticker: str) -> str:
+    section_id = state.get("section_id", "")
+    objective = state.get("research_objective", "section_research")
+    return (
+        f"Select skills for section research on {ticker}.\n"
+        f"Section: {section_id}\n"
+        f"Objective: {objective}\n"
+        f"Sector: {state.get('sector', '')}\n\n"
+        f"Skill catalog:\n{catalog_table}\n"
+    )
 
 
 def build_executor_system_prompt(state: dict[str, Any]) -> str:
@@ -176,8 +350,8 @@ Rules:
 4. Use add_research_todo for newly discovered work; remove_research_todo for obsolete items.
 5. Prefer primary sources (filings) over secondary when step action is fetch_primary or extract.
 
-Active task: {json.dumps(task)[:1500]}
-Active step: {json.dumps(step)[:1500]}
+Active task: {json.dumps(task)}
+Active step: {json.dumps(step)}
 Ticker: {state.get("ticker", "")}
 Section: {state.get("section_id", "")}
 Tool hints: {step.get("tool_hints", [])}

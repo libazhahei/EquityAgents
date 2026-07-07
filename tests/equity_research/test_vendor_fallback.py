@@ -90,6 +90,39 @@ def test_execute_vendor_chain_no_data_string_at_end():
     assert result.startswith("NO_DATA_AVAILABLE")
 
 
+def test_execute_vendor_chain_wraps_list_results_with_vendor_used():
+    def primary():
+        raise NoMarketDataError(symbol="AAPL", detail="no transcripts")
+
+    def secondary():
+        return [{"ticker": "AAPL", "content": "transcript"}]
+
+    result = execute_vendor_chain(
+        "transcript_search",
+        ["fmp", "perplexity"],
+        {"fmp": primary, "perplexity": secondary},
+        wrap_metadata=True,
+    )
+    assert result["vendor_used"] == "perplexity"
+    assert result["fallback_attempted"] == ["fmp", "perplexity"]
+    assert result["data"] == [{"ticker": "AAPL", "content": "transcript"}]
+
+
+def test_build_vendor_chain_transcript_search_prefers_alpha_vantage():
+    from tradingagents.dataflows.vendor_routing import build_vendor_chain
+    from tradingagents.equity_research.tools.interface import EQUITY_VENDOR_METHODS
+    from tradingagents.dataflows.config import get_config
+
+    chain = build_vendor_chain(
+        "transcript_search",
+        EQUITY_VENDOR_METHODS["transcript_search"],
+        category="transcripts_data",
+        config=get_config(),
+        equity_override=True,
+    )
+    assert chain == ["alpha_vantage", "fmp", "perplexity"]
+
+
 def test_execute_vendor_chain_raises_first_error_when_no_no_data():
     def primary():
         raise RuntimeError("network down")

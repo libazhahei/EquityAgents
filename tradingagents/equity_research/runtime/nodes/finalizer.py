@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
-from tradingagents.equity_research.runtime.task_profile import TaskProfile
+from tradingagents.equity_research.runtime.utils.llm_resolve import resolve_research_llm
 
 
 def create_finalizer_node(deps: EquityResearchDeps, task_profile: TaskProfile):
@@ -38,7 +38,7 @@ def create_finalizer_node(deps: EquityResearchDeps, task_profile: TaskProfile):
 
             report = ""
             try:
-                response = deps.quick_llm.invoke(prompt)
+                response = resolve_research_llm(deps, "quick").invoke(prompt)
                 report = response.content if hasattr(response, "content") else str(response)
                 report = str(report).strip()
             except Exception:

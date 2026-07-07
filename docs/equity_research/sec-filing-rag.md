@@ -1,13 +1,34 @@
-# SEC Filing RAG：现状与规划
+# SEC Filing RAG
 
 > 语言：[中文](sec-filing-rag.md) | [English](../../README.md) · [中文主文档](../../README.zh-CN.md) · [文档索引](../zh/README.md)  
-> 相关文档：[storage.md](storage.md) · [memory.md](memory.md) · [file-structure.md](file-structure.md)
+> 相关文档：[RAG 架构](../rag/architecture.md) · [storage.md](storage.md) · [memory.md](memory.md)
 
-本文说明 Equity Research 流水线中 **SEC 申报文件** 的摄取与检索现状（MVP1），以及计划自研并接入主流程的 **SEC Filing RAG** 模块目标架构与集成路径。
+SEC 申报文件通过独立 RAG 模块（`tradingagents/rag/`）摄取与混合检索，由 `filings_search` 工具按 **keywords** 查询。
+
+## 实现概览
+
+```text
+prefetch_sec_filings(deps, ticker)
+  → EdgarClient 全文下载 + sec_cache JSON
+  → RAGService.ingest("sec_filings")
+  → filing_chunk 表（BM25 + pgvector）
+
+filings_search(ticker, keywords, form_type?, section?, top_k?, max_chars?)
+  → RAGService.search("sec_filings")  # ParadeDB BM25 + pgvector + RRF
+```
+
+| 组件 | 路径 |
+|------|------|
+| RAG 核心 | `tradingagents/rag/` |
+| SEC corpus | `equity_research/rag/sec_filings.py` |
+| Tool | `tools/lc/finance.make_filings_search_tool` |
+| 表 | `filing_chunk` |
+
+安装：`docker compose exec postgres psql -U postgres -d tradingagents_equity -f /docker-entrypoint-initdb.d/10-setup-paradedb.sql`
 
 ---
 
-## 1. 当前实现（MVP1）
+## 历史：MVP1（已由 RAG 替代 excerpt 盲截断）
 
 在 `analyze_research_task` 节点启动时，SEC 文件在共识子图之前预取并登记为文档元数据：
 

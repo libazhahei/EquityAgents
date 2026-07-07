@@ -72,11 +72,12 @@ def table_extractor(file_path: str) -> dict[str, Any]:
 
 
 def document_chunker(text: str, strategy: str = "paragraph", chunk_size: int = 1000) -> dict[str, Any]:
-    if strategy == "fixed":
-        chunks = [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)]
-    else:
-        chunks = [c.strip() for c in re.split(r"\n\s*\n", text) if c.strip()]
-    return {"strategy": strategy, "chunks": chunks}
+    from tradingagents.rag.chunking import get_chunker
+
+    chunker = get_chunker(strategy, {"rag_chunk_size": chunk_size})
+    chunks = chunker.chunk(text, metadata={"doc_key": "doc"})
+    bodies = [c.text for c in chunks]
+    return {"strategy": strategy, "chunks": bodies}
 
 
 def document_outline_extractor(text: str) -> dict[str, Any]:

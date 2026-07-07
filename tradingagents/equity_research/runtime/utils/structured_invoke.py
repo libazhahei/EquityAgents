@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, TypeVar
 
+from langchain_core.messages import BaseMessage
 from pydantic import BaseModel, ValidationError
 
 from tradingagents.agents.utils.structured import bind_structured
@@ -47,7 +48,7 @@ def get_structured_runnable(
 def invoke_structured_with_retry(
     llm: Any,
     schema: type[T],
-    prompt: str,
+    prompt: str | Sequence[BaseMessage],
     *,
     agent_name: str,
     max_attempts: int = 3,

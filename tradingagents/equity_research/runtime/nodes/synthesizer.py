@@ -6,6 +6,7 @@ from typing import Any
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
+from tradingagents.equity_research.runtime.utils.llm_resolve import resolve_research_llm
 from tradingagents.equity_research.runtime.utils.structured_invoke import (
     StructuredOutputUnsupported,
     invoke_structured_with_retry,
@@ -28,31 +29,32 @@ def create_synthesizer_node(deps: EquityResearchDeps, task_profile: TaskProfile)
                 view = task_profile.empty_view_fn(ticker)
 
             pending = state.get("pending_evidence", [])
-            if not pending:
-                return {"structured_view": view.model_dump(), "pending_evidence": []}
 
-            prompt = task_profile.build_synthesizer_prompt(deps, state, view, pending)
+            # Step 1: Always run heuristic (fast, deterministic merge)
+            if pending and task_profile.apply_evidence_heuristic_fn:
+                task_profile.apply_evidence_heuristic_fn(view, pending)
 
-            def _fallback():
-                return task_profile.view_update_schema(ticker=ticker)
+            # Step 2: Only call LLM when there is pending evidence
+            if pending:
+                prompt = task_profile.build_synthesizer_prompt(deps, state, view, pending)
 
-            try:
-                update = invoke_structured_with_retry(
-                    deps.quick_llm,
-                    task_profile.view_update_schema,
-                    prompt,
-                    agent_name=f"{task_profile.task_id}_synthesizer",
-                    max_attempts=_max_retries(deps),
-                    fallback=_fallback,
-                )
-                update_dump = update.model_dump(exclude_unset=True)
-                if update_dump:
-                    view = task_profile.merge_view_fn(view, update)
-                elif task_profile.apply_evidence_heuristic_fn:
-                    task_profile.apply_evidence_heuristic_fn(view, pending)
-            except StructuredOutputUnsupported:
-                if task_profile.apply_evidence_heuristic_fn:
-                    task_profile.apply_evidence_heuristic_fn(view, pending)
+                def _fallback():
+                    return task_profile.view_update_schema(ticker=ticker)
+
+                try:
+                    update = invoke_structured_with_retry(
+                        resolve_research_llm(deps, "quick"),
+                        task_profile.view_update_schema,
+                        prompt,
+                        agent_name=f"{task_profile.task_id}_synthesizer",
+                        max_attempts=_max_retries(deps),
+                        fallback=_fallback,
+                    )
+                    update_dump = update.model_dump(exclude_unset=True)
+                    if update_dump:
+                        view = task_profile.merge_view_fn(view, update)
+                except StructuredOutputUnsupported:
+                    pass  # heuristic already handled evidence merge
 
             if task_profile.preserve_citations_fn:
                 task_profile.preserve_citations_fn(view, pending)

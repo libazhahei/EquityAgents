@@ -13,13 +13,20 @@ from tradingagents.equity_research.integrations.fmp import FMPClient
 from tradingagents.equity_research.integrations.info_sources import InfoSourceRegistry, default_registry
 from tradingagents.equity_research.integrations.redis_cache import RedisClient
 from tradingagents.llm_clients.perplexity_client import PerplexityClient
+from tradingagents.rag.registry import CorpusRegistry
+from tradingagents.rag.service import RAGService
+from tradingagents.rag.embedder import EmbeddingClientAdapter
+from tradingagents.rag.backends import create_backend
+from tradingagents.equity_research.rag import register_equity_corpora
 from tradingagents.equity_research.storage.document_registry import DocumentRegistry
 from tradingagents.equity_research.storage.evidence_store import EvidenceStore
 from tradingagents.equity_research.storage.fact_store import FactStore
+from tradingagents.equity_research.storage.ledger_store import LedgerStore
 from tradingagents.equity_research.storage.in_memory import (
     InMemoryDocumentRegistry,
     InMemoryEvidenceStore,
     InMemoryFactStore,
+    InMemoryLedgerStore,
     InMemoryTraceStore,
 )
 from tradingagents.equity_research.storage.trace_store import TraceStore
@@ -52,16 +59,19 @@ class EquityResearchDeps:
     config: dict[str, Any]
     deep_llm: Any
     quick_llm: Any
+    nano_llm: Any = None
     documents: Any = None
     evidence: Any = None
     facts: Any = None
     traces: Any = None
+    ledgers: Any = None
     perplexity: PerplexityClient | None = None
     edgar: EdgarClient = field(default_factory=lambda: EdgarClient())
     fmp: FMPClient = field(default_factory=lambda: FMPClient())
     embeddings: EmbeddingClient = field(default_factory=lambda: EmbeddingClient())
     redis: RedisClient = field(default_factory=lambda: RedisClient())
     info_sources: InfoSourceRegistry = field(default_factory=default_registry)
+    rag: RAGService | None = None
     _use_memory: bool = False
 
     def __post_init__(self):
@@ -72,11 +82,13 @@ class EquityResearchDeps:
             self.evidence = InMemoryEvidenceStore()
             self.facts = InMemoryFactStore()
             self.traces = InMemoryTraceStore()
+            self.ledgers = InMemoryLedgerStore()
         else:
             self.documents = _try_postgres_store(DocumentRegistry, InMemoryDocumentRegistry, self.config)
             self.evidence = _try_postgres_store(EvidenceStore, InMemoryEvidenceStore, self.config)
             self.facts = _try_postgres_store(FactStore, InMemoryFactStore, self.config)
             self.traces = _try_postgres_store(TraceStore, InMemoryTraceStore, self.config)
+            self.ledgers = _try_postgres_store(LedgerStore, InMemoryLedgerStore, self.config)
         redis_cfg = {**self.config, "equity_research_use_memory": self._use_memory}
         self.redis = RedisClient(redis_cfg)
         er = self.config.get("equity_research", {})
@@ -88,6 +100,23 @@ class EquityResearchDeps:
         self.edgar = EdgarClient(self.config)
         self.fmp = FMPClient(self.config)
         self.embeddings = EmbeddingClient(self.config)
+        self._init_rag()
+
+    def _init_rag(self) -> None:
+        registry = CorpusRegistry()
+        register_equity_corpora(
+            registry,
+            self.config,
+            edgar=self.edgar,
+            evidence_store=self.evidence,
+        )
+        backend = create_backend(self.config, use_memory=self._use_memory)
+        self.rag = RAGService(
+            registry,
+            EmbeddingClientAdapter(self.embeddings),
+            backend,
+            config=self.config,
+        )
 
     def trace(self, state: dict, node_name: str, payload: dict | None = None) -> dict:
         entry = self.traces.append(

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, TypedDict
+from typing import Annotated, Any, TypedDict
+
+from langgraph.graph import add_messages
 
 from tradingagents.equity_research.tasks.section_planner.schemas import SectionPlannerRequest
 
@@ -27,7 +29,7 @@ class SectionPlannerState(TypedDict, total=False):
     plan: dict[str, Any]
     exploration_graph: dict[str, Any]
 
-    messages: list[Any]
+    messages: Annotated[list[Any], add_messages]
     _grounding_batch: dict[str, Any] | None
     api_calls: int
     errors: list[str]

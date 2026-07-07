@@ -54,8 +54,10 @@ pip install "tradingagents[equity-research]"
 
 ```bash
 createdb tradingagents_equity
-psql -d tradingagents_equity -f scripts/setup_pgvector.sql
+docker compose exec postgres psql -U postgres -d tradingagents_equity -f /docker-entrypoint-initdb.d/10-setup-paradedb.sql
 ```
+
+The `postgres` service uses the ParadeDB Docker image, so `pg_search` and `pgvector` are available inside the container.
 
 
 | Variable                     | Purpose                                       |

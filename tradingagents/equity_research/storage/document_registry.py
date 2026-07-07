@@ -92,4 +92,29 @@ class DocumentRegistry:
             "access_path": row.access_path,
             "doc_fingerprint": row.doc_fingerprint,
             "processing_status": row.processing_status,
+            "reliability_score": float(getattr(row, "reliability_score", 0.5) or 0.5),
+            "citation_count": int(getattr(row, "citation_count", 0) or 0),
+            "last_used_at": (
+                row.last_used_at.isoformat() if getattr(row, "last_used_at", None) else None
+            ),
         }
+
+    def update_reliability(
+        self,
+        doc_id: str,
+        delta: float,
+        reason: str = "",
+    ) -> dict[str, Any] | None:
+        session = get_session(self.config)
+        try:
+            row = session.query(DocumentRegistryRow).filter_by(doc_id=doc_id).first()
+            if not row:
+                return None
+            current = float(getattr(row, "reliability_score", 0.5) or 0.5)
+            row.reliability_score = max(0.0, min(1.0, current + delta))
+            row.citation_count = int(getattr(row, "citation_count", 0) or 0) + (1 if delta > 0 else 0)
+            row.last_used_at = datetime.utcnow()
+            session.commit()
+            return self._row_to_dict(row)
+        finally:
+            session.close()

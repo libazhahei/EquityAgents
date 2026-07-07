@@ -5,5 +5,6 @@ from tradingagents.equity_research.memory.retrieval import (
     memory_score,
     text_similarity,
 )
+from tradingagents.equity_research.memory.filters import MemoryFilters
 
-__all__ = ["build_memory_context", "memory_score", "text_similarity"]
+__all__ = ["build_memory_context", "memory_score", "text_similarity", "MemoryFilters"]

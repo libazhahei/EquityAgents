@@ -40,10 +40,17 @@ def _build_deps(config: dict) -> EquityResearchDeps:
         base_url=config.get("backend_url"),
         **llm_kwargs,
     )
+    nano_client = create_llm_client(
+        provider=config["llm_provider"],
+        model=config.get("nano_think_llm", "gpt-5.4-nano"),
+        base_url=config.get("backend_url"),
+        **llm_kwargs,
+    )
     return EquityResearchDeps(
         config=config,
         deep_llm=deep_client.get_llm(),
         quick_llm=quick_client.get_llm(),
+        nano_llm=nano_client.get_llm(),
     )
 
 

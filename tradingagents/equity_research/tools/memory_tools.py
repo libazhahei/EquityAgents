@@ -14,21 +14,51 @@ def memory_retrieve(
     state: dict[str, Any],
     query: str = "",
     filters: dict[str, Any] | None = None,
+    *,
+    deps: Any = None,
     **_: Any,
 ) -> dict[str, Any]:
-    plan = {"priority_questions": [query]} if query else {}
-    ctx = build_memory_context(state, parent_nodes=filters.get("parent_nodes", []) if filters else [], plan=plan)
-    return ctx
+    filters = dict(filters or {})
+    if query and "priority_questions" not in filters:
+        plan = {"priority_questions": [query]}
+    else:
+        plan = {"priority_questions": filters.pop("priority_questions", [])} if filters else {}
+    if query and not plan.get("priority_questions"):
+        plan = {"priority_questions": [query]}
+    parent_nodes = filters.pop("parent_nodes", [])
+    return build_memory_context(
+        state,
+        parent_nodes=parent_nodes,
+        plan=plan,
+        filters=filters or None,
+        deps=deps,
+    )
 
 
-def memory_write(state: dict[str, Any], record: dict[str, Any]) -> dict[str, Any]:
+def memory_write(state: dict[str, Any], record: dict[str, Any], *, deps: Any = None) -> dict[str, Any]:
     record_type = record.get("type", "evidence")
+    created_by = record.get("created_by", "memory_write")
     if record_type == "evidence":
-        return evidence_memory.store_evidence(state, record.get("payload", record))
+        return evidence_memory.store_evidence(
+            state,
+            record.get("payload", record),
+            deps=deps,
+            created_by=created_by,
+        )
     if record_type == "claim":
-        return evidence_memory.store_claim(state, record.get("payload", record))
+        return evidence_memory.store_claim(
+            state,
+            record.get("payload", record),
+            deps=deps,
+            created_by=created_by,
+        )
     if record_type == "assumption":
-        return evidence_memory.store_assumption(state, record.get("payload", record))
+        return evidence_memory.store_assumption(
+            state,
+            record.get("payload", record),
+            deps=deps,
+            created_by=created_by,
+        )
     if record_type in {"reflection", "action"}:
         reflections = list(state.get("memory_reflections", []))
         entry = {
@@ -36,6 +66,7 @@ def memory_write(state: dict[str, Any], record: dict[str, Any]) -> dict[str, Any
             "type": record_type,
             "content": record.get("content", record),
             "created_at": datetime.utcnow().isoformat(),
+            "created_by": created_by,
         }
         reflections.append(entry)
         return {"memory_reflections": reflections, "memory_id": entry["id"]}

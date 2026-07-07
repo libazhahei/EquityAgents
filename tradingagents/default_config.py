@@ -11,6 +11,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_LLM_PROVIDER":         "llm_provider",
     "TRADINGAGENTS_DEEP_THINK_LLM":       "deep_think_llm",
     "TRADINGAGENTS_QUICK_THINK_LLM":      "quick_think_llm",
+    "TRADINGAGENTS_NANO_THINK_LLM":       "nano_think_llm",
     "TRADINGAGENTS_LLM_BACKEND_URL":      "backend_url",
     "TRADINGAGENTS_OUTPUT_LANGUAGE":      "output_language",
     "TRADINGAGENTS_MAX_DEBATE_ROUNDS":    "max_debate_rounds",
@@ -58,6 +59,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "llm_provider": "openai",
     "deep_think_llm": "gpt-5.5",
     "quick_think_llm": "gpt-5.4-mini",
+    "nano_think_llm": "gpt-5.4-nano",
     # When None, each provider's client falls back to its own default endpoint
     # (api.openai.com for OpenAI, generativelanguage.googleapis.com for Gemini, ...).
     # The CLI overrides this per provider when the user picks one. Keeping a
@@ -115,7 +117,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
         "web_fetch_data": "jina,tavily",
         "equity_finance": "yfinance,fmp",
         "filings_data": "edgar",
-        "transcripts_data": "fmp,perplexity",
+        "transcripts_data": "alpha_vantage,fmp,perplexity",
     },
     # Tool-level configuration (takes precedence over category-level)
     "tool_vendors": {
@@ -154,10 +156,19 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "equity_research": {
         "report_type": "initiation",
         "time_horizon": "12m",
+        "quick_research": os.getenv("TRADINGAGENTS_QUICK_RESEARCH", "true").strip().lower()
+        in ("true", "1", "yes", "on"),
+        "compact_cache_size": 256,
+        "executor_context_max_chars": 6000,
+        "section_research_recursion_limit": 250,
+        "consensus_context_max_chars": 6000,
         "max_hypotheses_per_section": 5,
         "max_hypothesis_iterations": 3,
         "max_recur_limit": 200,
         "perplexity_rate_limit": 20,
+        "llm_rate_limit_max_retries": 5,
+        "llm_rate_limit_base_delay": 2.0,
+        "llm_rate_limit_max_delay": 60.0,
         "document_root": os.getenv(
             "TRADINGAGENTS_EQUITY_RESEARCH_DOCS_DIR",
             os.path.join(_TRADINGAGENTS_HOME, "equity_research", "docs"),
@@ -174,13 +185,30 @@ DEFAULT_CONFIG = _apply_env_overrides({
             "facebook.com",
             "tiktok.com",
         ],
-        "embedding_provider": "hash",
+        "embedding_provider": "openai",
         "embedding_model": "text-embedding-3-small",
-        "embedding_dim": 1024,
+        "embedding_dim": 1536,
+        "memory_use_embedding": True,
+        "memory_semantic_top_k": 30,
+        "memory_prune_max_age_days": 30,
+        "memory_merge_threshold": 0.85,
+        "memory_claim_decay_rate": 0.95,
+        "rag_default_chunker": "paragraph",
+        "sec_filing_chunker": "sec_item",
+        "filing_chunk_size": 300,
+        "filing_chunk_overlap": 100,
+        "table_rows_per_chunk": 12,
+        "table_row_overlap": 2,
+        "table_context_paragraphs": 2,
+        "rag_search_top_k": 8,
+        "rag_search_max_chars": 16000,
+        "rag_rrf_k": 60,
+        "rag_search_pool_k": 30,
         "budget": {
             "max_search_queries": 5,
             "max_extraction_docs": 8,
         },
+        "web_search_max_url_fetches": 3,
         "human_tools_mode": "stub",
         "document_root": None,
         "code_root": None,
@@ -189,7 +217,9 @@ DEFAULT_CONFIG = _apply_env_overrides({
             "shell_exec_sandbox": False,
             "code_writer": False,
         },
-        "data_vendors": {},
+        "data_vendors": {
+            "transcripts_data": "alpha_vantage,fmp,perplexity",
+        },
         "tool_vendors": {},
     },
 })

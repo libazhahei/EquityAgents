@@ -27,8 +27,9 @@ class EvidenceStore:
         extraction_confidence: float = 0.5,
         embedding: list[float] | None = None,
         excerpt_context: str = "",
+        fragment_id: str | None = None,
     ) -> dict[str, Any]:
-        fragment_id = str(uuid.uuid4())
+        fragment_id = fragment_id or str(uuid.uuid4())
         session = get_session(self.config)
         try:
             row = EvidenceFragmentRow(
@@ -58,7 +59,7 @@ class EvidenceStore:
             try:
                 conn.execute(
                     text(
-                        "UPDATE evidence_fragment SET embedding_vec = :vec::vector "
+                        "UPDATE evidence_fragment SET embedding_vec = CAST(:vec AS vector) "
                         "WHERE fragment_id = :fid"
                     ),
                     {"vec": vec_literal, "fid": fragment_id},
@@ -82,10 +83,10 @@ class EvidenceStore:
                         """
                         SELECT fragment_id, doc_id, excerpt_text, fragment_type,
                                source_reliability, hypothesis_id,
-                               1 - (embedding_vec <=> :vec::vector) AS score
+                               1 - (embedding_vec <=> CAST(:vec AS vector)) AS score
                         FROM evidence_fragment
                         WHERE ticker = :ticker AND embedding_vec IS NOT NULL
-                        ORDER BY embedding_vec <=> :vec::vector
+                        ORDER BY embedding_vec <=> CAST(:vec AS vector)
                         LIMIT :k
                         """
                     ),

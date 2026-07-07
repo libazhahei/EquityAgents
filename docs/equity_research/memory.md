@@ -85,15 +85,16 @@ LangChain 包装位于 [`tools/lc/memory.py`](../../tradingagents/equity_researc
 | financial_materiality | 10% |
 | redundancy_penalty | −10% |
 
-默认语义相似度使用 **token overlap**（`_text_similarity`），不依赖 embedding，降低运行时成本。模块亦提供 `cosine_similarity()` 供 embedding 路径扩展。
+默认语义相似度在提供 `deps` 且 `memory_use_embedding=True` 时走 **RAGService**（`evidence` corpus：ParadeDB BM25 + pgvector + RRF，见 [`rag/architecture.md`](../rag/architecture.md)），经 [`memory/embedding_retrieval.py`](../../tradingagents/equity_research/memory/embedding_retrieval.py) 合并 ledger 分数；否则回退 **token overlap**（[`memory/similarity.py`](../../tradingagents/equity_research/memory/similarity.py)）。
 
 ### 2.2 上下文构建
 
-`build_memory_context(state, parent_nodes, plan, max_items=20)` 流程：
+`build_memory_context(state, parent_nodes, plan, max_items=20, filters=None, deps=None)` 流程：
 
 1. **构造 query**：优先取 `plan.priority_questions` 前 2 条；否则取父论点节点的 `thesis` / `research_question`；再回退到 `active_objective` 或 `ticker`
-2. **评分排序**：对 `evidence_ledger`、`claim_ledger` 逐条打分
-3. **截断返回**（默认 `max_items=20`）：
+2. **硬过滤**：`filters` 支持 `metric`、`section_id`、`confidence_min/max`、`sensitivity`、`ledger_types`、`status`（见 [`memory/filters.py`](../../tradingagents/equity_research/memory/filters.py)）
+3. **评分排序**：对 evidence / claim / assumption / consensus 逐条 `memory_score`（语义分可走 embedding）
+4. **截断返回**（默认 `max_items=20`）：
    - evidence：前 10 条
    - claims：前 10 条
    - assumptions：前 5 条
@@ -101,7 +102,23 @@ LangChain 包装位于 [`tools/lc/memory.py`](../../tradingagents/equity_researc
    - cross_branch_discoveries：前 5 条
    - failure_patterns：已拒绝节点的 `failure_reason`，前 3 条
 
-### 2.3 消费方
+### 2.3 正交检索 Tools
+
+除聚合工具 `memory_retrieve` 外，提供按检索轴拆分的 LangChain tools（[`tools/memory_search_tools.py`](../../tradingagents/equity_research/tools/memory_search_tools.py)）：
+
+| Tool | 检索轴 | 用途 |
+|------|--------|------|
+| `search_evidence` | 语义 + metric | 证据摘录 |
+| `search_claims` | section / confidence / metric | 主张 |
+| `search_assumptions` | sensitivity / metric | 建模假设 |
+| `search_consensus` | 语义 + metric | 市场共识 |
+| `search_conflicts` | 矛盾 | `memory_conflicts` + `contradiction_fragments` |
+| `search_memory_timeline` | 时间 | `iteration_snapshots` 趋势 |
+| `search_research_context` | 综合 context | 全 ledger 打包（等同 `build_memory_context`） |
+
+Section executor 的 retrieval 组通过 `make_memory_search_tools(deps)` 注入 embedding 感知版本。
+
+### 2.4 消费方
 
 | 消费方 | 位置 | 用途 |
 |--------|------|------|
@@ -142,16 +159,32 @@ LangChain 包装位于 [`tools/lc/memory.py`](../../tradingagents/equity_researc
 | `DocumentRegistry` | `storage/document_registry.py` | 已摄取文档元数据 |
 | `FactStore` | `storage/fact_store.py` | 结构化事实 |
 | `TraceStore` | `storage/trace_store.py` | 执行轨迹持久化 |
+| `LedgerStore` | `storage/ledger_store.py` | 全量 ledger 条目持久化（`ledger_entry` 表） |
 
 数据库连接由 [`storage/db.py`](../../tradingagents/equity_research/storage/db.py) 管理，`EquityResearchGraph` 初始化时可选调用 `init_db()`。
 
+`store_evidence` / `write_to_ledger` 在写入 state 时同步 `LedgerStore.upsert`；`initialize_state` 在 `report_id` 存在且 ledger 为空时从 PG hydrate。
+
+`DocumentRegistry` 扩展 `reliability_score` / `citation_count` / `last_used_at`，`store_evidence` 与 claim 引用时自动更新文档可靠性。
+
 ### 4.2 内存回退
 
-当 PostgreSQL 不可用，或配置 `equity_research_use_memory=True` 时，回退到 [`storage/in_memory.py`](../../tradingagents/equity_research/storage/in_memory.py)。此模式下向量检索与跨会话持久化不可用，但图内 ledger 仍正常工作。
+当 PostgreSQL 不可用，或配置 `equity_research_use_memory=True` 时，回退到 [`storage/in_memory.py`](../../tradingagents/equity_research/storage/in_memory.py)（含 `InMemoryLedgerStore`）。embedding 回退为 hash 向量 + brute-force cosine；ledger 仅存进程内，但图内 workflow 仍正常。
 
 ### 4.3 文档摄取写入
 
-`task_analysis` 阶段的文档 ingest 将片段写入 `EvidenceStore` / `DocumentRegistry`，与图内 `evidence_ledger` 形成「持久化副本 + 运行时工作集」的双写关系。
+`task_analysis` 阶段的文档 ingest 将片段写入 `EvidenceStore` / `DocumentRegistry`；`store_evidence` 将 ledger 证据双写至 `EvidenceStore`（含 embedding），形成「持久化副本 + 运行时工作集」关系。
+
+### 4.4 维护与快照
+
+每轮 section research 迭代结束（[`agents/research_loop/subgraph.py`](../../tradingagents/equity_research/agents/research_loop/subgraph.py)）：
+
+- [`memory/pruning.py`](../../tradingagents/equity_research/memory/pruning.py)：`merge_similar_evidence` / `prune_stale_evidence` / `decay_claim_confidence`
+- [`memory/snapshots.py`](../../tradingagents/equity_research/memory/snapshots.py)：`capture_iteration_snapshot` → `iteration_snapshots`
+
+### 4.5 矛盾检测
+
+[`memory/conflict.py`](../../tradingagents/equity_research/memory/conflict.py) 在 `store_evidence` 时按 metric + value/direction 规则检测冲突，写入 `memory_conflicts` / `contradiction_fragments`，并降级关联 claim confidence。
 
 ---
 
@@ -207,6 +240,11 @@ flowchart TD
 |-------------|--------|------|
 | `equity_research_use_memory` | `False` | 强制使用内存存储回退 |
 | `equity_research.embedding_provider` | `"hash"` | 嵌入提供方（持久化向量检索） |
+| `memory_use_embedding` | `True` | `build_memory_context` 是否使用 embedding |
+| `memory_semantic_top_k` | `30` | PG 混合检索 top-K |
+| `memory_prune_max_age_days` | `30` | 未引用 evidence 归档阈值 |
+| `memory_merge_threshold` | `0.85` | evidence 去重 Jaccard 阈值 |
+| `memory_claim_decay_rate` | `0.95` | claim confidence 日衰减率 |
 | `build_memory_context(max_items=...)` | `20` | 单次检索返回上限 |
 | `format_search_memory(max_records=...)` | `20` | 共识搜索记忆注入条数 |
 
@@ -224,5 +262,6 @@ flowchart TD
 |------|----------|
 | 新增记忆类型 | 在 `ledgers.py` 增加 Pydantic 模型 + `write_to_ledger` 分支；同步更新 `equity_research_state.py` |
 | 新增检索维度 | 扩展 `memory_score()` 参数或在 `build_memory_context()` 增加评分逻辑 |
-| 启用 embedding 检索 | 在 `build_memory_context` 中用 `cosine_similarity` 替换 `_text_similarity`，配合 `EvidenceStore` pgvector |
+| 启用 embedding 检索 | 配置 `memory_use_embedding=True` 并向 `build_memory_context` 传入 `deps` |
+| 多维检索 | `build_memory_context(..., filters={"metric": "revenue", "confidence_min": 0.5})` |
 | 新增写入 Tool | 在 `evidence_memory.py` 或 `memory_tools.py` 实现，并在 `tools/lc/memory.py` 注册 LangChain 包装 |

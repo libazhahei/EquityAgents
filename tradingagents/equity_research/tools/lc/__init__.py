@@ -81,6 +81,13 @@ STATIC_LANGCHAIN_TOOLS: dict[str, BaseTool] = {
     "link_evidence_to_claim": memory.link_evidence_to_claim,
     "retrieve_claims_by_section": memory.retrieve_claims_by_section,
     "retrieve_contradictory_evidence": memory.retrieve_contradictory_evidence,
+    "search_evidence": memory.search_evidence,
+    "search_claims": memory.search_claims,
+    "search_assumptions": memory.search_assumptions,
+    "search_consensus": memory.search_consensus,
+    "search_conflicts": memory.search_conflicts,
+    "search_memory_timeline": memory.search_memory_timeline,
+    "search_research_context": memory.search_research_context,
     # Research todo list
     "list_research_todos": todo.list_research_todos,
     "add_research_todo": todo.add_research_todo,

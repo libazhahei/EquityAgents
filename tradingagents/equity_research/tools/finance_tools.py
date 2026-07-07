@@ -27,16 +27,49 @@ def analyst_estimates_fetch(ticker: str) -> dict[str, Any]:
     return route_equity_tool("analyst_estimates_fetch", ticker)
 
 
-def transcript_search(ticker: str, quarter: str | None = None) -> Any:
-    return route_equity_tool("transcript_search", ticker, quarter=quarter)
+def transcript_search(ticker: str, quarter: str | None = None, query: str | None = None) -> Any:
+    return route_equity_tool("transcript_search", ticker, quarter=quarter, query=query)
 
 
-def filings_search(ticker: str, form_type: str | None = None) -> Any:
-    return route_equity_tool("filings_search", ticker, form_type=form_type)
+def filings_search(
+    ticker: str,
+    keywords: str,
+    form_type: str | None = None,
+    section: str | None = None,
+    top_k: int = 8,
+    max_chars: int = 8000,
+    dedupe: bool = True,
+    rerank: bool = True,
+    prefer_recent: bool | None = None,
+    max_per_group: int = 2,
+) -> Any:
+    """Static stub — use make_filings_search_tool(deps) in executor."""
+    return route_equity_tool(
+        "filings_search",
+        ticker,
+        keywords=keywords,
+        form_type=form_type,
+        section=section,
+        top_k=top_k,
+        max_chars=max_chars,
+        dedupe=dedupe,
+        rerank=rerank,
+        prefer_recent=prefer_recent,
+        max_per_group=max_per_group,
+    )
 
 
-def filing_reader(filing_url: str | None = None, filing_id: str | None = None) -> dict[str, Any]:
-    return route_equity_tool("filing_reader", filing_url=filing_url, filing_id=filing_id)
+def filing_reader(
+    filing_url: str | None = None,
+    filing_id: str | None = None,
+    section: str | None = None,
+) -> dict[str, Any]:
+    return route_equity_tool(
+        "filing_reader",
+        filing_url=filing_url,
+        filing_id=filing_id,
+        section=section,
+    )
 
 
 def peer_comps_fetch(ticker: str) -> dict[str, Any]:

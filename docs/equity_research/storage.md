@@ -90,6 +90,7 @@ init_db(config)
 |------|----------|------|
 | `document_registry` | `DocumentRegistry` | 已摄取文档元数据（EDGAR、财报电话会等） |
 | `evidence_fragment` | `EvidenceStore` | 证据摘录；含 `embedding`（JSON）与 `embedding_vec`（pgvector） |
+| `filing_chunk` | RAG `sec_filings` corpus | SEC 申报分块；`embedding_vec` + ParadeDB BM25 |
 | `structured_fact` | `FactStore` | 结构化财务/经营事实 |
 | `research_trace` | `TraceStore` | 节点执行审计日志 |
 

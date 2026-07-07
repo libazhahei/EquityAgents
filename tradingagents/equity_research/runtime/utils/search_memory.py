@@ -6,6 +6,7 @@ import uuid
 from typing import Any
 
 from tradingagents.equity_research.runtime.utils.context_compact import compact_if_needed
+from tradingagents.equity_research.runtime.utils.llm_resolve import resolve_research_llm
 from tradingagents.equity_research.state.consensus_schemas import EvidenceItem, SearchRecord
 
 ANSWER_SUMMARY_THRESHOLD = 1500
@@ -33,7 +34,7 @@ def _summarize_answer(deps: Any, answer: str, query: str) -> str:
         "Answer:\n"
         f"{answer}"
     )
-    return _llm_text(deps.quick_llm.invoke(prompt))
+    return _llm_text(resolve_research_llm(deps, "nano").invoke(prompt))
 
 
 def record_from_evidence(

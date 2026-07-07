@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Annotated, Any, TypedDict
+
+from langgraph.graph import add_messages
 
 
 class AgentState(TypedDict, total=False):
@@ -21,7 +23,7 @@ class AgentState(TypedDict, total=False):
     exploration_graph: dict[str, Any]
     current_node_id: str
 
-    messages: list[Any]
+    messages: Annotated[list[Any], add_messages]
     active_skills: list[str]
     active_skill_context: dict[str, Any]
     skill_catalog: list[dict]
@@ -77,6 +79,14 @@ class AgentState(TypedDict, total=False):
     _executor_step_calls: int
     bfs_wave_index: int
     bfs_levels: list[list[str]]
+    executor_context_snapshot: str
+
+    # Shared ledger fields (blackboard)
+    consensus_ledger: list[dict]
+    assumption_ledger: list[dict]
+    evidence_ledger: list[dict]
+    claim_ledger: list[dict]
+    memory_reflections: list[dict]
 
 
 def empty_agent_state(

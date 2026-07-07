@@ -10,6 +10,10 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
+from tradingagents.equity_research.runtime.utils.executor_context import format_executor_messages
+from tradingagents.equity_research.runtime.utils.messages import clear_messages_update
+from tradingagents.equity_research.runtime.utils.llm_invoke import invoke_llm_with_retry
+from tradingagents.equity_research.runtime.utils.llm_resolve import resolve_research_llm
 from tradingagents.equity_research.runtime.utils.search_memory import append_search_record
 from tradingagents.equity_research.state.consensus_schemas import SearchRecord
 from tradingagents.equity_research.tasks.section_research.schemas import SectionResearchPlan
@@ -30,19 +34,25 @@ def build_section_executor_tool_set_nodes(
 
 
 def section_executor_router(state: dict[str, Any]) -> str:
+    active_task, active_step = pick_active_task_and_step(state)
+    if not active_task or not active_step:
+        return "apply"
+
     messages = state.get("messages", [])
     if not messages:
         return "apply"
+
     last = messages[-1]
+    max_calls = int(state.get("_executor_max_calls", 6))
+    step_calls = int(state.get("_executor_step_calls", 0))
+
     if isinstance(last, AIMessage) and last.tool_calls:
-        max_calls = int(state.get("_executor_max_calls", 6))
-        step_calls = int(state.get("_executor_step_calls", 0))
         if step_calls >= max_calls:
             return "apply"
-        return "tool_router"
+        group = route_tool_group_from_state(state)
+        return tool_group_node_name(group)
+
     if isinstance(last, ToolMessage):
-        max_calls = int(state.get("_executor_max_calls", 6))
-        step_calls = int(state.get("_executor_step_calls", 0))
         if step_calls < max_calls:
             return "continue"
     return "apply"
@@ -59,6 +69,20 @@ def _merge_tool_state_updates(state: dict[str, Any], content: str) -> dict[str, 
     if "research_todo_list" in data:
         updates["research_todo_list"] = data["research_todo_list"]
     return updates
+
+
+def _doc_ids_from_tool(content: str) -> list[str]:
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, dict):
+        return []
+    doc_ids = [str(doc_id) for doc_id in data.get("doc_ids") or [] if doc_id]
+    for item in data.get("results") or []:
+        if isinstance(item, dict) and item.get("doc_id"):
+            doc_ids.append(str(item["doc_id"]))
+    return list(dict.fromkeys(doc_ids))
 
 
 def _evidence_from_search(content: str, state: dict[str, Any]) -> list[dict]:
@@ -143,7 +167,7 @@ def create_section_executor_dispatch_node(
     def dispatch(state: dict[str, Any]) -> dict[str, Any]:
         active_task, active_step = _resolve_active_task_step(state)
         if not active_task or not active_step:
-            return {"messages": [], "_executor_step_calls": 0}
+            return {**clear_messages_update(), "_executor_step_calls": 0}
 
         messages = list(state.get("messages") or [])
         step_calls = int(state.get("_executor_step_calls", 0))
@@ -151,23 +175,31 @@ def create_section_executor_dispatch_node(
         working_state = {**state, "active_task": active_task, "active_step": active_step}
         tool_group = route_tool_group_from_state(working_state)
         tools = build_tools_for_group(deps, task_profile, tool_group)
-        llm = deps.deep_llm.bind_tools(tools)
+        llm = resolve_research_llm(deps, "deep").bind_tools(tools)
 
-        if not messages or (messages and isinstance(messages[-1], ToolMessage)):
+        if not messages or isinstance(messages[-1], ToolMessage):
             system = build_prompt(state) if build_prompt else ""
             group_hint = (
                 f"\nActive tool group: {tool_group}. "
                 f"Only use tools from this group ({', '.join(t.name for t in tools[:8])})."
             )
             if not messages:
-                messages = [
+                invoke_messages = [
                     SystemMessage(content=(system + group_hint) if system else group_hint.strip()),
                     HumanMessage(content=f"Execute step: {active_step.get('description', '')}"),
                 ]
-            response = llm.invoke(messages)
+            else:
+                invoke_messages = messages
+            response = invoke_llm_with_retry(
+                llm,
+                invoke_messages,
+                deps=deps,
+                agent_name="section_executor",
+            )
             new_calls = step_calls + (1 if isinstance(response, AIMessage) and response.tool_calls else 0)
+            outbound = invoke_messages + [response] if not messages else [response]
             return {
-                "messages": messages + [response],
+                "messages": outbound,
                 "active_task": active_task,
                 "active_step": active_step,
                 "_executor_tool_group": tool_group,
@@ -224,12 +256,15 @@ def create_section_executor_apply_node(deps: EquityResearchDeps, task_profile: T
                 for doc_id in doc_ids:
                     if not any(d.get("doc_id") == doc_id for d in documents):
                         documents.append({"doc_id": doc_id})
-            if "api_calls" in content:
-                try:
-                    parsed = json.loads(content)
+            for doc_id in _doc_ids_from_tool(content):
+                if not any(d.get("doc_id") == doc_id for d in documents):
+                    documents.append({"doc_id": doc_id})
+            try:
+                parsed = json.loads(content)
+                if isinstance(parsed, dict) and "api_calls" in parsed:
                     api_calls += int(parsed.get("api_calls", 0))
-                except json.JSONDecodeError:
-                    pass
+            except json.JSONDecodeError:
+                pass
 
         plan_raw = dict(state.get("research_plan") or {})
         active_task = state.get("active_task") or {}
@@ -263,8 +298,16 @@ def create_section_executor_apply_node(deps: EquityResearchDeps, task_profile: T
                     break
             todo_list["items"] = items
 
+        executor_snapshot = format_executor_messages(
+            deps,
+            messages,
+            pending_evidence=pending,
+            active_task=active_task,
+            active_step=active_step,
+        )
+
         result: dict[str, Any] = {
-            "messages": [],
+            **clear_messages_update(),
             "evidence_buffer": buffer,
             "pending_evidence": pending,
             "search_memory": search_memory,
@@ -276,6 +319,7 @@ def create_section_executor_apply_node(deps: EquityResearchDeps, task_profile: T
             "calculation_store": calc_store,
             "active_task": active_task,
             "active_step": active_step,
+            "executor_context_snapshot": executor_snapshot,
             "_executor_step_calls": 0,
             "_executor_tool_node": None,
             "_executor_tool_group": None,
@@ -291,7 +335,6 @@ def create_section_executor_apply_node(deps: EquityResearchDeps, task_profile: T
     return apply
 
 
-# Backward-compatible alias for imports expecting a single tools node factory.
 def create_section_executor_tools_node(deps: EquityResearchDeps, task_profile: TaskProfile):
     nodes = build_section_executor_tool_set_nodes(deps, task_profile)
     return nodes[tool_group_node_name("retrieval")]

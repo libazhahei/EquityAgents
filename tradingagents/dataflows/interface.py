@@ -47,6 +47,7 @@ from .equity_vendors import (
     peer_comps_fetch_yfinance,
     stock_quote_alpha_vantage,
     stock_quote_yfinance,
+    transcript_search_alpha_vantage,
     transcript_search_fmp,
     transcript_search_perplexity,
     valuation_multiples_fetch_fmp,
@@ -276,6 +277,7 @@ VENDOR_METHODS = {
     },
     # transcripts_data
     "transcript_search": {
+        "alpha_vantage": transcript_search_alpha_vantage,
         "fmp": transcript_search_fmp,
         "perplexity": transcript_search_perplexity,
     },

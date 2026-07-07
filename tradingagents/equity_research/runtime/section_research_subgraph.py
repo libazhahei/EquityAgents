@@ -30,14 +30,11 @@ from tradingagents.equity_research.runtime.nodes.skill_selector import (
     create_skill_tools_node,
 )
 from tradingagents.equity_research.runtime.nodes.synthesizer import create_synthesizer_node
-from tradingagents.equity_research.runtime.nodes.tool_router import (
-    create_executor_tool_router_node,
-    executor_tool_group_router,
-)
 from tradingagents.equity_research.runtime.routers import skill_selector_router
 from tradingagents.equity_research.runtime.state import AgentState
 from tradingagents.equity_research.runtime.subgraph import GenericResearchSubgraph, _human_review_config
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
+from tradingagents.equity_research.tools.tool_sets import TOOL_GROUP_IDS, tool_group_node_name
 
 
 class SectionResearchSubgraph(GenericResearchSubgraph):
@@ -76,12 +73,18 @@ class SectionResearchSubgraph(GenericResearchSubgraph):
         graph.add_node("executor", create_section_executor_dispatch_node(self.deps, tp))
         for node_name, tool_node in self.all_tool_nodes().items():
             graph.add_node(node_name, tool_node)
-        graph.add_node("executor_tool_router", create_executor_tool_router_node())
         graph.add_node("executor_apply", create_section_executor_apply_node(self.deps, tp))
         graph.add_node("synthesizer", create_synthesizer_node(self.deps, tp))
         graph.add_node("reflector", create_section_reflector_node(self.deps, tp))
         graph.add_node("loop_planner", create_section_planner_node(self.deps, tp, mode="loop"))
         graph.add_node("finalizer", create_finalizer_node(self.deps, tp))
+
+        executor_routes: dict[str, str] = {
+            "apply": "executor_apply",
+            "continue": "executor",
+        }
+        for group_id in TOOL_GROUP_IDS:
+            executor_routes[tool_group_node_name(group_id)] = tool_group_node_name(group_id)
 
         graph.add_edge(START, "skill_selector_agent")
         graph.add_conditional_edges(
@@ -102,16 +105,7 @@ class SectionResearchSubgraph(GenericResearchSubgraph):
         graph.add_conditional_edges(
             "executor",
             section_executor_router,
-            {
-                "apply": "executor_apply",
-                "continue": "executor",
-                "tool_router": "executor_tool_router",
-            },
-        )
-        graph.add_conditional_edges(
-            "executor_tool_router",
-            executor_tool_group_router,
-            {name: name for name in self.executor_tool_nodes},
+            executor_routes,
         )
         for node_name in self.executor_tool_nodes:
             graph.add_edge(node_name, "executor")

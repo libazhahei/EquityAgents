@@ -27,7 +27,7 @@ DEFAULT_VENDOR_ORDER.update({
     "financial_statement_fetch": ["yfinance", "alpha_vantage"],
     "earnings_calendar": ["fmp", "yfinance"],
     "analyst_estimates_fetch": ["fmp", "info_sources", "yfinance"],
-    "transcript_search": ["fmp", "perplexity"],
+    "transcript_search": ["alpha_vantage", "fmp", "perplexity"],
     "filings_search": ["edgar"],
     "filing_reader": ["edgar"],
     "peer_comps_fetch": ["yfinance", "fmp"],
@@ -108,6 +108,7 @@ EQUITY_VENDOR_METHODS: dict[str, dict[str, Callable[..., Any]]] = {
         "yfinance": equity_vendors.analyst_estimates_fetch_yfinance,
     },
     "transcript_search": {
+        "alpha_vantage": equity_vendors.transcript_search_alpha_vantage,
         "fmp": equity_vendors.transcript_search_fmp,
         "perplexity": equity_vendors.transcript_search_perplexity,
     },
@@ -133,6 +134,24 @@ def route_equity_tool(method: str, *args, **kwargs) -> Any:
         raise ValueError(f"Equity tool '{method}' not supported")
     category = EQUITY_METHOD_CATEGORIES.get(method) or get_category_for_tool(method)
     config = get_config()
+
+    transcript_ticker = ""
+    if method == "transcript_search":
+        from tradingagents.equity_research.integrations.transcript_cache import (
+            get_cached_transcript_search,
+            set_cached_transcript_search,
+        )
+
+        transcript_ticker = str(args[0] if args else kwargs.get("ticker", ""))
+        cached = get_cached_transcript_search(
+            config,
+            transcript_ticker,
+            quarter=kwargs.get("quarter"),
+            query=kwargs.get("query"),
+        )
+        if cached is not None:
+            return cached
+
     vendor_chain = build_vendor_chain(
         method,
         EQUITY_VENDOR_METHODS[method],
@@ -153,10 +172,29 @@ def route_equity_tool(method: str, *args, **kwargs) -> Any:
     if not wrap:
         return result
     if isinstance(result, dict) and "vendor_used" in result:
-        return result
-    if isinstance(result, dict):
-        return {**result, "vendor_used": vendor_chain[0] if vendor_chain else None, "fallback_attempted": vendor_chain}
-    return {"data": result, "vendor_used": vendor_chain[0] if vendor_chain else None, "fallback_attempted": vendor_chain}
+        wrapped = result
+    elif isinstance(result, dict):
+        wrapped = {
+            **result,
+            "vendor_used": vendor_chain[0] if vendor_chain else None,
+            "fallback_attempted": vendor_chain,
+        }
+    else:
+        wrapped = {
+            "data": result,
+            "vendor_used": vendor_chain[0] if vendor_chain else None,
+            "fallback_attempted": vendor_chain,
+        }
+
+    if method == "transcript_search":
+        set_cached_transcript_search(
+            config,
+            transcript_ticker,
+            quarter=kwargs.get("quarter"),
+            query=kwargs.get("query"),
+            result=wrapped,
+        )
+    return wrapped
 
 
 def _calculate_cagr(values: list[float], periods: int) -> dict[str, float]:

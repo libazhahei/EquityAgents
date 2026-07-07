@@ -62,6 +62,7 @@
 | [skills-and-tools.md](../equity_research/skills-and-tools.md) | Skill/Tool 注册、可见性白名单、绑定与发现 |
 | [storage.md](../equity_research/storage.md) | PostgreSQL、Redis、本地文件的配置与数据流 |
 | [sec-filing-rag.md](../equity_research/sec-filing-rag.md) | SEC 申报 RAG：MVP1 现状与规划模块 |
+| [sec-table-chunking.md](../equity_research/sec-table-chunking.md) | SEC 表格感知分块 v2：行级拆分、层级标签、上下文段落 |
 
 ### 全项目架构
 

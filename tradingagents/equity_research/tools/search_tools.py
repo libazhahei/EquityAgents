@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from difflib import SequenceMatcher
+from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
 
 from tradingagents.equity_research.state.consensus_schemas import EvidenceItem
 from tradingagents.equity_research.tools.interface import route_equity_tool
+
+_DEFAULT_MAX_URL_FETCHES = 3
 
 _TRUSTED_DOMAINS = {
     "sec.gov", "reuters.com", "bloomberg.com", "ft.com", "wsj.com",
@@ -20,6 +24,119 @@ _TRUSTED_DOMAINS = {
 
 def web_search(query: str, recency: str | None = None) -> dict[str, Any]:
     return route_equity_tool("web_search", query, recency=recency)
+
+
+def _max_url_fetches(deps: Any) -> int:
+    config = getattr(deps, "config", None) or {}
+    er = config.get("equity_research", {}) or {}
+    configured = er.get("web_search_max_url_fetches", _DEFAULT_MAX_URL_FETCHES)
+    try:
+        return max(0, int(configured))
+    except (TypeError, ValueError):
+        return _DEFAULT_MAX_URL_FETCHES
+
+
+def _extract_result_urls(result: dict[str, Any]) -> list[str]:
+    urls: list[str] = []
+    for item in result.get("results") or []:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        if url:
+            urls.append(url)
+    return list(dict.fromkeys(urls))
+
+
+def _web_cache_path(config: dict[str, Any], ticker: str, url: str) -> Path:
+    base = config.get("data_cache_dir", "")
+    digest = hashlib.sha256(url.encode()).hexdigest()[:16]
+    return Path(base) / "equity_research" / "web" / ticker.upper() / f"{digest}.md"
+
+
+def _cache_fetched_content(
+    config: dict[str, Any],
+    ticker: str,
+    url: str,
+    content: str,
+) -> str | None:
+    if not content.strip():
+        return None
+    path = _web_cache_path(config, ticker, url)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return str(path)
+
+
+def _title_for_url(result: dict[str, Any], url: str) -> str:
+    for item in result.get("results") or []:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("url") or "").strip() == url:
+            title = str(item.get("title") or "").strip()
+            if title:
+                return title[:200]
+    return url[:200]
+
+
+def web_search_with_url_storage(
+    query: str,
+    *,
+    recency: str | None = None,
+    deps: Any = None,
+    ticker: str = "",
+) -> dict[str, Any]:
+    """Run web search and fetch/store content for result URLs when deps are available."""
+    from tradingagents.equity_research.runtime.utils.domain_denylist import (
+        filter_citation_urls,
+        resolve_search_domain_denylist,
+    )
+
+    result = web_search(query, recency=recency)
+    urls = _extract_result_urls(result)
+    result["urls"] = urls
+    result["doc_ids"] = []
+    result["api_calls"] = 1
+
+    if not deps or not urls or not getattr(deps, "documents", None):
+        return result
+
+    denylist = resolve_search_domain_denylist(getattr(deps, "config", None))
+    fetch_urls = filter_citation_urls(urls, denylist)[:_max_url_fetches(deps)]
+    doc_ids: list[str] = []
+    fetch_errors: list[dict[str, str]] = []
+    url_to_doc: dict[str, str] = {}
+    ticker_key = (ticker or "UNKNOWN").upper()
+    config = getattr(deps, "config", None) or {}
+
+    for url in fetch_urls:
+        try:
+            fetched = web_fetch(url)
+            result["api_calls"] += 1
+            content = str(fetched.get("content") or "")
+            access_path = _cache_fetched_content(config, ticker_key, url, content)
+            doc = deps.documents.register(
+                ticker=ticker_key,
+                source_type="web",
+                title=_title_for_url(result, url),
+                source_url=url,
+                access_path=access_path,
+            )
+            doc_ids.append(doc["doc_id"])
+            url_to_doc[url] = doc["doc_id"]
+        except Exception as exc:
+            fetch_errors.append({"url": url, "error": str(exc)})
+
+    for item in result.get("results") or []:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        if url in url_to_doc:
+            item["doc_id"] = url_to_doc[url]
+
+    result["doc_ids"] = doc_ids
+    if fetch_errors:
+        result["fetch_errors"] = fetch_errors
+    return result
 
 
 def web_fetch(url: str) -> dict[str, Any]:

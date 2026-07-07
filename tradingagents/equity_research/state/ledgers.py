@@ -12,6 +12,7 @@ from tradingagents.equity_research.state.consensus_schemas import StructuredCons
 
 class EvidenceLedgerEntry(BaseModel):
     evidence_id: str
+    fragment_id: str = ""
     source_id: str = ""
     source_type: str = ""
     date: str = ""
@@ -19,9 +20,16 @@ class EvidenceLedgerEntry(BaseModel):
     metric: str = ""
     value: str = ""
     period: str = ""
+    direction: str = ""
     reliability_score: float = 0.0
     freshness_score: float = 0.0
     doc_id: str = ""
+    status: str = "active"
+    merged_into: str = ""
+    contradicting_evidence: list[str] = Field(default_factory=list)
+    conflict_resolution: str = ""
+    created_by: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 
 class ClaimLedgerEntry(BaseModel):
@@ -36,6 +44,8 @@ class ClaimLedgerEntry(BaseModel):
     status: str = "proposed"
     is_core_thesis: bool = False
     hypothesis_id: str = ""
+    created_by: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 
 class AssumptionLedgerEntry(BaseModel):
@@ -48,6 +58,8 @@ class AssumptionLedgerEntry(BaseModel):
     evidence_ids: list[str] = Field(default_factory=list)
     sensitivity: str = "medium"
     used_in: list[str] = Field(default_factory=list)
+    created_by: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 
 class ThesisLedgerEntry(BaseModel):
@@ -57,6 +69,8 @@ class ThesisLedgerEntry(BaseModel):
     supporting_claim_ids: list[str] = Field(default_factory=list)
     risk_ids: list[str] = Field(default_factory=list)
     confidence: float = 0.0
+    created_by: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 
 class ConsensusLedgerEntry(BaseModel):
@@ -66,6 +80,8 @@ class ConsensusLedgerEntry(BaseModel):
     source: str = ""
     as_of_date: str = ""
     broker_count: int = 0
+    created_by: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 
 class BrokerViewLedgerEntry(BaseModel):
@@ -76,6 +92,8 @@ class BrokerViewLedgerEntry(BaseModel):
     summary: str = ""
     citations: list[str] = Field(default_factory=list)
     as_of_date: str = ""
+    created_by: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 
 class ForecastLedgerEntry(BaseModel):
@@ -84,6 +102,7 @@ class ForecastLedgerEntry(BaseModel):
     eps_forecast: dict | list = Field(default_factory=dict)
     revenue_forecast: dict | list = Field(default_factory=dict)
     assumption_ids: list[str] = Field(default_factory=list)
+    created_by: str = ""
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 
@@ -95,6 +114,7 @@ class ValuationLedgerEntry(BaseModel):
     rating: str = ""
     upside_pct: float = 0.0
     assumption_ids: list[str] = Field(default_factory=list)
+    created_by: str = ""
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 
@@ -105,6 +125,7 @@ class IssueLedgerEntry(BaseModel):
     message: str = ""
     resolution: str = ""
     status: str = "open"
+    created_by: str = ""
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 
@@ -134,18 +155,36 @@ class ResearchPlan(BaseModel):
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 
+def _stamp_provenance(entry: dict[str, Any], created_by: str = "") -> dict[str, Any]:
+    stamped = dict(entry)
+    if created_by and not stamped.get("created_by"):
+        stamped["created_by"] = created_by
+    if not stamped.get("created_at"):
+        stamped["created_at"] = datetime.utcnow().isoformat()
+    return stamped
+
+
 def fragment_to_evidence_entry(fragment: dict[str, Any]) -> dict[str, Any]:
+    evidence_id = fragment.get("fragment_id", fragment.get("evidence_id", ""))
     return EvidenceLedgerEntry(
-        evidence_id=fragment.get("fragment_id", fragment.get("evidence_id", "")),
+        evidence_id=evidence_id,
+        fragment_id=fragment.get("fragment_id", evidence_id),
         source_id=fragment.get("source_id", ""),
         source_type=fragment.get("source_type", ""),
         date=fragment.get("date", ""),
         quote=fragment.get("text", fragment.get("quote", "")),
         metric=fragment.get("metric", ""),
         value=str(fragment.get("value", "")),
+        direction=str(fragment.get("direction", "")),
         doc_id=fragment.get("doc_id", ""),
         reliability_score=float(fragment.get("reliability_score", 0.5)),
         freshness_score=float(fragment.get("freshness_score", 0.5)),
+        status=fragment.get("status", "active"),
+        merged_into=fragment.get("merged_into", ""),
+        contradicting_evidence=list(fragment.get("contradicting_evidence", [])),
+        conflict_resolution=fragment.get("conflict_resolution", ""),
+        created_by=fragment.get("created_by", ""),
+        created_at=fragment.get("created_at", datetime.utcnow().isoformat()),
     ).model_dump()
 
 
@@ -161,6 +200,8 @@ def claim_dict_to_ledger_entry(claim: dict[str, Any]) -> dict[str, Any]:
         status=claim.get("status", "proposed"),
         is_core_thesis=bool(claim.get("is_core_thesis", False)),
         hypothesis_id=claim.get("hypothesis_id", ""),
+        created_by=claim.get("created_by", ""),
+        created_at=claim.get("created_at", datetime.utcnow().isoformat()),
     ).model_dump()
 
 
@@ -177,10 +218,32 @@ def assumption_dict_to_ledger_entry(assumption: dict[str, Any]) -> dict[str, Any
         evidence_ids=assumption.get("evidence_ids", []),
         sensitivity=assumption.get("sensitivity", "medium"),
         used_in=assumption.get("used_in", []),
+        created_by=assumption.get("created_by", ""),
+        created_at=assumption.get("created_at", datetime.utcnow().isoformat()),
     ).model_dump()
 
 
-def write_to_ledger(state: dict[str, Any], ledger_type: str, entry: dict[str, Any]) -> dict[str, Any]:
+_LEDGER_TYPE_NAMES = {
+    "evidence_ledger": "evidence",
+    "claim_ledger": "claim",
+    "assumption_ledger": "assumption",
+    "consensus_ledger": "consensus",
+    "broker_view_ledger": "broker_view",
+    "forecast_ledger": "forecast",
+    "valuation_ledger": "valuation",
+    "issue_ledger": "issue",
+    "thesis_ledger": "thesis",
+}
+
+
+def write_to_ledger(
+    state: dict[str, Any],
+    ledger_type: str,
+    entry: dict[str, Any],
+    *,
+    created_by: str = "",
+    deps: Any = None,
+) -> dict[str, Any]:
     """Primary write path for skills/tools into ledger structures."""
     key = f"{ledger_type}_ledger" if not ledger_type.endswith("_ledger") else ledger_type
     ledger = list(state.get(key, []))
@@ -193,12 +256,30 @@ def write_to_ledger(state: dict[str, Any], ledger_type: str, entry: dict[str, An
         "forecast": "forecast_id",
         "valuation": "valuation_id",
         "issue": "issue_id",
+        "thesis": "thesis_id",
     }.get(ledger_type.replace("_ledger", ""), "id")
-    entry_id = entry.get(id_field, "")
+    stamped = _stamp_provenance(entry, created_by=created_by)
+    entry_id = stamped.get(id_field, "")
     existing_ids = {e.get(id_field) for e in ledger}
-    if entry_id and entry_id not in existing_ids:
-        ledger.append(entry)
-    return {key: ledger}
+    if entry_id:
+        if entry_id not in existing_ids:
+            ledger.append(stamped)
+        else:
+            for idx, existing in enumerate(ledger):
+                if existing.get(id_field) == entry_id:
+                    ledger[idx] = stamped
+                    break
+    updates = {key: ledger}
+    if deps is not None and hasattr(deps, "ledgers") and entry_id:
+        type_name = _LEDGER_TYPE_NAMES.get(key, ledger_type.replace("_ledger", ""))
+        deps.ledgers.upsert(
+            state.get("report_id", ""),
+            state.get("ticker", ""),
+            type_name,
+            stamped,
+            created_by=created_by or stamped.get("created_by", ""),
+        )
+    return updates
 
 
 def sync_ledgers_from_legacy(state: dict[str, Any]) -> dict[str, Any]:

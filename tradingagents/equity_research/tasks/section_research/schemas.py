@@ -157,6 +157,7 @@ class SectionCoverageEvaluation(BaseModel):
     data_quality_issues: list[dict[str, Any]] = Field(default_factory=list)
     contradictions: list[dict[str, Any]] = Field(default_factory=list)
     recommended_next_action: NextAction = "run_existing_queue"
+    completed_todo_ids: list[str] = Field(default_factory=list)
 
 
 class SectionResearchView(BaseModel):
@@ -215,6 +216,19 @@ class SectionResearchOutput(BaseModel):
     research_todo_list: ResearchTodoList | None = None
 
 
+class PlannerTaskOutline(BaseModel):
+    task_id: str
+    question_id: str
+    objective: str = ""
+    approach: str = ""
+
+
+class SectionResearchPlanOutlineLLMOutput(BaseModel):
+    plan_rationale: str = ""
+    tasks: list[PlannerTaskOutline] = Field(default_factory=list)
+    execution_order: list[str] = Field(default_factory=list)
+
+
 class SectionResearchPlanLLMOutput(BaseModel):
     plan_rationale: str = ""
     tasks: list[ResearchTask] = Field(default_factory=list)
@@ -222,7 +236,7 @@ class SectionResearchPlanLLMOutput(BaseModel):
 
 
 class SectionReplanLLMOutput(BaseModel):
-    new_tasks: list[ResearchTask] = Field(default_factory=list)
+    new_tasks: list[PlannerTaskOutline] = Field(default_factory=list)
     append_steps: list[dict[str, Any]] = Field(default_factory=list)
     new_todo_items: list[dict[str, Any]] = Field(default_factory=list)
     rationale: str = ""

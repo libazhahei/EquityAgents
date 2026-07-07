@@ -33,6 +33,7 @@ PROVIDER_API_KEY_ENV: dict[str, str | None] = {
     "perplexity":  "PERPLEXITY_API_KEY",
     "aliyun":    "ALIYUN_API_KEY",
     "fmp":       "FMP_API_KEY",
+    "alpha_vantage": "ALPHA_VANTAGE_API_KEY",
     # Additional hosted OpenAI-compatible providers (model is user-specified).
     # kimi -> Moonshot AI; nvidia -> NVIDIA NIM.
     "mistral":    "MISTRAL_API_KEY",

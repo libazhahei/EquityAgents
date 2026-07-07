@@ -9,6 +9,7 @@ from langgraph.prebuilt import ToolNode
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
+from tradingagents.equity_research.runtime.utils.messages import clear_messages_update, materialize_messages_update
 from tradingagents.equity_research.skills.catalog import format_catalog_for_prompt
 from tradingagents.equity_research.skills.loader import format_skill_prompt
 from tradingagents.equity_research.skills.registry import SkillRegistry, section_skill_for_id
@@ -86,12 +87,14 @@ def create_skill_selector_agent(
             max_skills=task_profile.max_skills,
             prompt_builder=task_profile.build_skill_prompt,
         )
+        chain = deps.quick_llm.bind_tools([load_tool])
         messages = list(state.get("messages", []))
         if not messages:
-            messages = [HumanMessage(content=prompt)]
-        chain = deps.quick_llm.bind_tools([load_tool])
+            seed = [HumanMessage(content=prompt)]
+            result = chain.invoke(seed)
+            return {"messages": seed + [result]}
         result = chain.invoke(messages)
-        return {"messages": messages + [result]}
+        return {"messages": [result]}
 
     return skill_selector_agent
 
@@ -159,7 +162,7 @@ def create_skill_context_apply(
                 "active_skill_context": context,
                 "skill_catalog": catalog_snapshot,
                 "loaded_skills": list(skill_names),
-                "messages": [],
+                **clear_messages_update(),
             }
             updates.update(deps.trace({**state, **updates}, agent_trace, {
                 "skills": skill_names,
@@ -176,7 +179,7 @@ def create_skill_context_apply(
                 "active_skill_context": context,
                 "skill_catalog": catalog_snapshot,
                 "loaded_skills": [fallback_name],
-                "messages": [],
+                **clear_messages_update(),
             }
 
     return skill_context_apply
@@ -202,6 +205,12 @@ def create_skill_selector(
                 working = {**working, **tools(working)}
         except Exception:
             pass
-        return apply(working)
+        result = apply(working)
+        if "messages" in result:
+            result["messages"] = materialize_messages_update(
+                working.get("messages"),
+                result.get("messages"),
+            )
+        return result
 
     return skill_selector

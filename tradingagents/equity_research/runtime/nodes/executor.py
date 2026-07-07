@@ -12,6 +12,7 @@ from langgraph.prebuilt import ToolNode
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
+from tradingagents.equity_research.runtime.utils.messages import clear_messages_update
 from tradingagents.equity_research.runtime.utils.search_memory import (
     append_search_record,
     queries_from_memory,
@@ -140,7 +141,7 @@ def create_executor_apply_node(
         batch_meta = state.get("_executor_batch")
         batch_result = _latest_batch_tool_result(state.get("messages", []))
         if not batch_meta and not batch_result:
-            return {"messages": []}
+            return clear_messages_update()
 
         errors = list(state.get("errors", []))
         search_memory = list(state.get("search_memory", []))
@@ -184,7 +185,7 @@ def create_executor_apply_node(
             "pending_evidence": pending,
             "documents": new_docs,
             "api_calls": api_calls,
-            "messages": [],
+            **clear_messages_update(),
             "_executor_tool_node": None,
             "_executor_batch": None,
         }

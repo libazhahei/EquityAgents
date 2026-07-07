@@ -12,6 +12,7 @@ import yfinance as yf
 from tradingagents.agents.utils.agent_utils import build_instrument_context, resolve_instrument_identity
 from tradingagents.agents.utils.core_stock_tools import get_stock_data
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
+from tradingagents.equity_research.storage.ledger_store import hydrate_state_from_ledger_store
 from tradingagents.equity_research.state.equity_research_state import EquityResearchState
 from tradingagents.equity_research.state.schemas import ResearchBudget
 from tradingagents.equity_research.templates.report_template import (
@@ -78,6 +79,7 @@ def create_initialize_state(deps: EquityResearchDeps):
             "started_at": datetime.now(timezone.utc).isoformat(),
             "last_updated": datetime.now(timezone.utc).isoformat(),
         }
+        updates.update(hydrate_state_from_ledger_store({**state, **updates}, deps.ledgers))
         updates.update(deps.trace({**state, **updates}, "initialize_state", {"ticker": ticker}))
         return updates
 

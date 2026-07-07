@@ -143,12 +143,19 @@ def execute_vendor_chain(
                     detail="empty result",
                 )
                 continue
-            if wrap_metadata and isinstance(result, dict) and "vendor_used" not in result:
-                return {
-                    **result,
-                    "vendor_used": vendor,
-                    "fallback_attempted": list(fallback_attempted),
-                }
+            if wrap_metadata:
+                if isinstance(result, dict) and "vendor_used" not in result:
+                    return {
+                        **result,
+                        "vendor_used": vendor,
+                        "fallback_attempted": list(fallback_attempted),
+                    }
+                if not isinstance(result, dict):
+                    return {
+                        "data": result,
+                        "vendor_used": vendor,
+                        "fallback_attempted": list(fallback_attempted),
+                    }
             return result
         except VendorRateLimitError:
             logger.warning("Vendor %r rate-limited for %s; trying next vendor.", vendor, method)

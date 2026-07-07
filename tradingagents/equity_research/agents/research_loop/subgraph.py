@@ -13,7 +13,10 @@ from tradingagents.equity_research.tasks.section_research.schemas import (
     SectionResearchOutput,
     SectionResearchView,
 )
+from tradingagents.equity_research.tasks.section_research.memory_seed import merge_subgraph_ledgers_to_parent
 from tradingagents.equity_research.tasks.section_research.seed import seed_section_research_state
+from tradingagents.equity_research.memory.pruning import run_memory_maintenance
+from tradingagents.equity_research.memory.snapshots import capture_iteration_snapshot
 from tradingagents.equity_research.templates.report_template import MVP1_SECTION_ORDER
 
 
@@ -105,6 +108,10 @@ def _map_section_research_result(
         "status": research_status,
         "action": action,
     }))
+    updates.update(merge_subgraph_ledgers_to_parent(parent, result))
+    merged = {**parent, **updates}
+    updates.update(run_memory_maintenance(merged, deps))
+    updates.update(capture_iteration_snapshot({**merged, **updates}, deps))
     return updates
 
 
@@ -118,12 +125,20 @@ def create_run_section_research_subgraph(
     compiled = SectionResearchSubgraph(deps, tp).compile(checkpointer=checkpointer)
 
     def run_subgraph(state: dict[str, Any]) -> dict[str, Any]:
+        er = deps.config.get("equity_research", {})
+        recursion_limit = int(
+            er.get("section_research_recursion_limit", er.get("max_recur_limit", 200))
+        )
         section_id = _pick_section_id(state)
         section_plan = (state.get("section_plans") or {}).get(section_id, {})
+        state = {**state, "_section_research_recursion_limit": recursion_limit}
         subgraph_input = seed_section_research_state(
             state, tp, section_id=section_id, section_plan=section_plan,
         )
-        result = compiled.invoke(subgraph_input)
+        result = compiled.invoke(
+            subgraph_input,
+            config={"recursion_limit": recursion_limit},
+        )
         return _map_section_research_result(
             deps, state, result, tp, section_id=section_id,
         )

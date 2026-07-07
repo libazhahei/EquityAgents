@@ -77,6 +77,8 @@ def empty_equity_research_state() -> dict[str, Any]:
         "documents": [],
         "evidence_fragments": [],
         "contradiction_fragments": [],
+        "memory_conflicts": [],
+        "iteration_snapshots": [],
         "structured_facts": [],
         "fact_conflicts": [],
         "business_drivers": [],
@@ -186,6 +188,8 @@ class EquityResearchState(TypedDict, total=False):
     documents: list[dict]
     evidence_fragments: list[dict]
     contradiction_fragments: list[dict]
+    memory_conflicts: list[dict]
+    iteration_snapshots: list[dict]
     structured_facts: list[dict]
     fact_conflicts: list[dict]
     business_drivers: list[dict]

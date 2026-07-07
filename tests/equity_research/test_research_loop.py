@@ -9,6 +9,7 @@ from tradingagents.equity_research.state.equity_research_state import empty_equi
 def test_research_loop_delegates_to_section_subgraph():
     deps = MagicMock()
     deps.trace = lambda state, *args, **kwargs: {}
+    deps.config = {"equity_research": {"section_research_recursion_limit": 200}}
 
     mock_updates = {
         "research_status": "continue",
@@ -19,7 +20,7 @@ def test_research_loop_delegates_to_section_subgraph():
     }
 
     with patch(
-        "tradingagents.equity_research.agents.research_loop.subgraph.create_run_section_research_subgraph",
+        "tradingagents.equity_research.agents.research_loop.create_run_section_research_subgraph",
     ) as mock_factory:
         mock_factory.return_value = lambda state: mock_updates
         loop = create_research_loop(deps)

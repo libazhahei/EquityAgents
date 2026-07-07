@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import uuid
 from typing import Any
 
@@ -14,6 +15,10 @@ from tradingagents.equity_research.tasks.section_research.schemas import (
     empty_section_research_view,
 )
 from tradingagents.equity_research.tasks.section_research.bfs_todos import bfs_levels
+from tradingagents.equity_research.tasks.section_research.memory_seed import (
+    merge_subgraph_ledgers_to_parent,
+    seed_parent_memory_into_subgraph,
+)
 from tradingagents.equity_research.templates.report_template import MVP1_REPORT_TEMPLATE
 
 
@@ -54,6 +59,43 @@ def build_question_graph(section_plan: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _estimate_steps_per_question() -> int:
+    """Estimated plan steps per question (orient + fetch + synthesize)."""
+    return 3
+
+
+def _transitions_per_iteration() -> int:
+    """Estimated LangGraph node transitions consumed per research iteration."""
+    return 16
+
+
+def _init_transition_overhead() -> int:
+    """Estimated LangGraph transitions for skill_selector + initial_planner."""
+    return 6
+
+
+def compute_dynamic_max_iterations(
+    num_questions: int,
+    recursion_limit: int,
+    profile_default: int,
+) -> int:
+    """Compute max_iterations dynamically based on plan size and LangGraph budget.
+
+    Each research iteration consumes ~16 LangGraph transitions (executor dispatch,
+    tool calls, apply, synthesizer, reflector). The init overhead is ~6 transitions.
+    We estimate 3 plan steps per question and add a 20% buffer, then cap at the
+    safe ceiling derived from the recursion limit.
+    """
+    estimated_steps = num_questions * _estimate_steps_per_question()
+    estimated_iterations = int(math.ceil(estimated_steps * 1.2))
+    safe_ceiling = max(
+        5,
+        (recursion_limit - _init_transition_overhead()) // _transitions_per_iteration(),
+    )
+    result = max(profile_default, estimated_iterations)
+    return min(result, safe_ceiling)
+
+
 def seed_section_research_state(
     parent: dict[str, Any],
     profile: TaskProfile,
@@ -70,12 +112,23 @@ def seed_section_research_state(
         assumption_view=parent.get("assumption_view"),
         assumption_report=str(parent.get("assumption_report", "")),
     )
-    max_iter = int(parent.get("max_section_research_iterations", profile.max_iterations))
+    num_questions = len(plan_data.get("nodes", []))
+    recursion_limit = int(parent.get("_section_research_recursion_limit", 0)) or int(
+        parent.get("equity_research", {}).get("section_research_recursion_limit", 250)
+    )
+    explicit_max = parent.get("max_section_research_iterations")
+    if explicit_max:
+        max_iter = int(explicit_max)
+    else:
+        max_iter = compute_dynamic_max_iterations(
+            num_questions, recursion_limit, profile.max_iterations,
+        )
     subgraph_input = empty_agent_state(
         parent,
         task_profile=profile.to_dict(),
         max_iterations=max_iter,
     )
+    subgraph_input["_langgraph_recursion_limit"] = recursion_limit
     ticker = str(parent.get("ticker", ""))
     subgraph_input["section_id"] = section_id
     subgraph_input["research_brief"] = brief.model_dump()
@@ -110,4 +163,5 @@ def seed_section_research_state(
         f"Section research: {brief.section_title} — {brief.root_question[:200]}"
     )
     subgraph_input["report_id"] = parent.get("report_id") or f"sr_{uuid.uuid4().hex[:8]}"
+    subgraph_input.update(seed_parent_memory_into_subgraph(parent))
     return subgraph_input
