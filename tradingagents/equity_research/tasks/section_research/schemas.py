@@ -111,15 +111,44 @@ class ResearchBrief(BaseModel):
     intent_hint: str = ""
 
 
+class QuantifiedClaim(BaseModel):
+    metric: str
+    value_or_range: str
+    unit: str = ""
+    period: str = ""
+    driver_link: str = ""
+    confidence: float = 0.0
+
+
+class SourceAttribution(BaseModel):
+    source_type: str
+    fiscal_quarter_or_date: str
+    platform: str
+    traceable_ref: str
+    url: str = ""
+
+
+class DataAvailabilityNote(BaseModel):
+    metric: str
+    status: Literal["available", "unavailable", "proxy_used"] = "available"
+    attempted_sources: list[str] = Field(default_factory=list)
+    rationale: str = ""
+    proxy_metric: str = ""
+
+
 class AnswerCard(BaseModel):
     question_id: str
     question: str = ""
     short_answer: str = ""
     verified_facts: list[dict[str, Any]] = Field(default_factory=list)
     inferred_estimates: list[dict[str, Any]] = Field(default_factory=list)
+    quantified_claims: list[QuantifiedClaim] = Field(default_factory=list)
     calculations: list[dict[str, Any]] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
     citations: list[dict[str, Any]] = Field(default_factory=list)
+    source_attributions: list[SourceAttribution] = Field(default_factory=list)
+    named_competitive_threats: list[dict[str, Any]] = Field(default_factory=list)
+    data_availability_notes: list[DataAvailabilityNote] = Field(default_factory=list)
     confidence: float = 0.0
     data_quality: DataQuality = "medium"
     open_gaps: list[str] = Field(default_factory=list)

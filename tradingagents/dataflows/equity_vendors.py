@@ -7,7 +7,11 @@ from typing import Any
 
 import yfinance as yf
 
-from tradingagents.dataflows.errors import NoMarketDataError, VendorNotConfiguredError
+from tradingagents.dataflows.errors import (
+    NoMarketDataError,
+    VendorNotConfiguredError,
+    VendorSubscriptionError,
+)
 from tradingagents.dataflows.jina_client import JinaClient
 from tradingagents.dataflows.tavily_client import TavilyClient
 
@@ -182,7 +186,7 @@ def transcript_search_fmp(ticker: str, quarter: str | None = None, **_: Any) -> 
     try:
         data = client.fetch_earnings_call_transcripts(ticker, quarter=quarter)
     except FMPSubscriptionError as exc:
-        raise NoMarketDataError(symbol=ticker, detail=str(exc)) from exc
+        raise VendorSubscriptionError(str(exc)) from exc
     if not data:
         raise NoMarketDataError(symbol=ticker, detail="no transcripts")
     return data

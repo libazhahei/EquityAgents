@@ -221,5 +221,9 @@ DEFAULT_CONFIG = _apply_env_overrides({
             "transcripts_data": "alpha_vantage,fmp,perplexity",
         },
         "tool_vendors": {},
+        # ParameterPreservingReducer configuration
+        "reducer_dedup_threshold": 0.85,
+        "reducer_conflict_tolerance": 0.05,
+        "reducer_max_history": 10,
     },
 })

@@ -104,3 +104,36 @@ def build_search_memory_for_prompt(
 ) -> str:
     formatted = format_search_memory(records)
     return compact_if_needed(deps, formatted, purpose="search memory", max_chars=max_chars)
+
+
+def format_evidence_items(records: list[dict], *, max_items: int = 20) -> str:
+    """Format evidence items for prompts, showing actual content instead of search metadata."""
+    if not records:
+        return "- No pending evidence."
+    lines: list[str] = []
+    for item in records[:max_items]:
+        source = item.get("source", "unknown")
+        snippet = item.get("snippet") or item.get("content") or ""
+        url = item.get("url", "")
+        qid = item.get("question_id", "")
+        
+        lines.append(f"[{source}]")
+        if qid:
+            lines.append(f"Question: {qid}")
+        if url:
+            lines.append(f"URL: {url}")
+        lines.append(f"Content: {snippet}")
+        lines.append("")  # blank line between items
+    
+    return "\n".join(lines)
+
+
+def build_evidence_for_prompt(
+    deps: Any,
+    records: list[dict],
+    *,
+    max_chars: int | None = None,
+) -> str:
+    """Format evidence items for inclusion in prompts."""
+    formatted = format_evidence_items(records)
+    return compact_if_needed(deps, formatted, purpose="evidence", max_chars=max_chars)

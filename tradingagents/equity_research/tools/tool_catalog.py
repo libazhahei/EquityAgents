@@ -64,7 +64,7 @@ EQUITY_TOOLS_CATEGORIES: dict[str, CategorySpec] = {
             "earnings_calendar": {"description": "Earnings report dates", "inputs": ["ticker"], "risk": "low"},
             "analyst_estimates_fetch": {"description": "Analyst consensus estimates", "inputs": ["ticker"], "risk": "low"},
             "transcript_search": {"description": "Search earnings call transcripts", "inputs": ["ticker", "quarter"], "risk": "low"},
-            "filings_search": {"description": "Hybrid search SEC filings by keywords", "inputs": ["ticker", "keywords", "form_type", "section", "top_k", "max_chars"], "risk": "low"},
+            "filings_search": {"description": "Hybrid search SEC filings with rerank and dedupe", "inputs": ["ticker", "keywords", "form_type", "section", "top_k", "max_chars", "dedupe", "rerank", "prefer_recent", "max_per_group"], "risk": "low"},
             "filing_reader": {"description": "Read filing content", "inputs": ["filing_url"], "risk": "low"},
             "peer_comps_fetch": {"description": "Fetch comparable companies", "inputs": ["ticker"], "risk": "low"},
             "valuation_multiples_fetch": {"description": "Fetch valuation multiples", "inputs": ["tickers"], "risk": "low"},

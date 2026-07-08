@@ -5,13 +5,16 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from langchain_core.tools import BaseTool, tool
+from langgraph.prebuilt import InjectedState
 
 from tradingagents.equity_research.tools import evidence_memory, memory_search_tools, memory_tools
+
+_STATE = Annotated[dict[str, Any], InjectedState]
 
 
 @tool
 def memory_retrieve(
-    state: Annotated[dict[str, Any], "Research state snapshot"],
+    state: _STATE,
     query: Annotated[str, "Memory retrieval query"] = "",
     filters: Annotated[dict[str, Any] | None, "Optional filters, e.g. parent_nodes"] = None,
 ) -> dict[str, Any]:
@@ -21,7 +24,7 @@ def memory_retrieve(
 
 @tool
 def memory_write(
-    state: Annotated[dict[str, Any], "Research state snapshot"],
+    state: _STATE,
     record: Annotated[dict[str, Any], "Memory record with type and payload"],
 ) -> dict[str, Any]:
     """Write evidence, claim, reflection, or action to memory."""
@@ -30,7 +33,7 @@ def memory_write(
 
 @tool
 def store_evidence(
-    state: Annotated[dict[str, Any], "Research state snapshot"],
+    state: _STATE,
     fragment: Annotated[dict[str, Any], "Evidence fragment to store"],
 ) -> dict[str, Any]:
     """Store an evidence fragment in the research ledger."""
@@ -39,7 +42,7 @@ def store_evidence(
 
 @tool
 def store_claim(
-    state: Annotated[dict[str, Any], "Research state snapshot"],
+    state: _STATE,
     claim: Annotated[dict[str, Any], "Claim object to store"],
 ) -> dict[str, Any]:
     """Store a research claim in the ledger."""
@@ -48,7 +51,7 @@ def store_claim(
 
 @tool
 def store_assumption(
-    state: Annotated[dict[str, Any], "Research state snapshot"],
+    state: _STATE,
     assumption: Annotated[dict[str, Any], "Model assumption to store"],
 ) -> dict[str, Any]:
     """Store a model assumption in the ledger."""
@@ -57,7 +60,7 @@ def store_assumption(
 
 @tool
 def link_evidence_to_claim(
-    state: Annotated[dict[str, Any], "Research state snapshot"],
+    state: _STATE,
     claim_id: Annotated[str, "Claim identifier"],
     evidence_id: Annotated[str, "Evidence identifier"],
 ) -> dict[str, Any]:
@@ -67,7 +70,7 @@ def link_evidence_to_claim(
 
 @tool
 def retrieve_claims_by_section(
-    state: Annotated[dict[str, Any], "Research state snapshot"],
+    state: _STATE,
     section_id: Annotated[str, "Report section identifier"],
 ) -> list[dict]:
     """Retrieve claims associated with a report section."""
@@ -76,7 +79,7 @@ def retrieve_claims_by_section(
 
 @tool
 def retrieve_contradictory_evidence(
-    state: Annotated[dict[str, Any], "Research state snapshot"],
+    state: _STATE,
 ) -> list[dict]:
     """Retrieve contradictory evidence fragments from state."""
     return evidence_memory.retrieve_contradictory_evidence(state)
@@ -84,7 +87,7 @@ def retrieve_contradictory_evidence(
 
 @tool
 def search_evidence(
-    state: Annotated[dict[str, Any], "Research state snapshot"],
+    state: _STATE,
     query: Annotated[str, "Semantic search query over evidence quotes"] = "",
     metric: Annotated[str, "Optional metric filter, e.g. revenue_growth"] = "",
     max_items: Annotated[int, "Maximum evidence items to return"] = 10,
@@ -97,7 +100,7 @@ def search_evidence(
 
 @tool
 def search_claims(
-    state: Annotated[dict[str, Any], "Research state snapshot"],
+    state: _STATE,
     query: Annotated[str, "Optional semantic ranking query"] = "",
     section_id: Annotated[str, "Filter by report section id"] = "",
     metric: Annotated[str, "Filter by metric keyword"] = "",
@@ -117,7 +120,7 @@ def search_claims(
 
 @tool
 def search_assumptions(
-    state: Annotated[dict[str, Any], "Research state snapshot"],
+    state: _STATE,
     query: Annotated[str, "Optional semantic ranking query"] = "",
     metric: Annotated[str, "Filter by assumption metric"] = "",
     sensitivity: Annotated[str, "Filter by sensitivity: high, medium, or low"] = "",
@@ -135,7 +138,7 @@ def search_assumptions(
 
 @tool
 def search_consensus(
-    state: Annotated[dict[str, Any], "Research state snapshot"],
+    state: _STATE,
     query: Annotated[str, "Semantic search query over consensus entries"] = "",
     metric: Annotated[str, "Filter by consensus metric"] = "",
     max_items: Annotated[int, "Maximum consensus items to return"] = 5,
@@ -148,7 +151,7 @@ def search_consensus(
 
 @tool
 def search_conflicts(
-    state: Annotated[dict[str, Any], "Research state snapshot"],
+    state: _STATE,
     metric: Annotated[str, "Optional metric filter for conflicts"] = "",
 ) -> dict[str, Any]:
     """List open evidence conflicts and contradiction fragments."""
@@ -157,7 +160,7 @@ def search_conflicts(
 
 @tool
 def search_memory_timeline(
-    state: Annotated[dict[str, Any], "Research state snapshot"],
+    state: _STATE,
     last_n: Annotated[int, "Number of recent iteration snapshots"] = 5,
 ) -> dict[str, Any]:
     """Return recent iteration snapshots for trend analysis."""
@@ -166,7 +169,7 @@ def search_memory_timeline(
 
 @tool
 def search_research_context(
-    state: Annotated[dict[str, Any], "Research state snapshot"],
+    state: _STATE,
     query: Annotated[str, "Research question or objective for context ranking"] = "",
     parent_nodes: Annotated[list[str] | None, "Thesis graph parent node ids"] = None,
     max_items: Annotated[int, "Maximum total context items"] = 20,
@@ -193,7 +196,7 @@ def make_memory_search_tools(deps: Any) -> list[BaseTool]:
 
     @tool
     def search_evidence_deps(
-        state: Annotated[dict[str, Any], "Research state snapshot"],
+        state: _STATE,
         query: Annotated[str, "Semantic search query over evidence quotes"] = "",
         metric: Annotated[str, "Optional metric filter"] = "",
         max_items: Annotated[int, "Maximum evidence items"] = 10,
@@ -205,7 +208,7 @@ def make_memory_search_tools(deps: Any) -> list[BaseTool]:
 
     @tool
     def search_claims_deps(
-        state: Annotated[dict[str, Any], "Research state snapshot"],
+        state: _STATE,
         query: Annotated[str, "Optional semantic ranking query"] = "",
         section_id: Annotated[str, "Filter by report section id"] = "",
         metric: Annotated[str, "Filter by metric keyword"] = "",
@@ -225,7 +228,7 @@ def make_memory_search_tools(deps: Any) -> list[BaseTool]:
 
     @tool
     def search_assumptions_deps(
-        state: Annotated[dict[str, Any], "Research state snapshot"],
+        state: _STATE,
         query: Annotated[str, "Optional semantic ranking query"] = "",
         metric: Annotated[str, "Filter by assumption metric"] = "",
         sensitivity: Annotated[str, "Filter by sensitivity"] = "",
@@ -243,7 +246,7 @@ def make_memory_search_tools(deps: Any) -> list[BaseTool]:
 
     @tool
     def search_consensus_deps(
-        state: Annotated[dict[str, Any], "Research state snapshot"],
+        state: _STATE,
         query: Annotated[str, "Semantic search query"] = "",
         metric: Annotated[str, "Filter by consensus metric"] = "",
         max_items: Annotated[int, "Maximum consensus items"] = 5,
@@ -260,7 +263,7 @@ def make_memory_search_tools(deps: Any) -> list[BaseTool]:
 
     @tool
     def search_research_context_deps(
-        state: Annotated[dict[str, Any], "Research state snapshot"],
+        state: _STATE,
         query: Annotated[str, "Research question or objective"] = "",
         parent_nodes: Annotated[list[str] | None, "Thesis graph parent node ids"] = None,
         max_items: Annotated[int, "Maximum total context items"] = 20,

@@ -16,6 +16,39 @@ from tradingagents.equity_research.templates.report_template import (
 )
 
 
+def _format_section_question_coverage(section_cov: dict[str, Any]) -> list[str]:
+    rows = list(section_cov.get("rows") or [])
+    if not rows:
+        return []
+    lines = [
+        "### Question Coverage Matrix",
+        (
+            f"- Coverage: answered={section_cov.get('answered_questions', 0)} / "
+            f"partial={section_cov.get('partial_questions', 0)} / "
+            f"missing={section_cov.get('missing_questions', 0)} / "
+            f"total={section_cov.get('total_questions', len(rows))}"
+        ),
+    ]
+    root_q = str(section_cov.get("root_question", "")).strip()
+    if root_q:
+        lines.append(f"- Root question: {root_q}")
+    for row in rows:
+        qid = row.get("question_id", "")
+        question = str(row.get("question", "")).strip()
+        status = row.get("status", "missing")
+        confidence = float(row.get("confidence", 0.0))
+        evidence_count = int(row.get("evidence_count", 0))
+        lines.append(
+            f"- [{status}] {qid}: {question} "
+            f"(confidence={confidence:.2f}, evidence={evidence_count})"
+        )
+    unresolved = list(section_cov.get("unresolved_gaps") or [])
+    if unresolved:
+        lines.append("- Unresolved gaps:")
+        lines.extend(f"  - {gap}" for gap in unresolved[:20])
+    return lines
+
+
 def create_investment_committee_review(deps: EquityResearchDeps):
     def investment_committee_review(state: dict[str, Any]) -> dict[str, Any]:
         rating = state.get("rating")
@@ -91,6 +124,7 @@ def create_investment_committee_review(deps: EquityResearchDeps):
 def create_assemble_report(deps: EquityResearchDeps):
     def assemble_report(state: dict[str, Any]) -> dict[str, Any]:
         drafts = state.get("section_drafts", {})
+        section_question_coverage = state.get("section_question_coverage", {})
         template_summary = get_investment_summary_template()
         parts = [
             f"# Equity Research Report: {state.get('company_name', state['ticker'])} ({state['ticker']})",
@@ -105,7 +139,31 @@ def create_assemble_report(deps: EquityResearchDeps):
             if draft:
                 parts.append(f"## {draft.get('title', sid)}")
                 parts.append(draft.get("body_markdown", ""))
+                coverage_lines = _format_section_question_coverage(
+                    dict(section_question_coverage.get(sid) or {})
+                )
+                if coverage_lines:
+                    parts.append("")
+                    parts.extend(coverage_lines)
                 parts.append("")
+
+        unresolved_sections: list[str] = []
+        for sid in MVP1_DISPLAY_ORDER:
+            cov = dict(section_question_coverage.get(sid) or {})
+            if not cov:
+                continue
+            if int(cov.get("missing_questions", 0)) > 0:
+                unresolved_sections.append(
+                    f"- {sid}: {cov.get('missing_questions', 0)} missing questions"
+                )
+            if list(cov.get("unresolved_gaps") or []):
+                unresolved_sections.append(
+                    f"- {sid}: {len(cov.get('unresolved_gaps') or [])} unresolved gaps"
+                )
+        if unresolved_sections:
+            parts.append("## Unresolved Research Gaps")
+            parts.extend(unresolved_sections[:30])
+            parts.append("")
 
         charts = state.get("chart_placeholders", [])
         if charts:

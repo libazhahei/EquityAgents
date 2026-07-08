@@ -8,7 +8,7 @@ from typing import Any
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
 from tradingagents.equity_research.runtime.utils.context_compact import compact_prompt_block
-from tradingagents.equity_research.runtime.utils.search_memory import build_search_memory_for_prompt
+from tradingagents.equity_research.runtime.utils.search_memory import build_search_memory_for_prompt, build_evidence_for_prompt
 from tradingagents.equity_research.state.consensus_schemas import get_consensus_view_for_prompt
 from tradingagents.equity_research.tasks.section_research.schemas import (
     ResearchBrief,
@@ -77,6 +77,13 @@ For each priority question in the current BFS wave, output a task with:
 - objective: what to learn (one clear goal)
 - approach: rough how to research it (1-2 sentences, tools/sources)
 
+Hard requirements (must be reflected through tasks tied to existing question_ids only):
+- Enforce quant coverage on core conclusions: each core answer needs numeric support with metric, value/range, unit, and period.
+- Enforce competition concreteness: include named threat-source validation tasks when related sub-questions exist.
+- Enforce source metadata completeness: collect source_type, fiscal_quarter_or_date, platform, traceable_ref.
+- Include a data-availability verification branch for any critical metric likely to be missing, with fallback proxy research.
+- Do not introduce prior assumptions not implied by root/sub questions.
+
 Return JSON matching SectionResearchPlanOutlineLLMOutput: plan_rationale, tasks, execution_order.
 Prioritize priority=1 questions and those blocking coverage outputs.
 Limit to at most 6 tasks. Do NOT list detailed steps — the system expands your outline."""
@@ -119,6 +126,11 @@ Answer cards summary:
 
 If wave-advance: add tasks only for next-wave questions (objective + approach each).
 Otherwise add follow-up tasks ONLY for gaps. Do not replan completed work.
+Do not add new assumptions outside root/sub-question scope.
+When gaps are about missing numbers/sources/competition concreteness, prioritize tasks that:
+- recover structured numeric evidence (metric, value/range, unit, period),
+- recover structured source metadata (source_type, fiscal_quarter_or_date, platform, traceable_ref),
+- validate data availability explicitly before concluding unavailable.
 Return JSON matching SectionReplanLLMOutput: new_tasks (objective + approach only), append_steps, rationale."""
 
 
@@ -128,20 +140,23 @@ def build_synthesizer_prompt(
     view: SectionResearchView,
     pending: list[dict],
 ) -> str:
-    evidence_text = build_search_memory_for_prompt(deps, pending, max_chars=8000)
+    evidence_text = build_evidence_for_prompt(deps, pending, max_chars=8000)
     active = state.get("active_task") or {}
     active_block = compact_prompt_block(
         deps,
         json.dumps(active),
         purpose="active task for synthesizer",
     )
+    # Inject parameter grid if available
+    parameter_grid = state.get("parameter_grid", "")
+    parameter_block = f"\n\n{parameter_grid}\n" if parameter_grid else ""
     return f"""Synthesize pending evidence into section research view updates.
 
 Ticker: {state.get("ticker", "")}
 Section: {view.section_id}
 Active task: {active_block}
 Current answer cards: {list(view.answer_cards.keys())}
-
+{parameter_block}
 Pending evidence:
 {evidence_text}
 
@@ -160,6 +175,9 @@ Rules:
 - recommended_next_action must be exactly one of: run_existing_queue, plan_more, needs_human, exit.
 - Use evidence quality and primary-source coverage when scoring.
 - Flag contradictions and data quality issues explicitly.
+    - Treat todo completion as a hard gate: if any todo item is still pending/in_progress,
+      do NOT recommend exit. Recommend run_existing_queue (or plan_more only when queue is empty
+      but unresolved coverage still requires new tasks).
     - Double-check todo items: if an item is still "pending" or "in_progress" but the corresponding
       answer card already has sufficient evidence (confidence >= 0.7 and non-empty verified_facts),
       list its item_id in completed_todo_ids. Only mark items that are genuinely finished.
@@ -226,6 +244,16 @@ def build_reflector_user_prompt(
                 f" | status={item.get('status')}"
             )
     todo_block = "\n".join(todo_summary_lines) if todo_summary_lines else "(none pending)"
+
+    # Inject parameter grid for the reflector's coverage assessment
+    parameter_grid = state.get("parameter_grid", "")
+    parameter_block = ""
+    if parameter_grid:
+        parameter_block = compact_prompt_block(
+            deps,
+            parameter_grid,
+            purpose="parameter registry for reflector",
+        )
     
     # Build budget block at the END to preserve prompt cache on static prefix
     budget = iteration_budget or {}
@@ -234,11 +262,13 @@ def build_reflector_user_prompt(
     remaining = budget.get("remaining", max(0, max_iter - current_iter))
     pending_tasks = budget.get("pending_tasks", 0)
     pending_steps = budget.get("pending_steps", 0)
+    pending_todo_items = budget.get("pending_todo_items", 0)
     budget_block = (
         f"\n── Iteration Budget ──\n"
         f"Iteration budget: {current_iter}/{max_iter} completed, "
         f"{remaining} remaining. "
-        f"Pending plan: {pending_tasks} tasks, {pending_steps} steps.\n"
+        f"Pending plan: {pending_tasks} tasks, {pending_steps} steps. "
+        f"Pending todo items: {pending_todo_items}.\n"
     )
     if remaining <= 1:
         budget_block += (
@@ -266,7 +296,10 @@ Todo items to double-check (mark genuinely finished ones in completed_todo_ids):
 Executor context (this iteration):
 {executor_block or "(none)"}
 
-{memory_block}{budget_block}"""
+{memory_block}
+Parameter registry:
+{parameter_block or "(none)"}
+{budget_block}"""
 
 
 def build_reflector_prompt(
@@ -323,7 +356,9 @@ Answer cards:
 Coverage: {coverage_block}
 
 Produce professional equity research prose with citations. Max {ctx.get("report_max_chars", 6000)} chars.
-Include executive summary at top."""
+Include executive summary at top.
+If any required metric/source is unavailable after retries, add a dedicated disclosure section
+that names missing datasets, attempted sources, and confidence impact."""
 
 
 def build_skill_prompt(state: dict[str, Any], catalog_table: str, ticker: str) -> str:
@@ -341,6 +376,12 @@ def build_skill_prompt(state: dict[str, Any], catalog_table: str, ticker: str) -
 def build_executor_system_prompt(state: dict[str, Any]) -> str:
     task = state.get("active_task") or {}
     step = state.get("active_step") or {}
+    synthesize_note = ""
+    if (step.get("action") or "").lower() == "synthesize":
+        synthesize_note = (
+            "\nNOTE: action=synthesize is handled by the downstream synthesizer node. "
+            "Do not call tools for synthesize steps.\n"
+        )
     return f"""You are an autonomous equity research executor.
 
 Rules:
@@ -349,7 +390,8 @@ Rules:
 3. After completing a step, call update_research_todo_status(item_id, "done").
 4. Use add_research_todo for newly discovered work; remove_research_todo for obsolete items.
 5. Prefer primary sources (filings) over secondary when step action is fetch_primary or extract.
-
+6. Do NOT call tools when active step action is synthesize — that step is handled downstream.
+{synthesize_note}
 Active task: {json.dumps(task)}
 Active step: {json.dumps(step)}
 Ticker: {state.get("ticker", "")}

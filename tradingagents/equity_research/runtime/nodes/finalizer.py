@@ -8,6 +8,38 @@ from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.utils.llm_resolve import resolve_research_llm
 
 
+def _build_unavailable_data_disclosure(state: dict[str, Any], view: Any) -> str:
+    notes: list[str] = []
+    answer_cards = getattr(view, "answer_cards", None)
+    if not answer_cards:
+        return ""
+    for qid, card in answer_cards.items():
+        data_notes = getattr(card, "data_availability_notes", None)
+        if not data_notes:
+            continue
+        for note in data_notes:
+            if note.status != "unavailable":
+                continue
+            attempted = ", ".join(note.attempted_sources[:5]) if note.attempted_sources else "n/a"
+            notes.append(
+                f"- {qid} / {note.metric}: unavailable; attempted={attempted}; "
+                f"rationale={note.rationale or 'not provided'}; proxy={note.proxy_metric or 'none'}"
+            )
+    if not notes:
+        return ""
+    lines = [
+        "## Data Availability Limitations",
+        "The following required data could not be obtained after retry and affects confidence:",
+        *notes[:20],
+    ]
+    unresolved = state.get("unresolved_gaps") or []
+    if unresolved:
+        lines.append("")
+        lines.append("Remaining unresolved gaps:")
+        lines.extend(f"- {g}" for g in unresolved[:20])
+    return "\n".join(lines)
+
+
 def create_finalizer_node(deps: EquityResearchDeps, task_profile: TaskProfile):
     def finalizer(state: dict[str, Any]) -> dict[str, Any]:
         errors = list(state.get("errors", []))
@@ -54,6 +86,10 @@ def create_finalizer_node(deps: EquityResearchDeps, task_profile: TaskProfile):
                         f"- [{f.get('type', 'flag')}] {f.get('message', '')}"
                         for f in compliance_flags[:10]
                     )
+
+            disclosure = _build_unavailable_data_disclosure(state, view)
+            if disclosure and "## Data Availability Limitations" not in report:
+                report = f"{report}\n\n{disclosure}".strip()
 
             updates: dict[str, Any] = {
                 "final_report": report,

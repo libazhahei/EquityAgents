@@ -40,33 +40,24 @@ def section_reflector_router(state: dict[str, Any]) -> str:
     iterations = int(state.get("iterations", 0))
     max_iter = int(state.get("max_iterations", 5))
 
-    # Hard safety valve: force exit when iterations budget is exhausted.
-    # Prevents the LangGraph recursion limit from being hit before the
-    # reflector node can set routing_decision="exit".
-    if iterations >= max_iter:
-        return "exit"
-
     if action == "needs_human":
         return "needs_human"
 
-    # When the reflector node explicitly decided to exit (e.g. coverage
-    # threshold met or max_iter reached inside the node), respect it
-    # unconditionally instead of redirecting to BFS plan_more.
-    if report.get("routing_decision") == "exit" or action == "exit":
-        return "exit"
-
-    # Continue executing pending plan steps / todo items.
     if has_pending_tasks_or_steps(state):
         return "run_existing_queue"
 
-    # BFS wave progression: current wave done, more waves available.
+    if iterations >= max_iter:
+        return "exit"
+
+    if report.get("routing_decision") == "exit" or action == "exit":
+        return "exit"
+
     if wave_complete(state) and has_next_bfs_wave(state):
         return "plan_more"
 
     if report.get("critical_gaps"):
         return "plan_more"
 
-    # First iteration with no pending work — try planning more.
     if iterations <= 1:
         return "plan_more"
 
@@ -93,6 +84,30 @@ def _count_pending_tasks_steps(state: dict[str, Any]) -> dict[str, int]:
         if s.status in ("pending", "in_progress")
     )
     return {"tasks": pending_tasks, "steps": pending_steps}
+
+
+def _count_pending_todo_items(state: dict[str, Any]) -> int:
+    todo_raw = state.get("research_todo_list") or {}
+    todo = ResearchTodoList.model_validate(todo_raw) if todo_raw else ResearchTodoList()
+    return sum(1 for item in todo.items if item.status in ("pending", "in_progress"))
+
+
+def _data_availability_signal(view: Any) -> dict[str, int]:
+    unavailable_cards = 0
+    obtainable_missing_cards = 0
+    for card in view.answer_cards.values():
+        has_unavailable = any(note.status == "unavailable" for note in card.data_availability_notes)
+        has_quant = bool(card.quantified_claims)
+        has_sources = bool(card.source_attributions)
+        missing_core = (not has_quant) or (not has_sources)
+        if has_unavailable:
+            unavailable_cards += 1
+        elif missing_core:
+            obtainable_missing_cards += 1
+    return {
+        "unavailable_cards": unavailable_cards,
+        "obtainable_missing_cards": obtainable_missing_cards,
+    }
 
 
 def create_section_reflector_node(deps: EquityResearchDeps, task_profile: TaskProfile):
@@ -125,12 +140,14 @@ def create_section_reflector_node(deps: EquityResearchDeps, task_profile: TaskPr
             system_prompt = build_reflector_system_prompt(task_profile)
             max_iter = int(state.get("max_iterations", task_profile.max_iterations))
             pending = _count_pending_tasks_steps(state)
+            pending_todo_items = _count_pending_todo_items(state)
             iteration_budget = {
                 "current": iterations,
                 "max": max_iter,
                 "remaining": max(0, max_iter - iterations),
                 "pending_tasks": pending["tasks"],
                 "pending_steps": pending["steps"],
+                "pending_todo_items": pending_todo_items,
             }
             user_prompt = build_reflector_user_prompt(
                 deps,
@@ -155,6 +172,7 @@ def create_section_reflector_node(deps: EquityResearchDeps, task_profile: TaskPr
                 )
 
             llm = resolve_research_llm(deps, "quick")
+            evaluation: SectionCoverageEvaluation | None = None
             try:
                 evaluation = invoke_structured_with_retry(
                     llm,
@@ -173,18 +191,52 @@ def create_section_reflector_node(deps: EquityResearchDeps, task_profile: TaskPr
             report.plan_completion = PlanCompletion.model_validate(plan_completion)
 
             max_iter = int(state.get("max_iterations", task_profile.max_iterations))
-            if has_pending_tasks_or_steps(state) and iterations < max_iter:
-                if report.recommended_next_action == "exit" and report.overall_score < task_profile.coverage_threshold:
-                    report.recommended_next_action = "run_existing_queue"
-                    report.routing_decision = "continue"
-            elif iterations >= max_iter:
+            availability = _data_availability_signal(view)
+            availability_retry_count = int(state.get("_data_availability_retry_count", 0))
+            if pending_todo_items > 0 and iterations < max_iter:
+                report.recommended_next_action = "run_existing_queue"
+                report.routing_decision = "continue"
+                report.data_quality_issues.append({
+                    "type": "pending_todo_items",
+                    "severity": "low",
+                    "message": f"{pending_todo_items} todo items still pending/in_progress.",
+                })
+            elif has_pending_tasks_or_steps(state) and iterations < max_iter:
+                report.recommended_next_action = "run_existing_queue"
+                report.routing_decision = "continue"
+            elif iterations >= max_iter and not has_pending_tasks_or_steps(state):
                 report.recommended_next_action = "exit"
                 report.routing_decision = "exit"
-            elif report.overall_score >= task_profile.coverage_threshold and not report.critical_gaps:
+            elif (
+                report.overall_score >= task_profile.coverage_threshold
+                and not report.critical_gaps
+                and not has_pending_tasks_or_steps(state)
+            ):
                 report.recommended_next_action = "exit"
                 report.routing_decision = "exit"
             else:
                 report.routing_decision = "continue"
+
+            # Data-availability gate:
+            # - If required data appears obtainable but missing, force one extra cycle.
+            # - If still missing after one retry, allow exit only when plan is complete.
+            if availability["obtainable_missing_cards"] > 0 and iterations < max_iter:
+                if availability_retry_count < 1:
+                    report.recommended_next_action = (
+                        "run_existing_queue" if has_pending_tasks_or_steps(state) else "plan_more"
+                    )
+                    report.routing_decision = "continue"
+                elif not has_pending_tasks_or_steps(state):
+                    report.recommended_next_action = "exit"
+                    report.routing_decision = "exit"
+                    report.data_quality_issues.append({
+                        "type": "data_availability_unresolved",
+                        "severity": "medium",
+                        "message": (
+                            "Structured quantitative/source fields remained incomplete "
+                            "after one retry cycle."
+                        ),
+                    })
 
             view.coverage_score = report.overall_score
             coverage_history = list(state.get("coverage_history", []))
@@ -194,7 +246,7 @@ def create_section_reflector_node(deps: EquityResearchDeps, task_profile: TaskPr
             for qid, card in view.answer_cards.items():
                 answer_cards[qid] = card.model_dump()
 
-            completed_todo_ids = list(getattr(evaluation, "completed_todo_ids", None) or [])
+            completed_todo_ids = list(getattr(evaluation, "completed_todo_ids", None) or []) if evaluation else []
             todo_update: dict[str, Any] = {}
             if completed_todo_ids:
                 todo_raw = state.get("research_todo_list") or {}
@@ -218,8 +270,15 @@ def create_section_reflector_node(deps: EquityResearchDeps, task_profile: TaskPr
                 "iterations": iterations,
                 "unresolved_gaps": [g.get("gap", str(g)) for g in report.critical_gaps],
                 "status": "sufficient" if report.recommended_next_action == "exit" else "continue",
+                "_data_availability_retry_count": (
+                    availability_retry_count + 1
+                    if availability["obtainable_missing_cards"] > 0 and availability_retry_count < 1
+                    else 0
+                ),
             }
             updates.update(todo_update)
+            merged_for_todo_count = {**state, **updates}
+            updates["pending_todo_items"] = _count_pending_todo_items(merged_for_todo_count)
             updates.update(deps.trace({**state, **updates}, f"{task_profile.task_id}_reflector", {
                 "overall_score": report.overall_score,
                 "action": report.recommended_next_action,

@@ -72,7 +72,37 @@ def filings_search(
     prefer_recent: Annotated[bool | None, "Bias recent-quarter intent to 10-Q"] = None,
     max_per_group: Annotated[int, "Max hits per filing/section/subsection group"] = 2,
 ) -> Any:
-    """Search indexed SEC filings by keywords using hybrid BM25 + vector retrieval."""
+    """Search indexed SEC filings using hybrid BM25 + vector retrieval.
+
+    Use this tool when you want explanations, drivers, risks, guidance, or filing-specific
+    evidence from SEC documents. It is strongest when the query mirrors SEC wording and
+    includes the company, time horizon, target topic, and filing context.
+
+    Query guidance:
+    - Include the ticker or company name plus the time window you care about, such as
+      "FY2025", "Q3 2025", "recent quarters", or "year over year".
+    - Prefer filing language over conversational wording. For example:
+      "gross margin", "inventory provisions", "operating expenses", "revenue mix",
+      "capital expenditures", "export controls", "liquidity", "guidance", "risk factors".
+    - For management discussion and causal explanations, use `section="mda"`.
+    - For table-like financial figures, use `section="financial_statements"` or a narrower
+      statement section when possible.
+    - For risk or business model context, use `section="risk_factors"` or `section="business"`.
+    - Avoid vague prompts like "what happened" or "why did it change" without the metric.
+      Better: "drivers of gross margin decline year over year" or
+      "inventory provisions impact on gross margin FY2025".
+
+    Retrieval behavior:
+    - `dedupe=True` suppresses near-duplicate chunks.
+    - `rerank=True` applies a deterministic post-ranker that prefers substantive,
+      explanatory chunks over boilerplate.
+    - `prefer_recent=None` lets the tool infer recent-quarter intent from the query and bias
+      toward 10-Q results when appropriate.
+    - `max_per_group` limits repeated hits from the same filing/section/subsection group.
+
+    Returned hits include `final_score`, `subsection_title`, `subsection_key`,
+    `chunk_type`, and `dedupe_group` for debugging and evaluation.
+    """
     return finance_tools.filings_search(
         ticker,
         keywords,
@@ -131,7 +161,14 @@ def make_filings_search_tool(deps: EquityResearchDeps) -> BaseTool:
         prefer_recent: Annotated[bool | None, "Bias recent-quarter intent to 10-Q"] = None,
         max_per_group: Annotated[int, "Max hits per filing/section/subsection group"] = 2,
     ) -> dict[str, Any]:
-        """Search indexed SEC filings by keywords using hybrid BM25 + vector retrieval."""
+        """Search indexed SEC filings using hybrid BM25 + vector retrieval.
+
+        Use the same query style as `filings_search` above: SEC terms, explicit ticker,
+        time window, and the most relevant filing section. For MD&A questions, keep the
+        query anchored to the metric or event you want explained; for recent-quarter
+        questions, include words like "recent", "latest", "quarter", or "trend" so the
+        search can bias toward 10-Q filings when appropriate.
+        """
         return filings_search_rag(
             deps,
             ticker,

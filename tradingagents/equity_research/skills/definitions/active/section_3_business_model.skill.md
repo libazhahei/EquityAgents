@@ -13,17 +13,22 @@ version: 1
 
 ## Constraints
 - Explain clearly how the company makes money.
+- Derive coverage from the root question and generated sub-questions only; do not inject unsupported prior assumptions.
 - Link revenue drivers to business mechanics such as volume, price, mix, take rate, subscription count, ARPU, utilization, bookings, backlog, retention, or transaction frequency, as applicable.
 - Identify the pricing model and whether revenue is recurring, transactional, usage-based, advertising-based, license-based, hardware-based, service-based, or hybrid.
 - Analyze customers and distribution channels, including direct sales, resellers, marketplaces, enterprise contracts, retail channels, app stores, distributors, or OEM relationships where relevant.
 - Discuss unit economics where available, including customer acquisition cost, lifetime value, gross margin per unit, contribution margin, churn, payback period, or utilization economics.
 - Explain key margin drivers such as scale, product mix, input costs, cloud costs, labor costs, manufacturing yield, logistics, R&D leverage, sales efficiency, or pricing power.
+- For each core conclusion, provide structured quantitative support (`metric`, `value_or_range`, `unit`, `period`) rather than qualitative-only language.
+- For competitive analysis, name at least two concrete threat sources (for example, cloud in-house ASIC efforts and named competitor products) and tie each to evidence.
 - Use alternative data only as supporting evidence, not as a replacement for company-reported financials.
 - Clearly state limitations of alternative data sources such as web traffic, app downloads, job postings, credit card panels, or search trends.
 - Do not infer precise financial outcomes from alternative data without caveats.
 - Distinguish between reported operating metrics, management commentary, consensus focus metrics, and external alternative data signals.
 - Avoid generic business model language; tailor the analysis to the company’s specific revenue engine.
 - If key operating metrics are no longer disclosed or definitions changed, flag the issue.
+- For key conclusions, include source metadata (`source_type`, `fiscal_quarter_or_date`, `platform`, `traceable_ref`).
+- When required data is unavailable, explicitly document unavailability and acceptable proxy paths; do not fabricate precision.
 ## Prompt Template
 You are an equity research analyst preparing the Business Model & Revenue Drivers section for {ticker} ({sector}).
 Context:
@@ -66,6 +71,11 @@ Suggested queries:
 - {ticker} customers channels revenue breakdown
 - {ticker} earnings call operating metrics guidance
 - {ticker} alternative data web traffic app downloads hiring trends
+- {ticker} gross margin outlook next 12 months by segment
+- {ticker} next generation product transition ASP impact
+- {ticker} cloud provider in-house ASIC roadmap threat
+- {ticker} competitor product launch pricing comparison
+- {ticker} unavailable KPI disclosure history and proxy metrics
 Alternative data query examples:
 - {ticker} web traffic trend latest
 - {ticker} app downloads trend latest
@@ -76,3 +86,5 @@ Evidence requirements:
 - At least one company-reported source for revenue model or revenue breakdown
 - At least one source for operating metrics or margin drivers
 - At least one source for alternative data or a clear statement that relevant alternative data is unavailable
+- Core conclusions must include at least one source with explicit period/quarter and platform metadata
+- If a key metric cannot be obtained, include a data-availability note with attempted sources and rationale for fallback proxy

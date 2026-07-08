@@ -47,6 +47,8 @@ def empty_equity_research_state() -> dict[str, Any]:
         "expectation_gaps": [],
         "research_plan": {},
         "section_plans": {},
+        "section_research_outputs": {},
+        "section_question_coverage": {},
         "planner_exploration_graph": {"nodes": {}, "branch_roots": {}},
         "active_objective": "",
         "completed_objectives": [],
@@ -158,6 +160,8 @@ class EquityResearchState(TypedDict, total=False):
     expectation_gaps: list[dict]
     research_plan: dict
     section_plans: dict[str, dict]
+    section_research_outputs: dict[str, dict]
+    section_question_coverage: dict[str, dict]
     planner_exploration_graph: dict
     active_objective: str
     completed_objectives: list[str]

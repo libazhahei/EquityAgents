@@ -108,6 +108,25 @@ def test_execute_vendor_chain_wraps_list_results_with_vendor_used():
     assert result["data"] == [{"ticker": "AAPL", "content": "transcript"}]
 
 
+def test_execute_vendor_chain_falls_back_on_subscription_error():
+    from tradingagents.dataflows.errors import VendorSubscriptionError
+
+    def primary():
+        raise VendorSubscriptionError("Restricted Endpoint")
+
+    def secondary():
+        return [{"ticker": "AAPL", "content": "perp transcript"}]
+
+    result = execute_vendor_chain(
+        "transcript_search",
+        ["fmp", "perplexity"],
+        {"fmp": primary, "perplexity": secondary},
+        wrap_metadata=True,
+    )
+    assert result["vendor_used"] == "perplexity"
+    assert result["fallback_attempted"] == ["fmp", "perplexity"]
+
+
 def test_build_vendor_chain_transcript_search_prefers_alpha_vantage():
     from tradingagents.dataflows.vendor_routing import build_vendor_chain
     from tradingagents.equity_research.tools.interface import EQUITY_VENDOR_METHODS

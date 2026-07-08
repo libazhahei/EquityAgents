@@ -43,16 +43,10 @@ def test_fetch_earnings_call_transcripts_uses_stable_endpoint():
 
 def test_fetch_earnings_call_transcripts_raises_subscription_error_on_restricted_plan():
     client = FMPClient({"equity_research": {"fmp_api_key": "test-key"}})
-    response = httpx.Response(
-        402,
-        json={"Error Message": "Restricted Endpoint"},
-        request=httpx.Request("GET", "https://example.com"),
-    )
 
     with patch.object(client, "_request", side_effect=FMPSubscriptionError("Restricted Endpoint")):
-        data = client.fetch_earnings_call_transcripts("AAPL", quarter="Q4 2024")
-
-    assert data == []
+        with pytest.raises(FMPSubscriptionError, match="Restricted Endpoint"):
+            client.fetch_earnings_call_transcripts("AAPL", quarter="Q4 2024")
 
 
 def test_request_raises_subscription_error_for_402():

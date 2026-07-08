@@ -6,6 +6,15 @@ from typing import Annotated, Any, TypedDict
 
 from langgraph.graph import add_messages
 
+from tradingagents.equity_research.runtime.reducers import (
+    calculation_store_reducer,
+    documents_reducer,
+    errors_reducer,
+    evidence_buffer_reducer,
+    fact_store_reducer,
+    pending_evidence_reducer,
+)
+
 
 class AgentState(TypedDict, total=False):
     ticker: str
@@ -14,7 +23,7 @@ class AgentState(TypedDict, total=False):
     instrument_context: str
     report_id: str
     research_objective: str
-    documents: list[dict]
+    documents: Annotated[list[dict], documents_reducer]
     api_calls: int
 
     task_profile: dict[str, Any]
@@ -31,9 +40,9 @@ class AgentState(TypedDict, total=False):
 
     query_queue: list[dict]
     executed_queries: list[str]
-    evidence_buffer: list[dict]
-    pending_evidence: list[dict]
-    search_memory: list[dict]
+    evidence_buffer: Annotated[list[dict], evidence_buffer_reducer]
+    pending_evidence: Annotated[list[dict], pending_evidence_reducer]
+    search_memory: Annotated[list[dict], lambda e, n: e + n]
 
     structured_view: dict
     assumptions: dict
@@ -52,7 +61,7 @@ class AgentState(TypedDict, total=False):
     _pending_human_followup: bool
 
     compliance_flags: list[dict]
-    errors: list[str]
+    errors: Annotated[list[str], errors_reducer]
     research_traces: list[dict]
     last_updated: str
 
@@ -71,8 +80,8 @@ class AgentState(TypedDict, total=False):
     active_step: dict[str, Any] | None
     plan_history: list[dict]
     answer_cards: dict[str, dict]
-    fact_store: list[dict]
-    calculation_store: list[dict]
+    fact_store: Annotated[list[dict], fact_store_reducer]
+    calculation_store: Annotated[list[dict], calculation_store_reducer]
     section_draft: str
     unresolved_gaps: list[dict]
     status: str
@@ -80,6 +89,10 @@ class AgentState(TypedDict, total=False):
     bfs_wave_index: int
     bfs_levels: list[list[str]]
     executor_context_snapshot: str
+
+    # Parameter registry (ParameterPreservingReducer)
+    parameter_registry: dict[str, Any]
+    parameter_grid: str
 
     # Shared ledger fields (blackboard)
     consensus_ledger: list[dict]
@@ -136,4 +149,7 @@ def empty_agent_state(
         "compliance_flags": list(parent.get("compliance_flags", [])),
         "errors": list(parent.get("errors", [])),
         "research_traces": list(parent.get("research_traces", [])),
+        # Parameter registry — initialised empty
+        "parameter_registry": {"parameters": {}, "dimensions": []},
+        "parameter_grid": "",
     }

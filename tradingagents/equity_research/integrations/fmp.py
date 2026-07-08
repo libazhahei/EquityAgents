@@ -149,30 +149,40 @@ class FMPClient:
         limit: int = 2,
     ) -> list[dict[str, Any]]:
         """Fetch recent earnings call transcripts for a ticker."""
+        subscription_blocked = False
+        subscription_detail = ""
         year, quarter_num = _parse_quarter_label(quarter)
         if year is None or quarter_num is None:
             try:
                 year, quarter_num = self._fetch_latest_stable_period(ticker)
-            except FMPSubscriptionError:
+            except FMPSubscriptionError as exc:
+                subscription_blocked = True
+                subscription_detail = str(exc)
                 year, quarter_num = None, None
 
         if year is None or quarter_num is None:
+            if subscription_blocked:
+                raise FMPSubscriptionError(subscription_detail or "FMP transcript endpoints restricted")
             return []
 
         try:
             stable = self._fetch_stable_transcript(ticker, year=year, quarter=quarter_num)
             if stable:
                 return stable[:limit]
-        except FMPSubscriptionError:
-            pass
+        except FMPSubscriptionError as exc:
+            subscription_blocked = True
+            subscription_detail = str(exc)
 
         try:
             legacy = self._fetch_legacy_transcript(ticker, year=year, quarter=quarter_num)
             if legacy:
                 return legacy[:limit]
-        except FMPSubscriptionError:
-            return []
+        except FMPSubscriptionError as exc:
+            subscription_blocked = True
+            subscription_detail = str(exc)
 
+        if subscription_blocked:
+            raise FMPSubscriptionError(subscription_detail or "FMP transcript endpoints restricted")
         return []
 
     def fetch_earnings_calendar(self, ticker: str) -> list[dict[str, Any]]:

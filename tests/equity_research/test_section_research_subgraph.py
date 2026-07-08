@@ -1,14 +1,21 @@
 """Tests for SectionResearchSubgraph topology and helpers."""
 
-from unittest.mock import MagicMock
+import json
+from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import AIMessage, ToolMessage
 
-from tradingagents.equity_research.runtime.nodes.section_executor import section_executor_router
+from tradingagents.equity_research.runtime.nodes.section_executor import (
+    create_section_executor_apply_node,
+    section_executor_router,
+)
+from tradingagents.equity_research.runtime.nodes.section_reflector import section_reflector_router
+from tradingagents.equity_research.runtime.nodes.synthesizer import create_synthesizer_node
 from tradingagents.equity_research.runtime.section_research_subgraph import SectionResearchSubgraph
 from tradingagents.equity_research.runtime.utils.context_compact import clear_compact_cache, compact_if_needed
 from tradingagents.equity_research.runtime.utils.llm_resolve import is_quick_research, resolve_research_llm
 from tradingagents.equity_research.tasks.section_research.memory_seed import seed_parent_memory_into_subgraph
+from tradingagents.equity_research.tasks.section_research.merge import collect_evidence_for_question
 from tradingagents.equity_research.tasks.section_research.planning import expand_outline_to_plan
 from tradingagents.equity_research.tasks.section_research.profile import (
     EXECUTOR_LANGCHAIN_TOOL_NAMES,
@@ -17,6 +24,7 @@ from tradingagents.equity_research.tasks.section_research.profile import (
 from tradingagents.equity_research.tasks.section_research.schemas import (
     PlannerTaskOutline,
     SectionResearchPlanOutlineLLMOutput,
+    SectionResearchViewUpdate,
 )
 
 
@@ -58,9 +66,10 @@ def test_expand_outline_to_plan():
     }
     plan = expand_outline_to_plan(outline, brief, section_id="section_3")
     assert len(plan.tasks) == 1
-    assert len(plan.tasks[0].steps) == 3
+    assert len(plan.tasks[0].steps) == 4
     assert plan.tasks[0].steps[0].action == "orient"
-    assert plan.tasks[0].steps[-1].action == "synthesize"
+    assert plan.tasks[0].steps[-2].action == "synthesize"
+    assert plan.tasks[0].steps[-1].action == "verify"
 
 
 def test_quick_research_resolves_deep_to_quick():
@@ -119,6 +128,205 @@ def test_section_executor_router_continue_after_tool():
         "_executor_max_calls": 6,
     }
     assert section_executor_router(state) == "continue"
+
+
+def _apply_state_base(**overrides):
+    base = {
+        "active_task": {"task_id": "t1", "question_id": "q1"},
+        "active_step": {"step_id": "s1", "action": "search"},
+        "research_plan": {
+            "tasks": [{
+                "task_id": "t1",
+                "question_id": "q1",
+                "status": "in_progress",
+                "steps": [{"step_id": "s1", "status": "in_progress", "action": "search"}],
+            }],
+        },
+        "messages": [],
+        "evidence_buffer": [],
+        "pending_evidence": [],
+        "errors": [],
+    }
+    base.update(overrides)
+    return base
+
+
+def _mock_apply_deps():
+    deps = MagicMock()
+    deps.config = {"equity_research": {}}
+    deps.trace.return_value = {}
+    return deps
+
+
+def test_apply_ingests_web_search_results():
+    deps = _mock_apply_deps()
+    apply = create_section_executor_apply_node(deps, SECTION_RESEARCH_TASK_PROFILE)
+    payload = {
+        "results": [
+            {"title": "NVDA revenue", "content": "Data center grew 90%", "url": "https://example.com"},
+        ],
+        "api_calls": 1,
+    }
+    state = _apply_state_base(
+        messages=[ToolMessage(content=json.dumps(payload), tool_call_id="tc1")],
+    )
+    result = apply(state)
+    assert len(result["pending_evidence"]) == 1
+    assert result["pending_evidence"][0]["question_id"] == "q1"
+    assert "Data center" in result["pending_evidence"][0]["snippet"]
+
+
+def test_apply_ingests_batch_perplexity_items():
+    deps = _mock_apply_deps()
+    apply = create_section_executor_apply_node(deps, SECTION_RESEARCH_TASK_PROFILE)
+    payload = {
+        "items": [{
+            "evidence": {
+                "snippet": "Perplexity hit",
+                "source": "web",
+                "evidence_id": "ev_p1",
+            },
+        }],
+        "api_calls": 1,
+    }
+    state = _apply_state_base(
+        messages=[ToolMessage(content=json.dumps(payload), tool_call_id="tc1")],
+    )
+    result = apply(state)
+    assert len(result["pending_evidence"]) == 1
+    assert result["pending_evidence"][0]["evidence_id"] == "ev_p1"
+
+
+def test_apply_ingests_store_evidence():
+    deps = _mock_apply_deps()
+    apply = create_section_executor_apply_node(deps, SECTION_RESEARCH_TASK_PROFILE)
+    payload = {
+        "evidence_fragments": [{
+            "fragment_id": "frag1",
+            "quote": "Stored fragment text",
+            "source": "10-K",
+        }],
+        "evidence_id": "frag1",
+    }
+    state = _apply_state_base(
+        messages=[ToolMessage(content=json.dumps(payload), tool_call_id="tc1")],
+    )
+    result = apply(state)
+    assert len(result["pending_evidence"]) == 1
+    assert "Stored fragment" in result["pending_evidence"][0]["snippet"]
+    assert len(result["evidence_fragments"]) == 1
+
+
+def test_executor_router_synthesize_short_circuits():
+    state = {
+        "research_plan": {
+            "tasks": [{
+                "task_id": "t1",
+                "question_id": "q1",
+                "steps": [{"step_id": "s3", "status": "in_progress", "action": "synthesize"}],
+                "status": "in_progress",
+            }],
+        },
+        "active_task": {"task_id": "t1", "question_id": "q1"},
+        "active_step": {"step_id": "s3", "action": "synthesize"},
+        "messages": [],
+    }
+    assert section_executor_router(state) == "apply"
+
+
+def test_collect_evidence_for_question_dedupes_sources():
+    state = {
+        "pending_evidence": [{"evidence_id": "e1", "snippet": "a", "question_id": "q1"}],
+        "evidence_buffer": [{"evidence_id": "e1", "snippet": "a", "question_id": "q1"}],
+        "evidence_ledger": [{"evidence_id": "e2", "quote": "b", "question_id": "q1"}],
+    }
+    collected = collect_evidence_for_question(state, "q1")
+    assert len(collected) == 2
+
+
+def test_reflector_router_blocks_exit_with_pending_verify():
+    state = {
+        "coverage_report": {"recommended_next_action": "exit", "routing_decision": "exit"},
+        "iterations": 1,
+        "max_iterations": 5,
+        "research_plan": {
+            "tasks": [{
+                "task_id": "t1",
+                "question_id": "q1",
+                "status": "in_progress",
+                "steps": [
+                    {"step_id": "s1", "status": "done", "action": "search"},
+                    {"step_id": "s2", "status": "pending", "action": "verify"},
+                ],
+            }],
+        },
+        "research_todo_list": {"items": []},
+    }
+    assert section_reflector_router(state) == "run_existing_queue"
+
+
+def test_reflector_router_blocks_exit_at_max_iter_with_pending_plan():
+    state = {
+        "coverage_report": {"recommended_next_action": "exit"},
+        "iterations": 5,
+        "max_iterations": 3,
+        "research_plan": {
+            "tasks": [{
+                "task_id": "t1",
+                "question_id": "q1",
+                "status": "in_progress",
+                "steps": [{"step_id": "s1", "status": "pending", "action": "search"}],
+            }],
+        },
+        "research_todo_list": {"items": []},
+    }
+    assert section_reflector_router(state) == "run_existing_queue"
+
+
+def test_reflector_router_allows_exit_when_plan_complete():
+    state = {
+        "coverage_report": {"recommended_next_action": "exit", "routing_decision": "exit"},
+        "iterations": 2,
+        "max_iterations": 5,
+        "research_plan": {
+            "tasks": [{
+                "task_id": "t1",
+                "question_id": "q1",
+                "status": "done",
+                "steps": [{"step_id": "s1", "status": "done", "action": "search"}],
+            }],
+        },
+        "research_todo_list": {"items": []},
+    }
+    assert section_reflector_router(state) == "exit"
+
+
+def test_synthesizer_force_run_on_synthesize_step():
+    deps = MagicMock()
+    deps.config = {"equity_research": {}}
+    deps.trace.return_value = {}
+    mock_update = SectionResearchViewUpdate(ticker="NVDA")
+    with patch(
+        "tradingagents.equity_research.runtime.nodes.synthesizer.invoke_structured_with_retry",
+        return_value=mock_update,
+    ) as mock_invoke:
+        synthesizer = create_synthesizer_node(deps, SECTION_RESEARCH_TASK_PROFILE)
+        state = {
+            "ticker": "NVDA",
+            "section_id": "3_business_model",
+            "structured_view": {
+                "ticker": "NVDA",
+                "section_id": "3_business_model",
+                "answer_cards": {},
+            },
+            "pending_evidence": [],
+            "evidence_buffer": [{"evidence_id": "e1", "snippet": "buffered", "question_id": "q1"}],
+            "active_task": {"question_id": "q1"},
+            "active_step": {"action": "synthesize"},
+            "_force_synthesize": True,
+        }
+        synthesizer(state)
+        mock_invoke.assert_called_once()
 
 
 def test_compact_if_needed_short_circuits():

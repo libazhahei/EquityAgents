@@ -106,6 +106,18 @@ def _default_steps_for_question(
             expected_output="Answer card with citations",
         ),
     )
+    verify_order = syn_order + 1
+    steps.append(
+        ResearchStep(
+            step_id=f"{qid}_s{verify_order}",
+            order=verify_order,
+            action="verify",
+            description="Verify metric availability and capture source metadata completeness",
+            tool_hints=["reference_parser", "citation_checker", "claim_evidence_checker"],
+            inputs_from=[steps[-1].step_id],
+            expected_output="Availability verdict + source metadata fields + unresolved gaps",
+        ),
+    )
     return steps
 
 
@@ -164,7 +176,28 @@ def _compact_steps_for_outline(
             expected_output="Answer card with citations",
         ),
     )
+    steps.append(
+        ResearchStep(
+            step_id=f"{qid}_s4",
+            order=4,
+            action="verify",
+            description=f"Verify data availability and source metadata completeness for {qid}",
+            tool_hints=["reference_parser", "citation_checker", "claim_evidence_checker"],
+            inputs_from=[f"{qid}_s3"],
+            expected_output="Availability note and source metadata completeness check",
+        ),
+    )
     return steps
+
+
+def _default_success_criteria() -> dict[str, Any]:
+    return {
+        "confidence_threshold": 0.7,
+        "min_primary_sources": 1,
+        "require_structured_quant": True,
+        "require_structured_sources": True,
+        "require_data_availability_check": True,
+    }
 
 
 def expand_outline_to_plan(
@@ -199,7 +232,7 @@ def expand_outline_to_plan(
                 ),
                 required_sources=list(q.get("suggested_sources") or q.get("required_evidence") or []),
                 expected_artifacts=[str(q.get("expected_output", ""))],
-                success_criteria={"confidence_threshold": 0.7, "min_primary_sources": 1},
+                success_criteria=_default_success_criteria(),
             ),
         )
     return SectionResearchPlan(
@@ -236,7 +269,7 @@ def expand_task_outlines(
                 ),
                 required_sources=list(q.get("suggested_sources") or q.get("required_evidence") or []),
                 expected_artifacts=[str(q.get("expected_output", ""))],
-                success_criteria={"confidence_threshold": 0.7, "min_primary_sources": 1},
+                success_criteria=_default_success_criteria(),
             ),
         )
     return tasks
@@ -278,7 +311,7 @@ def build_fallback_plan(
                 steps=_default_steps_for_question(q, priority=priority),
                 required_sources=list(q.get("suggested_sources") or q.get("required_evidence") or []),
                 expected_artifacts=[str(q.get("expected_output", ""))],
-                success_criteria={"confidence_threshold": 0.7, "min_primary_sources": 1},
+                success_criteria=_default_success_criteria(),
             ),
         )
         execution_order.append(task_id)

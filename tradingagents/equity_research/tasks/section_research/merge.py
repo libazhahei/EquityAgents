@@ -8,6 +8,7 @@ from typing import Any
 
 from tradingagents.equity_research.tasks.section_research.schemas import (
     AnswerCard,
+    DataAvailabilityNote,
     SectionResearchView,
     SectionResearchViewUpdate,
 )
@@ -34,6 +35,75 @@ def merge_section_view(
         if value and hasattr(view, key):
             setattr(view, key, value)
     return view
+
+
+def collect_evidence_for_question(state: dict[str, Any], question_id: str) -> list[dict]:
+    """Gather evidence for a question from pending, buffer, and ledger."""
+    qid = str(question_id)
+    seen: set[str] = set()
+    collected: list[dict] = []
+
+    def _add(ev: dict) -> None:
+        if not isinstance(ev, dict):
+            return
+        ev_qid = str(ev.get("question_id") or ev.get("target_dimension") or "")
+        if ev_qid and ev_qid not in (qid, "general"):
+            return
+        eid = str(ev.get("evidence_id") or ev.get("fragment_id") or "")
+        key = eid or str(ev.get("snippet") or ev.get("content") or "")[:80]
+        if key in seen:
+            return
+        seen.add(key)
+        item = dict(ev)
+        item["question_id"] = qid
+        collected.append(item)
+
+    for ev in state.get("pending_evidence") or []:
+        _add(ev)
+    for ev in state.get("evidence_buffer") or []:
+        _add(ev)
+    for entry in state.get("evidence_ledger") or []:
+        if isinstance(entry, dict):
+            _add(entry)
+    for frag in state.get("evidence_fragments") or []:
+        if isinstance(frag, dict):
+            _add(frag)
+
+    return collected
+
+
+def enforce_structured_answer_requirements(view: SectionResearchView) -> list[str]:
+    gaps: list[str] = []
+    for qid, card in view.answer_cards.items():
+        has_quant = bool(card.quantified_claims)
+        has_sources = bool(card.source_attributions)
+        has_unavailable = any(n.status == "unavailable" for n in card.data_availability_notes)
+
+        if not has_quant and not has_unavailable:
+            card.open_gaps.append("Missing structured quantitative evidence")
+            gaps.append(f"{qid}:missing_structured_quant")
+        if not has_sources:
+            card.open_gaps.append("Missing structured source metadata")
+            gaps.append(f"{qid}:missing_structured_source")
+
+        # Keep open_gaps deduplicated and stable.
+        card.open_gaps = list(dict.fromkeys(card.open_gaps))
+
+        # If no availability note exists, add a default pending note for traceability.
+        if not card.data_availability_notes:
+            card.data_availability_notes.append(
+                DataAvailabilityNote(
+                    metric="core_conclusion",
+                    status="available" if has_quant else "unavailable",
+                    rationale=(
+                        "No structured quantitative claim found."
+                        if not has_quant
+                        else "Structured quantitative claim captured."
+                    ),
+                )
+            )
+    view.unresolved_gaps = list(dict.fromkeys([*view.unresolved_gaps, *gaps]))
+    return gaps
 
 
 def apply_evidence_heuristic(view: SectionResearchView, pending: list[dict]) -> None:

@@ -115,6 +115,34 @@ def _print_summary(result: dict) -> None:
     print(f"Coverage score: {coverage.get('overall_score', 'n/a')}")
     print(f"Next action: {coverage.get('recommended_next_action', 'n/a')}")
 
+    # --- ParameterPreservingReducer summary ---
+    registry = (
+        output.get("parameter_registry")
+        or result.get("parameter_registry")
+        or {}
+    )
+    params = registry.get("parameters") or {}
+    if params:
+        conflicts = sum(1 for p in params.values() if p.get("is_conflict"))
+        dims = registry.get("dimensions") or []
+        print(f"Parameters: {len(params)} extracted, {conflicts} conflicts, {len(dims)} dimensions")
+        # Show top 10 parameters by confidence (descending)
+        sorted_params = sorted(
+            params.items(),
+            key=lambda kv: -(kv[1].get("current", {}).get("confidence", 0)),
+        )
+        for key, param in sorted_params[:10]:
+            cur = param.get("current") or {}
+            val = cur.get("value", "?")
+            unit = cur.get("unit", "")
+            as_of = cur.get("as_of", "?")
+            conflict_mark = " ⚠️" if param.get("is_conflict") else ""
+            print(f"  • {key}: {val}{unit} (as of: {as_of}){conflict_mark}")
+        if len(params) > 10:
+            print(f"  … and {len(params) - 10} more parameters")
+    else:
+        print("Parameters: none extracted (no evidence or skill context)")
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
@@ -149,6 +177,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Run consensus + assumption subgraphs live (optional; prefer --background-json)",
     )
     parser.add_argument("--max-iterations", type=int, default=3, help="Max PER iterations")
+    parser.add_argument(
+        "--max-sub-questions", type=int, default=None,
+        help="Limit research to at most N sub-questions (truncates section plan nodes)",
+    )
     parser.add_argument("--output", "-o", help="Write JSON result to file")
     parser.add_argument("--json", action="store_true", help="Print full JSON to stdout")
     parser.add_argument(
@@ -160,6 +192,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = DEFAULT_CONFIG.copy()
+    # config.update({"quick_research": "false"})
     deps = _build_deps(config)
 
     state = empty_equity_research_state()
@@ -218,6 +251,23 @@ def main(argv: list[str] | None = None) -> int:
         }
         state.setdefault("section_plans", {})[args.section_id] = section_plan
 
+    # Truncate sub-questions if --max-sub-questions is set
+    if args.max_sub_questions is not None:
+        all_nodes = section_plan.get("nodes") or []
+        total_q = len(all_nodes)
+        if total_q > args.max_sub_questions:
+            section_plan["nodes"] = all_nodes[: args.max_sub_questions]
+            state.setdefault("section_plans", {})[args.section_id] = section_plan
+            logger.info(
+                "Truncated sub-questions: %d → %d (out of %d total)",
+                total_q, args.max_sub_questions, total_q,
+            )
+        else:
+            logger.info(
+                "Sub-questions: %d (≤ %d limit, no truncation)",
+                total_q, args.max_sub_questions,
+            )
+
     if args.mode == "subgraph":
         compiled = SectionResearchSubgraph(deps, SECTION_RESEARCH_TASK_PROFILE).compile()
         subgraph_input = seed_section_research_state(
@@ -231,20 +281,28 @@ def main(argv: list[str] | None = None) -> int:
         mapped = _map_section_research_result(
             deps, state, raw, SECTION_RESEARCH_TASK_PROFILE, section_id=args.section_id,
         )
+        section_out = (mapped.get("section_research_outputs") or {}).get(args.section_id) or {}
         result = {
             "ticker": state["ticker"],
             "section_id": args.section_id,
             **mapped,
-            "section_research_output": (mapped.get("section_research_outputs") or {}).get(args.section_id),
+            "section_research_output": section_out,
+            # Surface ParameterPreservingReducer data at top level for easy access
+            "parameter_registry": section_out.get("parameter_registry") or mapped.get("parameter_registry") or {},
+            "parameter_grid": section_out.get("parameter_grid") or mapped.get("parameter_grid") or "",
         }
     else:
         run = create_run_section_research_subgraph(deps)
         mapped = run(state)
+        section_out = (mapped.get("section_research_outputs") or {}).get(args.section_id) or {}
         result = {
             "ticker": state["ticker"],
             "section_id": args.section_id,
             **mapped,
-            "section_research_output": (mapped.get("section_research_outputs") or {}).get(args.section_id),
+            "section_research_output": section_out,
+            # Surface ParameterPreservingReducer data at top level for easy access
+            "parameter_registry": section_out.get("parameter_registry") or mapped.get("parameter_registry") or {},
+            "parameter_grid": section_out.get("parameter_grid") or mapped.get("parameter_grid") or "",
         }
 
     if args.json:

@@ -10,6 +10,7 @@ from tradingagents.dataflows.errors import (
     NoMarketDataError,
     VendorNotConfiguredError,
     VendorRateLimitError,
+    VendorSubscriptionError,
 )
 
 logger = logging.getLogger("tradingagents.dataflows.interface")
@@ -159,6 +160,16 @@ def execute_vendor_chain(
             return result
         except VendorRateLimitError:
             logger.warning("Vendor %r rate-limited for %s; trying next vendor.", vendor, method)
+            continue
+        except VendorSubscriptionError as exc:
+            logger.warning(
+                "Vendor %r subscription restricted for %s (%s); trying next vendor.",
+                vendor,
+                method,
+                exc,
+            )
+            if first_error is None:
+                first_error = exc
             continue
         except VendorNotConfiguredError as exc:
             logger.warning("Vendor %r not configured for %s; trying next vendor.", vendor, method)
