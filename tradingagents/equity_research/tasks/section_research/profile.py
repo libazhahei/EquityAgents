@@ -35,7 +35,6 @@ EXECUTOR_LANGCHAIN_TOOL_NAMES: tuple[str, ...] = (
     "update_research_todo_status",
     "get_next_research_todo",
     "web_search",
-    "batch_light_grounding_search",
     "news_search",
     "filings_search",
     "filing_reader",

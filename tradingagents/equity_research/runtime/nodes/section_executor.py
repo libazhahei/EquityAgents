@@ -19,6 +19,7 @@ from tradingagents.equity_research.state.consensus_schemas import SearchRecord
 from tradingagents.equity_research.tasks.section_research.schemas import SectionResearchPlan
 from tradingagents.equity_research.tasks.section_research.todo_sync import pick_active_task_and_step
 from tradingagents.equity_research.tools.tool_sets import (
+    ACTION_TO_GROUP,
     build_executor_tool_set_nodes,
     build_tools_for_group,
     route_tool_group_from_state,
@@ -142,7 +143,7 @@ def _evidence_from_text_fields(data: dict[str, Any], qid: str) -> list[dict]:
                     text,
                     source=str(chunk.get("source") or data.get("section") or "filing"),
                 ))
-        elif isinstance(chunk, str) and chunk.strip():
+        elif isinstance(chunk, str) and text.strip():
             evidence.append(_make_evidence(qid, chunk, source="filing"))
     return evidence
 
@@ -369,6 +370,7 @@ def section_executor_router(state: dict[str, Any]) -> str:
     if isinstance(last, AIMessage) and last.tool_calls:
         if step_calls >= max_calls:
             return "apply"
+        # Re-route based on actual tool calls (allows group switching)
         group = route_tool_group_from_state(state)
         return tool_group_node_name(group)
 
@@ -470,20 +472,41 @@ def create_section_executor_dispatch_node(
         step_calls = int(state.get("_executor_step_calls", 0))
 
         working_state = {**state, "active_task": active_task, "active_step": active_step}
-        tool_group = route_tool_group_from_state(working_state)
+        
+        # PRIMARY: use step action for group selection
+        step_action = (active_step.get("action") or "").lower()
+        tool_group = ACTION_TO_GROUP.get(step_action, None)
+        if tool_group is None:
+            # FALLBACK: use state-based routing (tool calls, hints)
+            tool_group = route_tool_group_from_state(working_state)
+        
         tools = build_tools_for_group(deps, task_profile, tool_group)
         llm = resolve_research_llm(deps, "deep").bind_tools(tools)
-
         if not messages or isinstance(messages[-1], ToolMessage):
             system = build_prompt(state) if build_prompt else ""
+            
+            # Build group hint with action-specific guidance
             group_hint = (
-                f"\nActive tool group: {tool_group}. "
-                f"Only use tools from this group ({', '.join(t.name for t in tools[:8])})."
+                f"\nActive step action: {step_action}. "
+                f"Tool group: {tool_group}. "
+                f"Available tools: {', '.join(t.name for t in tools)}."
             )
+            # Add action-specific guidance
+            if step_action == "orient":
+                group_hint += "\nGuidance: Start with memory_retrieve to check prior research, then list_research_todos."
+            elif step_action == "fetch_primary":
+                group_hint += "\nGuidance: Prefer filings_search with SEC-style queries. Use financial_statement_fetch for structured data."
+            elif step_action == "search":
+                group_hint += "\nGuidance: Use web_search for news, transcript_search for earnings calls."
+            elif step_action == "verify":
+                group_hint += "\nGuidance: Use citation_checker and claim_evidence_checker to validate evidence chain."
+            
+            human_msg = f"Execute step: {active_step.get('description', '')}, expected output: {active_step.get('expected_output', '')}\n"
+            human_msg += f"Current active task: {active_task.get('objective', '')} for question id {active_task.get('question_id', '')} and task ID: {active_task.get('task_id', '')}\n"
             if not messages:
                 invoke_messages = [
                     SystemMessage(content=(system + group_hint) if system else group_hint.strip()),
-                    HumanMessage(content=f"Execute step: {active_step.get('description', '')}"),
+                    HumanMessage(content=human_msg),
                 ]
             else:
                 invoke_messages = messages
@@ -556,7 +579,7 @@ def create_section_executor_apply_node(deps: EquityResearchDeps, task_profile: T
                 fact_store.append({
                     "question_id": ev.get("question_id"),
                     "evidence_id": eid,
-                    "text": snippet[:500],
+                    "text": snippet,
                     "source": ev.get("source", ""),
                 })
             record = ev.get("record")

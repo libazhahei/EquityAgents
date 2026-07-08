@@ -59,6 +59,7 @@ def compact_if_needed(
     text: str,
     *,
     purpose: str,
+    compact_prompt_block: str | None = None,
     max_chars: int | None = None,
 ) -> str:
     config = getattr(deps, "config", None)
@@ -84,7 +85,9 @@ def compact_if_needed(
         "- Keep ALL citation URLs verbatim\n"
         "- Keep numeric estimates and dimension labels\n"
         "- Use bullet lists, not JSON\n"
+        "- If given a table, only compress the text content. Please preserve the table structure\n"
         f"- Target length: under {limit} characters\n"
+        f"{compact_prompt_block or 'Use your best judgment to summarize and compress the content.'}\n"
         f"------\n\n"
         f"{text}"
     )
@@ -98,9 +101,10 @@ def compact_prompt_block(
     text: str,
     *,
     purpose: str,
+    summarize_prompt: str | None = None,
     max_chars: int | None = None,
 ) -> str:
     """Thin wrapper for prompt injection blocks."""
     if not text:
         return text
-    return compact_if_needed(deps, text, purpose=purpose, max_chars=max_chars)
+    return compact_if_needed(deps, text, purpose=purpose, max_chars=max_chars, compact_prompt_block=summarize_prompt)

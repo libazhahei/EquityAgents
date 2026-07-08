@@ -302,6 +302,67 @@ flowchart TD
 
 ---
 
+
+---
+
+## 9.5 区块研究执行器工具分组（Section Executor Tool Groups）
+
+区块研究执行器将工具分为三个语义组，按步骤 action 路由到对应组的工具：
+
+### 9.5.1 三组定义
+
+| 组名 | 作用 | 对应 step action | 典型工具 |
+|------|------|------------------|----------|
+| **retrieval** | 读取 / 获取 / 搜索 | orient、fetch_primary、search | filings_search, web_search, transcript_search, financial_statement_fetch, filing_reader, memory_retrieve, search_evidence, search_claims, search_assumptions, search_consensus, search_conflicts, search_memory_timeline, search_research_context, table_extractor, document_chunker, reference_parser |
+| **computation** | 分析 / 验证 / 计算 | calculate、compare、verify | calculator, time_series_analyzer, conflict_detector, citation_checker, claim_evidence_checker |
+| **action** | 写入 / 持久化 / 管理 | synthesize | list_research_todos, add_research_todo, remove_research_todo, update_research_todo_status, get_next_research_todo, memory_write, store_evidence |
+
+### 9.5.2 Action → Group 映射
+
+```python
+ACTION_TO_GROUP = {
+    "orient": "retrieval",       # orient starts with memory_retrieve
+    "fetch_primary": "retrieval",
+    "search": "retrieval",
+    "calculate": "computation",
+    "compare": "computation",
+    "verify": "computation",
+    "synthesize": "action",
+}
+```
+
+### 9.5.3 路由优先级
+
+`infer_tool_group()` 的决策顺序：
+
+1. **Tool names** — last AIMessage 的工具调用 → 直接查组
+2. **Step action** → ACTION_TO_GROUP 字典查找
+3. **Tool hints** — active_step.tool_hints 多数投票
+4. **Description keywords** — 最后手段：action > computation > retrieval（默认 retrieval）
+
+### 9.5.4 排除的工具
+
+以下工具**不在**任何 EXECUTOR_TOOL_SETS 组中（属于规划器或通用执行器）：
+
+| 工具 | 归属 | 说明 |
+|------|------|------|
+| `batch_perplexity_search` | 通用执行器 | assumption/consensus 子图使用 |
+| `batch_light_grounding_search` | 规划器 | 仅用于 section planner grounding |
+
+### 9.5.5 Action 特异性指导
+
+执行器 dispatch 节点根据 step action 添加提示：
+
+- **orient** — Start with memory_retrieve to check prior research, then list_research_todos.
+- **fetch_primary** — Prefer filings_search with SEC-style queries. Use financial_statement_fetch for structured data.
+- **search** — Use web_search for news, transcript_search for earnings calls.
+- **verify** — Use citation_checker and claim_evidence_checker to validate evidence chain.
+
+### 9.5.6 允许名单过滤
+
+`resolve_executor_tool_names()` 通过 `TaskProfile.extra_config["executor_langchain_tool_names"]` 过滤各组工具。允许名单见 [`profile.py`](../../tradingagents/equity_research/tasks/section_research/profile.py)。
+
+
 ## 10. 扩展指南
 
 ### 新增 Skill

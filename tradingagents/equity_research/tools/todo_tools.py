@@ -34,17 +34,19 @@ def list_research_todos(
 ) -> dict[str, Any]:
     todo = _get_todo_list(state)
     items = list(todo.items)
+    
     if status:
         items = [i for i in items if i.status == status]
     if question_id:
         items = [i for i in items if i.question_id == question_id]
     items.sort(key=lambda i: i.priority, reverse=True)
+    total = len(items)
     if limit is not None:
         items = items[:limit]
     return {
         "items": [i.model_dump() for i in items],
-        "total": len(items),
-        "research_todo_list": todo.model_dump(),
+        "total": total,
+        "remaining": total - len(items),
     }
 
 
@@ -79,7 +81,6 @@ def add_research_todo(
     todo.version += 1
     return {
         "added_item": item.model_dump(),
-        "research_todo_list": todo.model_dump(),
     }
 
 
@@ -105,7 +106,6 @@ def remove_research_todo(
     todo.version += 1
     return {
         "removed_item": removed,
-        "research_todo_list": todo.model_dump(),
     }
 
 
@@ -126,14 +126,16 @@ def update_research_todo_status(
     todo.version += 1
     return {
         "updated_item": updated,
-        "research_todo_list": todo.model_dump(),
     }
 
 
-def get_next_research_todo(state: dict[str, Any]) -> dict[str, Any]:
-    result = list_research_todos(state, status="pending")
+def get_next_research_todo(state: dict[str, Any], question_id: str | None = None) -> dict[str, Any]:
+    result = list_research_todos(state, status="pending", question_id=question_id, limit=1)
     items = result.get("items") or []
+    if len(items) == 0: 
+        return {
+            "next_item": "No pending research todo items found." if not question_id else f"No pending research todo items found for question_id={question_id}.",
+        } 
     return {
         "next_item": items[0] if items else None,
-        "research_todo_list": result.get("research_todo_list"),
     }

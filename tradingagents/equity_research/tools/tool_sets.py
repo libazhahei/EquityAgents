@@ -11,10 +11,7 @@ from tradingagents.equity_research.runtime.task_profile import TaskProfile
 from tradingagents.equity_research.tools.lc import STATIC_LANGCHAIN_TOOLS
 from tradingagents.equity_research.tools.lc.memory import make_memory_search_tools
 from tradingagents.equity_research.tools.lc.finance import make_filings_search_tool
-from tradingagents.equity_research.tools.lc.search import (
-    make_batch_perplexity_search_tool,
-    make_web_search_tool,
-)
+from tradingagents.equity_research.tools.lc.search import make_web_search_tool
 
 ToolGroupId = Literal["retrieval", "computation", "action"]
 
@@ -23,16 +20,15 @@ TOOL_GROUP_IDS: tuple[ToolGroupId, ...] = ("retrieval", "computation", "action")
 # Tools allowed per executor group (subset of section-research executor catalog).
 EXECUTOR_TOOL_SETS: dict[ToolGroupId, tuple[str, ...]] = {
     "retrieval": (
-        "web_search",
-        "batch_light_grounding_search",
-        "news_search",
+        # Primary data
         "filings_search",
         "filing_reader",
-        "transcript_search",
         "financial_statement_fetch",
-        "table_extractor",
-        "document_chunker",
-        "reference_parser",
+        "transcript_search",
+        # Web
+        "web_search",
+        "news_search",
+        # Memory read
         "memory_retrieve",
         "search_evidence",
         "search_claims",
@@ -41,6 +37,10 @@ EXECUTOR_TOOL_SETS: dict[ToolGroupId, tuple[str, ...]] = {
         "search_conflicts",
         "search_memory_timeline",
         "search_research_context",
+        # Document
+        "table_extractor",
+        "document_chunker",
+        "reference_parser",
     ),
     "computation": (
         "calculator",
@@ -50,11 +50,13 @@ EXECUTOR_TOOL_SETS: dict[ToolGroupId, tuple[str, ...]] = {
         "claim_evidence_checker",
     ),
     "action": (
+        # Todo management
         "list_research_todos",
         "add_research_todo",
         "remove_research_todo",
         "update_research_todo_status",
         "get_next_research_todo",
+        # Memory write
         "memory_write",
         "store_evidence",
     ),
@@ -65,11 +67,11 @@ for group_id, names in EXECUTOR_TOOL_SETS.items():
     for name in names:
         _TOOL_TO_GROUP[name] = group_id
 
-_STEP_ACTION_DEFAULT_GROUP: dict[str, ToolGroupId] = {
-    "orient": "action",
-    "search": "retrieval",
+# Deterministic action → group mapping (replaces _STEP_ACTION_DEFAULT_GROUP)
+ACTION_TO_GROUP: dict[str, ToolGroupId] = {
+    "orient": "retrieval",       # orient starts with memory_retrieve
     "fetch_primary": "retrieval",
-    "extract": "retrieval",
+    "search": "retrieval",
     "calculate": "computation",
     "compare": "computation",
     "verify": "computation",
@@ -105,29 +107,37 @@ def infer_tool_group(
     description: str = "",
     tool_names: list[str] | None = None,
 ) -> ToolGroupId:
+    """Infer tool group with priority: tool_names > step_action > tool_hints > keywords."""
+    
+    # 1. Tool names from last AIMessage tool_calls → direct group lookup
     if tool_names:
         for name in tool_names:
             group = group_for_tool_name(name)
             if group:
                 return group
 
+    # 2. Step action → ACTION_TO_GROUP dict lookup
+    action = (step_action or "").strip().lower()
+    if action in ACTION_TO_GROUP:
+        return ACTION_TO_GROUP[action]
+
+    # 3. Tool hints from active step → majority vote
     if tool_hints:
         groups = {group_for_tool_name(h) for h in tool_hints if group_for_tool_name(h)}
         groups.discard(None)  # type: ignore[arg-type]
         if len(groups) == 1:
             return next(iter(groups))  # type: ignore[arg-type]
 
-    action = (step_action or "").strip().lower()
-    if action in _STEP_ACTION_DEFAULT_GROUP:
-        return _STEP_ACTION_DEFAULT_GROUP[action]
-
+    # 4. Description keyword matching (last resort, with fixed priority: action > computation > retrieval)
     text = f"{description} {' '.join(tool_hints or [])}".lower()
-    if any(k in text for k in _COMPUTATION_KEYWORDS):
-        return "computation"
     if any(k in text for k in _ACTION_KEYWORDS):
         return "action"
+    if any(k in text for k in _COMPUTATION_KEYWORDS):
+        return "computation"
     if any(k in text for k in _RETRIEVAL_KEYWORDS):
         return "retrieval"
+    
+    # Default to retrieval
     return "retrieval"
 
 
@@ -155,8 +165,9 @@ def resolve_executor_tool_names(
     task_profile: TaskProfile,
     group_id: ToolGroupId,
 ) -> list[str]:
+    """Resolve tool names for a group, filtered by allowlist if present."""
     allowed = set(task_profile.extra_config.get("executor_langchain_tool_names", []))
-    group_names = [n for n in EXECUTOR_TOOL_SETS[group_id] if n in allowed or not allowed]
+    group_names = list(EXECUTOR_TOOL_SETS[group_id])
     if allowed:
         group_names = [n for n in group_names if n in allowed]
     return group_names
@@ -167,19 +178,24 @@ def build_tools_for_group(
     task_profile: TaskProfile,
     group_id: ToolGroupId,
 ) -> list[BaseTool]:
+    """Build tools for a specific group, with dynamic deps-aware construction."""
     tools: list[BaseTool] = []
     names = resolve_executor_tool_names(task_profile, group_id)
+    
     if group_id == "retrieval":
+        # Build dynamic tools that need deps
         dynamic = {t.name: t for t in make_memory_search_tools(deps)}
         dynamic["web_search"] = make_web_search_tool(deps)
         dynamic["filings_search"] = make_filings_search_tool(deps)
+        
         for name in names:
             if name in dynamic:
                 tools.append(dynamic[name])
             elif name in STATIC_LANGCHAIN_TOOLS:
                 tools.append(STATIC_LANGCHAIN_TOOLS[name])
-        tools.append(make_batch_perplexity_search_tool(deps))
         return tools
+    
+    # For computation and action groups, use static tools
     for name in names:
         if name in STATIC_LANGCHAIN_TOOLS:
             tools.append(STATIC_LANGCHAIN_TOOLS[name])

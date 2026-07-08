@@ -14,6 +14,26 @@ from tradingagents.equity_research.tasks.section_research.schemas import (
     ResearchBrief,
     SectionResearchView,
 )
+def get_assumption_context(brief: ResearchBrief) -> str:
+    if not brief.assumptions:
+        return "{}"
+    assumptions_map = "|Consensus Anchor| Assumption Statement | Falsification Tests | Model Drivers | Next to Watch | Priority |\n"\
+        "|---|---|---|---|---|---|\n"\
+        + '\n'.join(
+            f"|{a.consensus_anchor or 'N/A'}|{a.assumption_statement}|"
+            f"{', '.join(a.falsification_tests) if a.falsification_tests else ''}|"
+            f"{', '.join(a.model_drivers) if a.model_drivers else ''}|"
+            f"{', '.join(a.next_to_watch) if a.next_to_watch else ''}|"
+            f"{a.priority or ''}|"
+            for a in brief.assumptions.assumption_map
+        )
+    conflicts = "|Claim A| Claim B | Interpretation | Status | Next Check |\n"\
+        "|---|---|---|---|---|\n"\
+        + '\n'.join(
+            f"|{c.claim_a or 'N/A'}|{c.claim_b or 'N/A'}|{c.interpretation or 'N/A'}|{c.status or 'N/A'}|{c.next_check or 'N/A'}|"
+            for c in brief.assumptions.conflicts
+        )
+    return assumptions_map + "\n\n" + conflicts
 
 
 def _format_consensus_context(deps: EquityResearchDeps, brief: ResearchBrief) -> str:
@@ -27,37 +47,53 @@ def _format_consensus_context(deps: EquityResearchDeps, brief: ResearchBrief) ->
 
 
 def _format_assumption_context(deps: EquityResearchDeps, brief: ResearchBrief) -> str:
-    if brief.assumption_report:
-        raw = str(brief.assumption_report)
-    elif brief.assumption_view:
-        raw = json.dumps(brief.assumption_view, default=str)
-    else:
+    if not brief.assumptions:
         return "{}"
-    return compact_prompt_block(deps, raw, purpose="assumption context for section planner")
+    return compact_prompt_block(deps, get_assumption_context(brief), purpose="assumption context for section planner")
+
+def _format_questions_context(brief: ResearchBrief) -> str:
+    if not brief.questions:
+        return "[]"
+    return "|Question ID| Parent Question ID |Question Text| Expected output| Suggested Sources| Priority| Required Evidence|\n"\
+        "|---|---|---|---|---|---|---|\n"\
+        '\n'.join(
+            f"|{q.question_id}|{q.parent_question_id or 'N/A'}|{q.question_text}|{q.expected_output or ''}|"
+            f"{', '.join(q.suggested_sources) if q.suggested_sources else ''}|{q.priority or ''}|"
+            f"{', '.join(q.required_evidence) if q.required_evidence else ''}|"
+            for q in brief.questions
+        )
+
+def _build_active_skills_block(deps: EquityResearchDeps, skills: dict[str, Any]) -> str:
+    if not skills:
+        return "{}"
+    prompt_template_block = ""
+    for skill_id, skill_info in skills.items():
+        prompt_template = skill_info.get("prompt_template", "")
+        query_guidance = skill_info.get("query_guidance", "")
+        constraints = skill_info.get("constraints", "")
+        skill_block = f"Skill ID: {skill_id}\nPrompt Template: {prompt_template}\nQuery Guidance: {query_guidance}\nConstraints: {constraints}\n"
+        prompt_template_block += skill_block + "\n"
+    return prompt_template_block.strip()
+    
+    
 
 
 def build_initial_plan_prompt(deps: EquityResearchDeps, state: dict[str, Any]) -> str:
     brief = ResearchBrief.model_validate(state.get("research_brief") or {})
     skills = state.get("active_skill_context") or {}
     bfs_levels_data = state.get("bfs_levels") or []
-    questions_block = compact_prompt_block(
-        deps,
-        json.dumps(brief.questions[:12], indent=2),
-        purpose="section planner questions",
-    )
-    skills_block = compact_prompt_block(
-        deps,
-        json.dumps(skills),
-        purpose="active skills for section planner",
-    )
-    return f"""You are a senior equity research planner. Build a concise research plan for one report section.
-
+    questions_block = _format_questions_context(brief)
+    skills_block = _build_active_skills_block(deps, skills)
+    return f"""
+You are a senior equity research planner. Build a concise research plan for one report section.
+    
 Ticker: {state.get("ticker", "")}
 Section: {brief.section_id} — {brief.section_title}
 Root question: {brief.root_question}
 Planning thesis: {brief.planning_thesis}
 Required coverage outputs: {json.dumps(brief.coverage_outputs[:15])}
 Data quality flags: {json.dumps(brief.data_quality_flags[:10])}
+
 
 Questions (from section planner):
 {questions_block}
@@ -70,7 +106,7 @@ Consensus view (structured):
 Assumption context:
 {_format_assumption_context(deps, brief)}
 
-Active skills: {skills_block}
+{skills_block}
 
 For each priority question in the current BFS wave, output a task with:
 - task_id, question_id
@@ -373,11 +409,11 @@ def build_skill_prompt(state: dict[str, Any], catalog_table: str, ticker: str) -
     )
 
 
-def build_executor_system_prompt(state: dict[str, Any]) -> str:
-    task = state.get("active_task") or {}
-    step = state.get("active_step") or {}
+def build_executor_system_prompt(state: dict[str, Any], action: str) -> str:
+    # task = state.get("active_task") or {}
+    # step = state.get("active_step") or {}
     synthesize_note = ""
-    if (step.get("action") or "").lower() == "synthesize":
+    if "synthesize" in action.lower():
         synthesize_note = (
             "\nNOTE: action=synthesize is handled by the downstream synthesizer node. "
             "Do not call tools for synthesize steps.\n"
@@ -391,10 +427,37 @@ Rules:
 4. Use add_research_todo for newly discovered work; remove_research_todo for obsolete items.
 5. Prefer primary sources (filings) over secondary when step action is fetch_primary or extract.
 6. Do NOT call tools when active step action is synthesize — that step is handled downstream.
+7. Always persist evidence and conclusions to memory before marking a todo item done.
+
+── Tool Usage Guide ──
+
+Todo Management: Only use these tools for todo management
+Memory & Evidence: Only use these tools for storing evidence, conclusions, claims, assumptions, reflections, or actions. DO NOT LEAVE Plan or step in memory without persisting it first.
+
+── Memory Search Tools ──
+- search_evidence: Find previously stored evidence by semantic query or metric filter.
+- search_claims: Review existing conclusions, check confidence levels.
+- search_assumptions: Review modeling assumptions, especially high-sensitivity ones.
+- search_consensus: Compare findings against market consensus.
+- search_conflicts: Surface unresolved contradictions in the evidence base.
+- search_research_context: Get holistic context across all ledgers.
+- memory_retrieve: Recall everything stored for a specific question or section.
+
+Use these BEFORE re-fetching from external sources to avoid duplicate work.
+
+── Typical Execution Flow ──
+
+1. list_research_todos(status="pending") → see what needs doing if current step and task is done.
+2. get_next_research_todo() → pick the highest-priority item.
+3. update_research_todo_status(item_id, "in_progress") → mark it as started.
+4. Execute the step using search/fetch tools. You can use search tools to find filings, transcripts to retrieve primary sources.
+5. store_evidence(fragment) → persist every piece of data found.
+6. If drawing a conclusion: memory_write({{"type": "claim", ...}}) → record the conclusion.
+7. If new work discovered: add_research_todo(...) → add follow-up items.
+8. If item obsolete: remove_research_todo(item_id) or update_research_todo_status(item_id, "cancelled").
+9. update_research_todo_status(item_id, "done") → mark complete.
+10. Repeat from step 1 until no pending items remain.
 {synthesize_note}
-Active task: {json.dumps(task)}
-Active step: {json.dumps(step)}
 Ticker: {state.get("ticker", "")}
 Section: {state.get("section_id", "")}
-Tool hints: {step.get("tool_hints", [])}
 """

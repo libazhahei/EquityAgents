@@ -212,7 +212,7 @@ def expand_outline_to_plan(
     execution_order = list(outline.execution_order) or [t.task_id for t in outline.tasks]
     order_set = set(execution_order)
     for outline_task in outline.tasks:
-        if outline_task.task_id not in order_set:
+        if outline_task.task_id not in order_set or outline_task.question_id not in order_set:
             execution_order.append(outline_task.task_id)
         q = questions_by_id.get(outline_task.question_id, {})
         priority = max(50, 100 - int(q.get("priority", 5)) * 5)

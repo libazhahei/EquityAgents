@@ -1,0 +1,528 @@
+{
+    "items": [
+        {
+            "item_id": "todo_b5066b81",
+            "title": "Orient: Verify NVIDIA’s segment and product revenue architecture, with emphasis on which businesses drive total revenue ",
+            "description": "Evidence plan",
+            "question_id": "q1",
+            "task_id": "t1",
+            "step_id": "q1_s1",
+            "action": "orient",
+            "priority": 99,
+            "status": "pending",
+            "source": "planner",
+            "tool_hints": [
+                "memory_retrieve",
+                "list_research_todos"
+            ],
+            "created_at": "2026-07-08T01:09:01.795668",
+            "completed_at": null
+        },
+        {
+            "item_id": "todo_6779d76b",
+            "title": "Use the latest 10-K/10-Q segment tables, earnings release, and call transcript to extract segment revenue mix by quarter",
+            "description": "Primary source documents",
+            "question_id": "q1",
+            "task_id": "t1",
+            "step_id": "q1_s2",
+            "action": "fetch_primary",
+            "priority": 99,
+            "status": "pending",
+            "source": "planner",
+            "tool_hints": [
+                "filings_search",
+                "filing_reader",
+                "financial_statement_fetch"
+            ],
+            "created_at": "2026-07-08T01:09:01.795714",
+            "completed_at": null
+        },
+        {
+            "item_id": "todo_658c288e",
+            "title": "Synthesize answer for q1",
+            "description": "Answer card with citations",
+            "question_id": "q1",
+            "task_id": "t1",
+            "step_id": "q1_s3",
+            "action": "synthesize",
+            "priority": 99,
+            "status": "pending",
+            "source": "planner",
+            "tool_hints": [
+                "store_evidence",
+                "memory_write"
+            ],
+            "created_at": "2026-07-08T01:09:01.795734",
+            "completed_at": null
+        },
+        {
+            "item_id": "todo_645a01b0",
+            "title": "Verify data availability and source metadata completeness for q1",
+            "description": "Availability note and source metadata completeness check",
+            "question_id": "q1",
+            "task_id": "t1",
+            "step_id": "q1_s4",
+            "action": "verify",
+            "priority": 99,
+            "status": "pending",
+            "source": "planner",
+            "tool_hints": [
+                "reference_parser",
+                "citation_checker",
+                "claim_evidence_checker"
+            ],
+            "created_at": "2026-07-08T01:09:01.795755",
+            "completed_at": null
+        }
+    ],
+    "total": 4,
+    "research_todo_list": {
+        "list_id": "todo_3_business_model",
+        "section_id": "3_business_model",
+        "version": 2,
+        "items": [
+            {
+                "item_id": "todo_b5066b81",
+                "title": "Orient: Verify NVIDIA’s segment and product revenue architecture, with emphasis on which businesses drive total revenue ",
+                "description": "Evidence plan",
+                "question_id": "q1",
+                "task_id": "t1",
+                "step_id": "q1_s1",
+                "action": "orient",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "memory_retrieve",
+                    "list_research_todos"
+                ],
+                "created_at": "2026-07-08T01:09:01.795668",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_6779d76b",
+                "title": "Use the latest 10-K/10-Q segment tables, earnings release, and call transcript to extract segment revenue mix by quarter",
+                "description": "Primary source documents",
+                "question_id": "q1",
+                "task_id": "t1",
+                "step_id": "q1_s2",
+                "action": "fetch_primary",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "filings_search",
+                    "filing_reader",
+                    "financial_statement_fetch"
+                ],
+                "created_at": "2026-07-08T01:09:01.795714",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_658c288e",
+                "title": "Synthesize answer for q1",
+                "description": "Answer card with citations",
+                "question_id": "q1",
+                "task_id": "t1",
+                "step_id": "q1_s3",
+                "action": "synthesize",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "store_evidence",
+                    "memory_write"
+                ],
+                "created_at": "2026-07-08T01:09:01.795734",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_645a01b0",
+                "title": "Verify data availability and source metadata completeness for q1",
+                "description": "Availability note and source metadata completeness check",
+                "question_id": "q1",
+                "task_id": "t1",
+                "step_id": "q1_s4",
+                "action": "verify",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "reference_parser",
+                    "citation_checker",
+                    "claim_evidence_checker"
+                ],
+                "created_at": "2026-07-08T01:09:01.795755",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_13ded8c7",
+                "title": "Orient: Identify the operating metrics that best evidence the business model and recent trajectory, especially data cent",
+                "description": "Evidence plan",
+                "question_id": "q2",
+                "task_id": "t2",
+                "step_id": "q2_s1",
+                "action": "orient",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "memory_retrieve",
+                    "list_research_todos"
+                ],
+                "created_at": "2026-07-08T01:09:01.795776",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_3b292a46",
+                "title": "Pull the latest earnings materials and filings to build a small KPI set with explicit periods and numbers, then verify w",
+                "description": "Primary source documents",
+                "question_id": "q2",
+                "task_id": "t2",
+                "step_id": "q2_s2",
+                "action": "fetch_primary",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "filings_search",
+                    "filing_reader",
+                    "financial_statement_fetch"
+                ],
+                "created_at": "2026-07-08T01:09:01.795796",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_7e21d8c2",
+                "title": "Synthesize answer for q2",
+                "description": "Answer card with citations",
+                "question_id": "q2",
+                "task_id": "t2",
+                "step_id": "q2_s3",
+                "action": "synthesize",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "store_evidence",
+                    "memory_write"
+                ],
+                "created_at": "2026-07-08T01:09:01.795813",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_6559d899",
+                "title": "Verify data availability and source metadata completeness for q2",
+                "description": "Availability note and source metadata completeness check",
+                "question_id": "q2",
+                "task_id": "t2",
+                "step_id": "q2_s4",
+                "action": "verify",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "reference_parser",
+                    "citation_checker",
+                    "claim_evidence_checker"
+                ],
+                "created_at": "2026-07-08T01:09:01.795917",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_975665ff",
+                "title": "Orient: Determine NVIDIA’s pricing model and whether there is evidence of pricing power, discounting, or mix effects dur",
+                "description": "Evidence plan",
+                "question_id": "q3",
+                "task_id": "t3",
+                "step_id": "q3_s1",
+                "action": "orient",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "memory_retrieve",
+                    "list_research_todos"
+                ],
+                "created_at": "2026-07-08T01:09:01.795949",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_d2ada261",
+                "title": "Review MD&A, earnings transcript, and investor presentation for references to ASPs, system pricing, bundling, discounts,",
+                "description": "Pricing model analysis explaining how pricing is structured and whether pricing power is intact.",
+                "question_id": "q3",
+                "task_id": "t3",
+                "step_id": "q3_s2",
+                "action": "search",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "web_search",
+                    "transcript_search"
+                ],
+                "created_at": "2026-07-08T01:09:01.795961",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_a6b3560a",
+                "title": "Synthesize answer for q3",
+                "description": "Answer card with citations",
+                "question_id": "q3",
+                "task_id": "t3",
+                "step_id": "q3_s3",
+                "action": "synthesize",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "store_evidence",
+                    "memory_write"
+                ],
+                "created_at": "2026-07-08T01:09:01.795971",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_18477c94",
+                "title": "Verify data availability and source metadata completeness for q3",
+                "description": "Availability note and source metadata completeness check",
+                "question_id": "q3",
+                "task_id": "t3",
+                "step_id": "q3_s4",
+                "action": "verify",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "reference_parser",
+                    "citation_checker",
+                    "claim_evidence_checker"
+                ],
+                "created_at": "2026-07-08T01:09:01.795979",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_a9b992ff",
+                "title": "Orient: Map NVIDIA’s customer base and channel structure, including concentration, hyperscaler/sovereign/enterprise expo",
+                "description": "Evidence plan",
+                "question_id": "q4",
+                "task_id": "t4",
+                "step_id": "q4_s1",
+                "action": "orient",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "memory_retrieve",
+                    "list_research_todos"
+                ],
+                "created_at": "2026-07-08T01:09:01.795993",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_433f0ebb",
+                "title": "Use 10-K/10-Q customer disclosure, earnings commentary, and public customer announcements to identify buyer types and ch",
+                "description": "Customer and channel analysis identifying major buyer groups and route-to-market structure.",
+                "question_id": "q4",
+                "task_id": "t4",
+                "step_id": "q4_s2",
+                "action": "search",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "web_search",
+                    "filings_search"
+                ],
+                "created_at": "2026-07-08T01:09:01.796002",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_d7c2cee1",
+                "title": "Synthesize answer for q4",
+                "description": "Answer card with citations",
+                "question_id": "q4",
+                "task_id": "t4",
+                "step_id": "q4_s3",
+                "action": "synthesize",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "store_evidence",
+                    "memory_write"
+                ],
+                "created_at": "2026-07-08T01:09:01.796013",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_ba81299c",
+                "title": "Verify data availability and source metadata completeness for q4",
+                "description": "Availability note and source metadata completeness check",
+                "question_id": "q4",
+                "task_id": "t4",
+                "step_id": "q4_s4",
+                "action": "verify",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "reference_parser",
+                    "citation_checker",
+                    "claim_evidence_checker"
+                ],
+                "created_at": "2026-07-08T01:09:01.796020",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_11995bd4",
+                "title": "Orient: Build the margin-driver bridge for gross and operating margin, isolating mix, supply, Blackwell ramp costs, HBM/",
+                "description": "Evidence plan",
+                "question_id": "q6",
+                "task_id": "t5",
+                "step_id": "q6_s1",
+                "action": "orient",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "memory_retrieve",
+                    "list_research_todos"
+                ],
+                "created_at": "2026-07-08T01:09:01.796030",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_ca0f0738",
+                "title": "Extract reported/guided margin data from earnings releases and filings, then tie management commentary to a concise brid",
+                "description": "Primary source documents",
+                "question_id": "q6",
+                "task_id": "t5",
+                "step_id": "q6_s2",
+                "action": "fetch_primary",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "filings_search",
+                    "filing_reader",
+                    "financial_statement_fetch"
+                ],
+                "created_at": "2026-07-08T01:09:01.796037",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_0717c6ec",
+                "title": "Synthesize answer for q6",
+                "description": "Answer card with citations",
+                "question_id": "q6",
+                "task_id": "t5",
+                "step_id": "q6_s3",
+                "action": "synthesize",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "store_evidence",
+                    "memory_write"
+                ],
+                "created_at": "2026-07-08T01:09:01.796045",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_34f9bc75",
+                "title": "Verify data availability and source metadata completeness for q6",
+                "description": "Availability note and source metadata completeness check",
+                "question_id": "q6",
+                "task_id": "t5",
+                "step_id": "q6_s4",
+                "action": "verify",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "reference_parser",
+                    "citation_checker",
+                    "claim_evidence_checker"
+                ],
+                "created_at": "2026-07-08T01:09:01.796052",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_bd529ffd",
+                "title": "Orient: Estimate unit economics and working-capital intensity for NVIDIA’s major AI offerings using public proxies when ",
+                "description": "Evidence plan",
+                "question_id": "q5",
+                "task_id": "t6",
+                "step_id": "q5_s1",
+                "action": "orient",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "memory_retrieve",
+                    "list_research_todos"
+                ],
+                "created_at": "2026-07-08T01:09:01.796064",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_4262db72",
+                "title": "Use 10-Q balance sheet/cash flow, shipment/deployment announcements, and any public system or rack disclosures to approx",
+                "description": "Primary source documents",
+                "question_id": "q5",
+                "task_id": "t6",
+                "step_id": "q5_s2",
+                "action": "fetch_primary",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "filings_search",
+                    "filing_reader",
+                    "financial_statement_fetch"
+                ],
+                "created_at": "2026-07-08T01:09:01.796071",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_d324b675",
+                "title": "Synthesize answer for q5",
+                "description": "Answer card with citations",
+                "question_id": "q5",
+                "task_id": "t6",
+                "step_id": "q5_s3",
+                "action": "synthesize",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "store_evidence",
+                    "memory_write"
+                ],
+                "created_at": "2026-07-08T01:09:01.796079",
+                "completed_at": null
+            },
+            {
+                "item_id": "todo_40af1a1c",
+                "title": "Verify data availability and source metadata completeness for q5",
+                "description": "Availability note and source metadata completeness check",
+                "question_id": "q5",
+                "task_id": "t6",
+                "step_id": "q5_s4",
+                "action": "verify",
+                "priority": 99,
+                "status": "pending",
+                "source": "planner",
+                "tool_hints": [
+                    "reference_parser",
+                    "citation_checker",
+                    "claim_evidence_checker"
+                ],
+                "created_at": "2026-07-08T01:09:01.796089",
+                "completed_at": null
+            }
+        ]
+    }
+}

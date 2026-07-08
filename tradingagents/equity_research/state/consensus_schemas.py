@@ -263,7 +263,7 @@ class StructuredConsensusView(BaseModel):
     source_doc_ids: list[str] = Field(default_factory=list)
     conflicts: list[ConflictRecord] = Field(default_factory=list)
 
-    def to_legacy_summary(self) -> str:
+    def to_legacy_summary(self, max_length: int = 4000) -> str:
         parts: list[str] = []
         qe = self.quantitative_estimates
         if qe.analyst_count or qe.sources:
@@ -294,7 +294,7 @@ class StructuredConsensusView(BaseModel):
             )
         if not parts:
             return f"No structured consensus data for {self.ticker}."
-        return "\n\n".join(parts)[:4000]
+        return "\n\n".join(parts)[:max_length]
 
     def to_ledger_entries(self) -> list[dict[str, Any]]:
         entries = []
@@ -327,26 +327,27 @@ def empty_structured_consensus_view(ticker: str = "") -> StructuredConsensusView
     )
 
 
-def get_consensus_summary(state: dict[str, Any]) -> str:
+def get_consensus_summary(state: dict[str, Any], max_length: int = 4000) -> str:
     view = state.get("consensus_view") or {}
     if isinstance(view, list):
         return (view[0] if view else {}).get("summary", "")
     if not view:
         return ""
     try:
-        return StructuredConsensusView.model_validate(view).to_legacy_summary()
+        return StructuredConsensusView.model_validate(view).to_legacy_summary(max_length=max_length)
     except Exception:
-        return str(view.get("summary", ""))[:4000]
+        return str(view.get("summary", ""))[:max_length]
 
 
 def get_consensus_view_for_prompt(state: dict[str, Any]) -> str:
-    view = state.get("consensus_view") or {}
-    if isinstance(view, list):
-        return json.dumps(view[:2], default=str)
-    if not view:
-        return "{}"
-    try:
-        validated = StructuredConsensusView.model_validate(view)
-        return json.dumps(validated.model_dump(), default=str)[:6000]
-    except Exception:
-        return json.dumps(view, default=str)[:6000]
+    return get_consensus_summary(state, max_length=6000)
+    # view = state.get("consensus_view") or {}
+    # if isinstance(view, list):
+    #     return json.dumps(view[:2], default=str)
+    # if not view:
+    #     return "{}"
+    # try:
+    #     validated = StructuredConsensusView.model_validate(view)
+    #     return json.dumps(validated.model_dump(), default=str)[:6000]
+    # except Exception:
+    #     return json.dumps(view, default=str)[:6000]
