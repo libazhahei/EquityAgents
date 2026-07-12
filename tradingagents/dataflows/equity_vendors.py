@@ -249,25 +249,171 @@ def filings_search_edgar(
     )
 
 
+def _resolve_section_param(section: str | None, target: str) -> str:
+    """Map external section aliases to the canonical key that EdgarClient expects.
+
+    The docstring lists user-friendly names like ``"mda"``, ``"risk_factors"``, etc.
+    EdgarClient's ``read_filing_section`` already handles most of these natively,
+    but some aliases need translating for consistency across the codebase.
+
+    Known mappings:
+    * ``"income_statement"``   → ``"income_statement"``
+    * ``"balance_sheet"``      → ``"balance_sheet"``
+    * ``"cash_flow"``          → ``"cash_flow"``
+    * ``"financial_statements"`` → ``"financial_statements"``
+    * ``"mda"``                → ``"mda"``       (Item 7)
+    * ``"risk_factors"``       → ``"risk_factors"`` (Item 1A)
+    * ``"business"``           → ``"business"``   (Item 1)
+    * ``"toc"``                → ``"toc"``
+    * ``"tables"``             → ``"tables"``
+    * ``"full"``               → ``"full"``
+    """
+    if section is None or section == "full":
+        return target if target else "full"
+    s = section.strip().lower()
+    # Direct passes-through — these are handled natively by EdgarClient
+    allowed = {"toc", "full", "financial_statements", "income_statement",
+               "balance_sheet", "cash_flow", "mda", "risk_factors",
+               "business", "tables"}
+    if s in allowed:
+        return s
+    # Common aliases → canonical names
+    alias_map: dict[str, str] = {
+        "item_7": "mda",
+        "item7": "mda",
+        "item 7": "mda",
+        "management_discussion": "mda",
+        "item_1a": "risk_factors",
+        "item1a": "risk_factors",
+        "item 1a": "risk_factors",
+        "item_1": "business",
+        "item1": "business",
+        "item 1": "business",
+        "item_8": "financial_statements",
+        "item8": "financial_statements",
+        "item 8": "financial_statements",
+        "statements": "financial_statements",
+        "statement": "financial_statements",
+    }
+    canonical = alias_map.get(s)
+    if canonical:
+        return canonical
+    # Fallback: pass through as-is and let EdgarClient handle unknowns
+    return s
+
+
 def filing_reader_edgar(
     filing_url: str | None = None,
     filing_id: str | None = None,
     section: str | None = None,
-    **_: Any,
+    ticker: str | None = None,
+    year: int | None = None,
+    quarter: str | None = None,
+    chunk_index: int | None = None,
+    table_index: int | None = None,
+    **extra: Any,
 ) -> dict[str, Any]:
+    """Vendor implementation for filing_reader backed by EdgarClient.
+
+    Supports two modes:
+    1. **URL/accession** — read a specific filing's section.
+    2. **Ticker browse** — list recent filings by ticker + period, optionally fetch section content.
+
+    Additional parameters forwarded to :py:meth:`EdgarClient.read_filing_section`:
+    * ``chunk_index`` — page index for narrative sections (default 0)
+    * ``table_index`` — index of a specific table when section="tables"
+    """
     from tradingagents.equity_research.integrations.edgar import EdgarClient
 
+    # Merge any late-arriving kwargs from the routing layer
+    ci = chunk_index if chunk_index is not None else extra.get("chunk_index")
+    ti = table_index if table_index is not None else extra.get("table_index")
+    sec = section
+
+    # ---- mode: ticker + year/quarter (browse filings by date range) ----
+    if ticker:
+        client = EdgarClient()
+        all_filings = client.fetch_filings_by_year(ticker, year or 2026)
+
+        if not all_filings:
+            return {
+                "ticker": ticker.upper(),
+                "year": year,
+                "quarter": quarter,
+                "section": sec or "full",
+                "error": f"No filings found for {ticker} {year}",
+                "filings": [],
+            }
+
+        # If quarter requested, only keep 10-Q with matching quarter
+        filtered = []
+        for f in all_filings:
+            ft = f.get("form", "")
+            fd = str(f.get("filing_date", ""))
+            if quarter and quarter.upper().startswith("Q"):
+                q_num = int(quarter[1])
+                try:
+                    parts = fd.split("-")[:3]
+                    mm = int(parts[1]) if len(parts) >= 2 else 0
+                    q = (mm - 1) // 3 + 1
+                    if q != q_num or ft == "10-K":
+                        continue
+                except (ValueError, IndexError):
+                    pass
+            filtered.append(f)
+
+        results = []
+        for filing_meta in filtered:
+            access = filing_meta.get("accession_number", "")
+            if not access:
+                continue
+            result = client.read_filing_section(
+                accession_number=access,
+                section=_resolve_section_param(sec, "full"),
+                chunk_index=ci or 0,
+                table_index=ti,
+            )
+            result["form"] = filing_meta.get("form", result.get("form", ""))
+            result["url"] = filing_meta.get("url", result.get("url", ""))
+            result["filing_date"] = filing_meta.get("filing_date", result.get("filing_date", ""))
+            results.append(result)
+
+        return {
+            "ticker": ticker.upper(),
+            "year": year,
+            "quarter": quarter,
+            "section": sec or "full",
+            "count": len(results),
+            "filings": results,
+        }
+
+    # ---- mode: URL / accession-based (or item-based read via TOC reference) ----
     url = filing_url or filing_id or ""
     if not url:
         raise NoMarketDataError(symbol="filing", detail="filing_url or filing_id required")
+
+    resolved_section = _resolve_section_param(sec, "full")
+
     result = EdgarClient().read_filing_section(
         filing_url=url if url.startswith("http") else None,
         accession_number=url if not url.startswith("http") else None,
-        section=section or "full",
+        section=resolved_section,
+        chunk_index=ci or 0,
+        table_index=ti,
     )
+
+    # Graceful fallback: if EDGAR parsing failed entirely, try fetching raw URL via Jina
     if result.get("error") and not result.get("text_excerpt"):
-        return JinaClient().fetch_url(url if url.startswith("http") else filing_url or "")
+        from tradingagents.dataflows.jina_client import JinaClient
+
+        raw_url = url if url.startswith("http") else (filing_url or "")
+        jina_result = JinaClient().fetch_url(raw_url)
+        if isinstance(jina_result, dict):
+            return {**result, "_jina_fallback": True, "_raw_text": jina_result.get("content", jina_result.get("text", str(jina_result)))}
+        return result
+
     return result
+
 
 
 def peer_comps_fetch_yfinance(ticker: str, **_: Any) -> dict[str, Any]:

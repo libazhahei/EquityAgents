@@ -38,6 +38,8 @@ class SearchQuery:
     top_k: int = 8
     max_chars: int = 8000
     pool_k: int = 30
+    year: str | None = None
+    quarter: str | None = None
 
 
 @dataclass

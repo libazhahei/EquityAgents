@@ -63,12 +63,22 @@ def filing_reader(
     filing_url: str | None = None,
     filing_id: str | None = None,
     section: str | None = None,
+    ticker: str | None = None,
+    year: int | None = None,
+    quarter: str | None = None,
+    chunk_index: int | None = None,
+    table_index: int | None = None,
 ) -> dict[str, Any]:
     return route_equity_tool(
         "filing_reader",
         filing_url=filing_url,
         filing_id=filing_id,
         section=section,
+        ticker=ticker,
+        year=year,
+        quarter=quarter,
+        chunk_index=chunk_index,
+        table_index=table_index,
     )
 
 

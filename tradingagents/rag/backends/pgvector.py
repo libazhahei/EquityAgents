@@ -111,6 +111,7 @@ class PgVectorBackend:
                 "chunk_type", "table_title", "table_section", "parent_labels",
                 "subsection_title", "subsection_key", "word_count",
                 "info_score_seed", "content_hash",
+                "year", "quarter",
             }
 
         # Build rows for bulk insert
@@ -210,12 +211,23 @@ class PgVectorBackend:
         filters: dict[str, Any],
         top_k: int,
         schema: dict[str, Any] | None = None,
+        search_year: str | None = None,
+        search_quarter: str | None = None,
     ) -> list[SearchHit]:
         schema = self._schema(schema)
         text_col = self._text_col(schema)
         id_col = self._id_col(schema)
         vec_col = schema.get("vector_column", "embedding_vec")
         params: dict[str, Any] = {"vec": self._vec_literal(embedding), "k": top_k}
+        if search_year is not None:
+            params["year"] = search_year
+        if search_quarter is not None:
+            params["quarter"] = search_quarter
+        # Merge year/quarter into filters so _build_filter_sql picks them up
+        if search_year is not None and "year" not in filters:
+            filters["year"] = search_year
+        if search_quarter is not None and "quarter" not in filters:
+            filters["quarter"] = search_quarter
         filter_sql = self._build_filter_sql(filters, params)
         engine = self._engine()
         with engine.connect() as conn:

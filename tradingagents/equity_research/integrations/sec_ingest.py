@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import logging
 from typing import Any
 
@@ -11,6 +13,31 @@ from tradingagents.rag.types import CorpusScope, Document
 logger = logging.getLogger(__name__)
 
 DEFAULT_FORMS = ("10-K", "10-Q", "8-K")
+
+
+def _extract_year_quarter(filing_date_str: str) -> tuple[str | None, str | None]:
+    """Extract fiscal year label (e.g. FY2023) and quarter label (Q1-Q4) from a filing date string."""
+    dt = _parse_filing_date(filing_date_str)
+    if dt is None:
+        return None, None
+    year_label = f"FY{dt.year}"
+    # 10-K filed Jan-Mar → Q4 of prior FY or current FY depending on convention
+    # For simplicity use calendar-based quarter aligned to SEC form type
+    month = dt.month
+    quarter_map = {1: "Q4", 2: "Q4", 3: "Q1", 4: "Q1", 5: "Q2", 6: "Q2", 7: "Q3", 8: "Q3", 9: "Q4", 10: "Q4", 11: "Q1", 12: "Q1"}
+    quarter = quarter_map.get(month)
+    return year_label, quarter
+
+
+def _parse_filing_date(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(str(value).strip(), fmt)
+        except ValueError:
+            continue
+    return None
 
 
 def filings_to_documents(ticker: str, filings: list[dict[str, Any]]) -> list[Document]:
@@ -26,17 +53,29 @@ def filings_to_documents(ticker: str, filings: list[dict[str, Any]]) -> list[Doc
             )
             continue
         accession = str(filing.get("accession_number", filing.get("filing_date", "unknown")))
+        form = filing.get("form", "")
+        fy_label, fq_label = _extract_year_quarter(filing.get("filing_date"))
+        
+        # Determine year/quarter label based on form type
+        if form == "10-K":
+            year_label, quarter_label = fy_label, None
+        else:
+            # 10-Q: derive quarter from filing date
+            year_label, quarter_label = fy_label, fq_label
+        
         documents.append(
             Document(
                 doc_key=accession,
                 text=text,
                 metadata={
                     "ticker": ticker,
-                    "form": filing.get("form", ""),
+                    "form": form,
                     "filing_date": filing.get("filing_date"),
                     "accession_number": accession,
                     "source_url": filing.get("url", ""),
                     "section": "full",
+                    "year": year_label,
+                    "quarter": quarter_label,
                 },
             )
         )

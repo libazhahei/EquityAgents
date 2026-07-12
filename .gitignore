@@ -228,3 +228,5 @@ reports/
 # NVDA test reports
 NVDA/
 out/
+
+debug.ipynb

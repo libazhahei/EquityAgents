@@ -483,7 +483,7 @@ def create_section_executor_dispatch_node(
         tools = build_tools_for_group(deps, task_profile, tool_group)
         llm = resolve_research_llm(deps, "deep").bind_tools(tools)
         if not messages or isinstance(messages[-1], ToolMessage):
-            system = build_prompt(state) if build_prompt else ""
+            system = build_prompt(state, step_action) if build_prompt else ""
             
             # Build group hint with action-specific guidance
             group_hint = (

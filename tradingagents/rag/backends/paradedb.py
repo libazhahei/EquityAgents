@@ -31,11 +31,22 @@ class ParadeDBHybridBackend(PgVectorBackend):
         filters: dict[str, Any],
         top_k: int,
         schema: dict[str, Any] | None = None,
+        search_year: str | None = None,
+        search_quarter: str | None = None,
     ) -> list[SearchHit]:
         schema = self._schema(schema)
         text_col = self._text_col(schema)
         id_col = self._id_col(schema)
         params: dict[str, Any] = {"q": query, "k": top_k}
+        if search_year is not None:
+            params["year"] = search_year
+        if search_quarter is not None:
+            params["quarter"] = search_quarter
+        # Merge year/quarter into filters so _build_filter_sql picks them up
+        if search_year is not None and "year" not in filters:
+            filters["year"] = search_year
+        if search_quarter is not None and "quarter" not in filters:
+            filters["quarter"] = search_quarter
         filter_sql = self._build_filter_sql(filters, params)
         engine = self._engine()
         with engine.connect() as conn:
@@ -68,13 +79,15 @@ class ParadeDBHybridBackend(PgVectorBackend):
         top_k: int,
         pool_k: int,
         schema: dict[str, Any] | None = None,
+        search_year: str | None = None,
+        search_quarter: str | None = None,
     ) -> list[SearchHit]:
         try:
-            lexical = self.lexical_search(table, query, filters=filters, top_k=pool_k, schema=schema)
+            lexical = self.lexical_search(table, query, filters=filters, top_k=pool_k, schema=schema, search_year=search_year, search_quarter=search_quarter)
         except Exception as exc:
             logger.debug("BM25 search unavailable, falling back to vector only: %s", exc)
             lexical = []
-        vector = self.vector_search(table, embedding, filters=filters, top_k=pool_k, schema=schema)
+        vector = self.vector_search(table, embedding, filters=filters, top_k=pool_k, schema=schema, search_year=search_year, search_quarter=search_quarter)
         if not lexical:
             return vector[:top_k]
         fused = self.fusion.fuse(

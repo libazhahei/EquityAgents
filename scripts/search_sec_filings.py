@@ -8,6 +8,9 @@ Usage:
 
     uv run python scripts/search_sec_filings.py NVDA "gross margin" --section mda --json
 
+    # Filter by year and/or quarter
+    uv run python scripts/search_sec_filings.py AAPL "revenue" --year FY2025 --quarter Q2
+
     # Search evidence corpus instead of filings
     uv run python scripts/search_sec_filings.py NVDA "cloud revenue" --corpus evidence
 
@@ -138,6 +141,20 @@ def _vector_only_search(
     }
 
 
+def _normalize_filter(value: str | None) -> str | None:
+    """Accept bare years like '2024' and normalize to 'FY2024'. Returns None if empty."""
+    if not value:
+        return None
+    v = value.strip()
+    if not v.startswith(("FY", "Q")):
+        try:
+            int(v)
+            return f"FY{v}"
+        except ValueError:
+            pass
+    return v
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Test hybrid RAG retrieval over SEC filings or evidence.",
@@ -151,6 +168,16 @@ def main(argv: list[str] | None = None) -> int:
         help="RAG corpus to search (default: sec_filings)",
     )
     parser.add_argument("--form", dest="form_type", default=None, help="Filter by form, e.g. 10-K")
+    parser.add_argument(
+        "--year",
+        default=None,
+        help="Filter by year label, e.g. FY2024 or just 2024 (for 10-Q filings)",
+    )
+    parser.add_argument(
+        "--quarter",
+        default=None,
+        help="Filter by quarter, e.g. Q1, Q2, Q3, Q4",
+    )
     parser.add_argument(
         "--section",
         default=None,
@@ -264,6 +291,8 @@ def main(argv: list[str] | None = None) -> int:
             args.keywords,
             form_type=args.form_type,
             section=args.section,
+            year=_normalize_filter(args.year),
+            quarter=args.quarter,
             top_k=args.top_k,
             max_chars=args.max_chars,
             dedupe=args.dedupe,

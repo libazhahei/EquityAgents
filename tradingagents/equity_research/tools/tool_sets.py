@@ -34,13 +34,16 @@ EXECUTOR_TOOL_SETS: dict[ToolGroupId, tuple[str, ...]] = {
         "search_claims",
         "search_assumptions",
         "search_consensus",
-        "search_conflicts",
-        "search_memory_timeline",
-        "search_research_context",
+        # "search_conflicts",
+        # "search_memory_timeline",
+        # "search_research_context",
         # Document
-        "table_extractor",
-        "document_chunker",
-        "reference_parser",
+        # "table_extractor",
+        # "document_chunker",
+        # "reference_parser",
+        # Todos
+        "list_research_todos",
+        "get_next_research_todo",
     ),
     "computation": (
         "calculator",

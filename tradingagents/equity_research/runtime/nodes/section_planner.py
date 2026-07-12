@@ -152,7 +152,10 @@ def create_section_planner_node(
                         )
                     else:
                         raise StructuredOutputUnsupported("empty plan")
-                except (StructuredOutputUnsupported, Exception):
+                except (StructuredOutputUnsupported, Exception) as e:
+                    import traceback
+                    traceback.print_exc()
+                    print(f"Initial planner failed: {e.with_traceback(e.__traceback__)}")
                     plan = build_fallback_plan(brief_raw, section_id=section_id)
 
                 updates = _apply_plan_to_state(plan, state, wave_index=0)

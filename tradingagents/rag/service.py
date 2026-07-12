@@ -171,7 +171,7 @@ class RAGService:
 
         return result
 
-    def search(self, corpus_id: str, query: SearchQuery) -> SearchResult:
+    def search(self, corpus_id: str, query: SearchQuery, year: str | None = None, quarter: str | None = None) -> SearchResult:
         if not query.keywords or not query.keywords.strip():
             return SearchResult(
                 corpus_id=corpus_id,
@@ -194,6 +194,8 @@ class RAGService:
             top_k=top_k,
             max_chars=max_chars,
             pool_k=pool_k,
+            year=year or query.year,
+            quarter=quarter or query.quarter,
         )
 
         if hasattr(self.backend, "hybrid_search"):
@@ -205,6 +207,8 @@ class RAGService:
                 top_k=normalized.top_k,
                 pool_k=normalized.pool_k,
                 schema=schema,
+                search_year=year,
+                search_quarter=quarter,
             )
         else:
             hits = self._retriever.search(

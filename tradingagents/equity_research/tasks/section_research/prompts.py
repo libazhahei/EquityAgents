@@ -14,26 +14,47 @@ from tradingagents.equity_research.tasks.section_research.schemas import (
     ResearchBrief,
     SectionResearchView,
 )
+
+def build_markdown_table(headers: list[str], rows: list[list[Any]]) -> str:
+    """Build a markdown table from headers and rows."""
+    header_row = "| " + " | ".join(headers) + " |"
+    separator_row = "| " + " | ".join(["---"] * len(headers)) + " |"
+    data_rows = ["| " + " | ".join(str(cell) for cell in row) + " |" for row in rows]
+    return "\n".join([header_row, separator_row] + data_rows) + "\n"
+
 def get_assumption_context(brief: ResearchBrief) -> str:
-    if not brief.assumptions:
+    if not brief.assumption_view:
         return "{}"
-    assumptions_map = "|Consensus Anchor| Assumption Statement | Falsification Tests | Model Drivers | Next to Watch | Priority |\n"\
-        "|---|---|---|---|---|---|\n"\
-        + '\n'.join(
-            f"|{a.consensus_anchor or 'N/A'}|{a.assumption_statement}|"
-            f"{', '.join(a.falsification_tests) if a.falsification_tests else ''}|"
-            f"{', '.join(a.model_drivers) if a.model_drivers else ''}|"
-            f"{', '.join(a.next_to_watch) if a.next_to_watch else ''}|"
-            f"{a.priority or ''}|"
-            for a in brief.assumptions.assumption_map
-        )
-    conflicts = "|Claim A| Claim B | Interpretation | Status | Next Check |\n"\
-        "|---|---|---|---|---|\n"\
-        + '\n'.join(
-            f"|{c.claim_a or 'N/A'}|{c.claim_b or 'N/A'}|{c.interpretation or 'N/A'}|{c.status or 'N/A'}|{c.next_check or 'N/A'}|"
-            for c in brief.assumptions.conflicts
-        )
-    return assumptions_map + "\n\n" + conflicts
+    
+    assumptions_map = build_markdown_table(
+        headers=["Consensus Anchor", "Assumption Statement", "Falsification Tests", "Model Drivers", "Next to Watch", "Priority"],
+        rows=[
+            [
+                a.get("consensus_anchor") or "N/A",
+                a.get("assumption_statement"),
+                ", ".join(a.get("falsification_tests", [])) if a.get("falsification_tests") else "",
+                ", ".join(a.get("model_drivers", [])) if a.get("model_drivers") else "",
+                ", ".join(a.get("next_to_watch", [])) if a.get("next_to_watch") else "",
+                a.get("priority") or "",
+            ]
+            for a in brief.assumption_view["assumption_map"]
+        ],
+    )
+    conflicts = build_markdown_table(
+        headers=["Claim A", "Claim B", "Interpretation", "Status", "Next Check"],
+        rows=[
+            [
+                c.get("claim_a") or "N/A",
+                c.get("claim_b") or "N/A",
+                c.get("interpretation") or "N/A",
+                c.get("status") or "N/A",
+                c.get("next_check") or "N/A"
+            ]
+            for c in brief.assumption_view['conflicts']
+        ]
+    )
+    top_research_priorities = brief.assumption_view.get('top_research_priorities', [])
+    return assumptions_map + "\n\n" + conflicts + "\n\n" + f"Top Research Priorities: \n- {'\n- '.join(top_research_priorities)}"
 
 
 def _format_consensus_context(deps: EquityResearchDeps, brief: ResearchBrief) -> str:
@@ -47,32 +68,40 @@ def _format_consensus_context(deps: EquityResearchDeps, brief: ResearchBrief) ->
 
 
 def _format_assumption_context(deps: EquityResearchDeps, brief: ResearchBrief) -> str:
-    if not brief.assumptions:
+    if not brief.assumption_view:
         return "{}"
     return compact_prompt_block(deps, get_assumption_context(brief), purpose="assumption context for section planner")
 
 def _format_questions_context(brief: ResearchBrief) -> str:
     if not brief.questions:
         return "[]"
-    return "|Question ID| Parent Question ID |Question Text| Expected output| Suggested Sources| Priority| Required Evidence|\n"\
-        "|---|---|---|---|---|---|---|\n"\
-        '\n'.join(
-            f"|{q.question_id}|{q.parent_question_id or 'N/A'}|{q.question_text}|{q.expected_output or ''}|"
-            f"{', '.join(q.suggested_sources) if q.suggested_sources else ''}|{q.priority or ''}|"
-            f"{', '.join(q.required_evidence) if q.required_evidence else ''}|"
+    # print(brief.questions)
+    return build_markdown_table(
+        headers=["Question ID", "Parent Question ID", "Question Text", "Expected Output", "Suggested Sources", "Priority", "Required Evidence"],
+        rows=[
+            [
+                q.get("id") or "N/A",
+                q.get("parent_id") or "N/A",
+                q.get("question") or "",
+                q.get("expected_output") or "",
+                ", ".join(q.get("suggested_sources", [])) if q.get("suggested_sources") else "",
+                q.get("priority") or "",
+                ", ".join(q.get("required_evidence", [])) if q.get("required_evidence") else "",
+            ]
             for q in brief.questions
-        )
+        ],
+    )
 
 def _build_active_skills_block(deps: EquityResearchDeps, skills: dict[str, Any]) -> str:
     if not skills:
         return "{}"
     prompt_template_block = ""
-    for skill_id, skill_info in skills.items():
-        prompt_template = skill_info.get("prompt_template", "")
-        query_guidance = skill_info.get("query_guidance", "")
-        constraints = skill_info.get("constraints", "")
-        skill_block = f"Skill ID: {skill_id}\nPrompt Template: {prompt_template}\nQuery Guidance: {query_guidance}\nConstraints: {constraints}\n"
-        prompt_template_block += skill_block + "\n"
+    # print(skills)
+    prompt_template = skills.get("prompt_template", "")
+    query_guidance = skills.get("query_guidance", "")
+    constraints = skills.get("constraints", "")
+    skill_block = f"Prompt Template: {prompt_template}\nQuery Guidance: {query_guidance}\nConstraints: {constraints}\n"
+    prompt_template_block += skill_block + "\n"
     return prompt_template_block.strip()
     
     
@@ -431,32 +460,25 @@ Rules:
 
 ── Tool Usage Guide ──
 
-Todo Management: Only use these tools for todo management
-Memory & Evidence: Only use these tools for storing evidence, conclusions, claims, assumptions, reflections, or actions. DO NOT LEAVE Plan or step in memory without persisting it first.
-
-── Memory Search Tools ──
-- search_evidence: Find previously stored evidence by semantic query or metric filter.
-- search_claims: Review existing conclusions, check confidence levels.
-- search_assumptions: Review modeling assumptions, especially high-sensitivity ones.
-- search_consensus: Compare findings against market consensus.
-- search_conflicts: Surface unresolved contradictions in the evidence base.
-- search_research_context: Get holistic context across all ledgers.
-- memory_retrieve: Recall everything stored for a specific question or section.
+Todo Management: Use these tools to view, add, remove, or update research todo items. Each todo item is tied to a question_id and has a status (pending|in_progress|done|cancelled).
+Memory Tools: Use these tools to store and retrieve evidence, claims, assumptions, and other structured data. Evidence should be stored with metadata (source_type, fiscal_quarter_or_date, platform, traceable_ref) for traceability.
+Web Tools: Use these tools to find news, research reports, views, and data from external sources. Also use them to fetch filings, transcripts, and other primary sources. 
+Filings & Official Docs: Use these tools to fetch and extract data from official filings, transcripts, and other primary sources. Always prefer primary sources when available.
 
 Use these BEFORE re-fetching from external sources to avoid duplicate work.
 
 ── Typical Execution Flow ──
 
-1. list_research_todos(status="pending") → see what needs doing if current step and task is done.
-2. get_next_research_todo() → pick the highest-priority item.
-3. update_research_todo_status(item_id, "in_progress") → mark it as started.
-4. Execute the step using search/fetch tools. You can use search tools to find filings, transcripts to retrieve primary sources.
-5. store_evidence(fragment) → persist every piece of data found.
-6. If drawing a conclusion: memory_write({{"type": "claim", ...}}) → record the conclusion.
-7. If new work discovered: add_research_todo(...) → add follow-up items.
-8. If item obsolete: remove_research_todo(item_id) or update_research_todo_status(item_id, "cancelled").
-9. update_research_todo_status(item_id, "done") → mark complete.
-10. Repeat from step 1 until no pending items remain.
+1. See what needs doing if current step and task is done and pick the next todo item
+2. update_research_todo_status(item_id, "in_progress") → mark it as started.
+3. Execute the step using search/fetch tools. You can use search tools to find filings, transcripts to retrieve primary sources.
+4. store_evidence(fragment) → persist every piece of data found.
+5. If drawing a conclusion: memory_write({{"type": "claim", ...}}) → record the conclusion.
+6. If new work discovered: add_research_todo(...) → add follow-up items.
+7. If item obsolete: remove_research_todo(item_id) or update_research_todo_status(item_id, "cancelled").
+8. update_research_todo_status(item_id, "done") → mark complete.
+9. Repeat from step 1 until no pending items remain.
+If No pending research todo items found, then you may exit the execution. 
 {synthesize_note}
 Ticker: {state.get("ticker", "")}
 Section: {state.get("section_id", "")}

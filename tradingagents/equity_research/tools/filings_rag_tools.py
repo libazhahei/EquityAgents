@@ -183,6 +183,8 @@ def filings_search_rag(
     ticker: str,
     keywords: str,
     *,
+    year: str | None = None,
+    quarter: str | None = None,
     form_type: str | None = None,
     section: str | None = None,
     top_k: int = 8,
@@ -209,17 +211,32 @@ def filings_search_rag(
     pool_top_k = min(max(top_k * 4, top_k), 64) if (dedupe or rerank) else top_k
     pool_max_chars = max_chars * 3 if (dedupe or rerank) else max_chars
 
+    # 10-K and 8-K are annual/non-quarterly filings — their stored rows have
+    # ``quarter`` NULL.  Including a quarter filter would return zero hits.
+    # Drop the quarter constraint for annual forms so the search works
+    # (falls back to year-only + BM25/vector matching).
+    _annual_only_forms = frozenset(("10-K", "8-K"))
+    search_filters = {
+        "ticker": ticker.upper(),
+        "form": form_type,
+        "section": section,
+        "year": year,
+    }
+    # Only add quarter for quarterly forms (e.g. 10-Q); omit for annual
+    # forms where the column is always NULL in the database.
+    if form_type not in _annual_only_forms:
+        search_filters["quarter"] = quarter
+    search_quarter = quarter if form_type not in _annual_only_forms else None
+
     result = deps.rag.search(
         "sec_filings",
         SearchQuery(
             keywords=keywords.strip(),
-            filters={
-                "ticker": ticker.upper(),
-                "form": form_type,
-                "section": section,
-            },
+            filters=search_filters,
             top_k=pool_top_k,
             max_chars=pool_max_chars,
+            year=year,
+            quarter=search_quarter,
         ),
     )
     raw_hits = [
@@ -230,7 +247,7 @@ def filings_search_rag(
             "filing_date": h.metadata.get("filing_date"),
             "section": h.metadata.get("section"),
             "accession_number": h.metadata.get("accession_number"),
-            "url": h.metadata.get("source_url"),
+            # "url": h.metadata.get("source_url"),
             "chunk_index": h.metadata.get("chunk_index"),
             "chunk_type": h.metadata.get("chunk_type"),
             "subsection_title": h.metadata.get("subsection_title"),

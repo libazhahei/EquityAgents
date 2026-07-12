@@ -87,6 +87,8 @@ class FilingChunkRow(Base):
     word_count = Column(Integer)
     info_score_seed = Column(Float)
     content_hash = Column(String(64), index=True)
+    year = Column(String)  # e.g. "FY2024"
+    quarter = Column(String)  # e.g. "Q1", "Q2", "Q3", "Q4"
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -411,6 +413,23 @@ def _ensure_filing_chunk_table_columns(engine) -> None:
                     """
                     ALTER TABLE filing_chunk
                     ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64)
+                    """
+                )
+            )
+            # Year/quarter filters for SEC filings
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE filing_chunk
+                    ADD COLUMN IF NOT EXISTS year VARCHAR(20)
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    ALTER TABLE filing_chunk
+                    ADD COLUMN IF NOT EXISTS quarter VARCHAR(10)
                     """
                 )
             )
