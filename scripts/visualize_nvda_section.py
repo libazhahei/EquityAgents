@@ -323,6 +323,144 @@ def _render_parameter_grid_pre(registry: dict[str, Any], state: dict[str, Any], 
     <pre>{html.escape(grid)}</pre>
   </details>"""
 
+
+def _blackboard_summaries_by_section(state: dict[str, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for item in state.get("session_blackboard_summaries") or []:
+        if not isinstance(item, dict):
+            continue
+        sid = str(item.get("section_id") or "")
+        if sid:
+            out[sid] = str(item.get("summary") or "")
+    return out
+
+
+def _resolve_blackboard_section_ids(
+    state: dict[str, Any],
+    section_output: dict[str, Any],
+    section_filter: str | None,
+) -> list[str]:
+    boards = state.get("session_blackboards") or {}
+    summaries = _blackboard_summaries_by_section(state)
+    preferred = (
+        section_filter
+        or section_output.get("section_id")
+        or state.get("section_id")
+        or state.get("active_section_id")
+    )
+    if preferred and (preferred in boards or preferred in summaries):
+        return [str(preferred)]
+    ids: list[str] = []
+    for sid in boards:
+        if sid not in ids:
+            ids.append(str(sid))
+    for sid in summaries:
+        if sid not in ids:
+            ids.append(str(sid))
+    return ids
+
+
+def _blackboard_entries_table_rows(entries: list[dict[str, Any]]) -> str:
+    if not entries:
+        return '<tr><td colspan="6"><em>(no entries)</em></td></tr>'
+    rows = ""
+    for entry in entries:
+        tags = entry.get("tags") or []
+        tags_str = ", ".join(str(t) for t in tags[:8])
+        conf = entry.get("confidence", "")
+        conf_str = f"{conf:.2f}" if isinstance(conf, (int, float)) else str(conf)
+        rows += (
+            "<tr>"
+            f"<td><code>{html.escape(str(entry.get('entry_type', '')))}</code></td>"
+            f"<td>{html.escape(str(entry.get('content', '')))}</td>"
+            f"<td>{html.escape(tags_str)}</td>"
+            f"<td>{html.escape(conf_str)}</td>"
+            f"<td><code>{html.escape(str(entry.get('source_node', '')))}</code></td>"
+            f"<td>{html.escape(str(entry.get('created_at_iteration', '')))}</td>"
+            "</tr>\n"
+        )
+    return rows
+
+
+def _blackboard_html_blocks(
+    state: dict[str, Any],
+    section_output: dict[str, Any],
+    *,
+    section_filter: str | None = None,
+) -> str:
+    boards = state.get("session_blackboards") or {}
+    summaries = _blackboard_summaries_by_section(state)
+    section_ids = _resolve_blackboard_section_ids(state, section_output, section_filter)
+    if not section_ids:
+        return "<p>(no session blackboard data)</p>"
+
+    blocks = ""
+    for sid in section_ids:
+        summary = summaries.get(sid, "")
+        entries = boards.get(sid) or []
+        if not isinstance(entries, list):
+            entries = []
+        summary_html = (
+            f"<pre>{html.escape(summary)}</pre>"
+            if summary
+            else "<p><em>(no summary)</em></p>"
+        )
+        blocks += f"""
+  <h3>{html.escape(sid)}</h3>
+  <h4>Summary</h4>
+  {summary_html}
+  <h4>Entries ({len(entries)})</h4>
+  <table>
+    <tr><th>Type</th><th>Content</th><th>Tags</th><th>Confidence</th><th>Source</th><th>Iter</th></tr>
+    {_blackboard_entries_table_rows(entries)}
+  </table>
+"""
+    return blocks
+
+
+def _blackboard_markdown_blocks(
+    state: dict[str, Any],
+    section_output: dict[str, Any],
+    *,
+    section_filter: str | None = None,
+) -> list[str]:
+    boards = state.get("session_blackboards") or {}
+    summaries = _blackboard_summaries_by_section(state)
+    section_ids = _resolve_blackboard_section_ids(state, section_output, section_filter)
+    lines = ["## Session Blackboard", ""]
+    if not section_ids:
+        lines.append("(no session blackboard data)")
+        return lines
+
+    for sid in section_ids:
+        summary = summaries.get(sid, "")
+        entries = boards.get(sid) or []
+        if not isinstance(entries, list):
+            entries = []
+        lines.extend([f"### {sid}", "", "#### Summary", "", summary or "*(no summary)*", ""])
+        lines.extend([
+            f"#### Entries ({len(entries)})",
+            "",
+            "| Type | Content | Tags | Confidence | Source | Iter |",
+            "|------|---------|------|------------|--------|------|",
+        ])
+        if not entries:
+            lines.append("| — | *(no entries)* | | | | |")
+        else:
+            for entry in entries:
+                tags = ", ".join(str(t) for t in (entry.get("tags") or [])[:8])
+                conf = entry.get("confidence", "")
+                conf_str = f"{conf:.2f}" if isinstance(conf, (int, float)) else str(conf)
+                content = " ".join(str(entry.get("content", "")).split()).replace("|", "\\|")
+                lines.append(
+                    f"| `{entry.get('entry_type', '')}` | {content} | {tags} "
+                    f"| {conf_str} | `{entry.get('source_node', '')}` "
+                    f"| {entry.get('created_at_iteration', '')} |"
+                )
+        lines.append("")
+    return lines
+
+
 def render_html(state: dict[str, Any], *, title: str | None = None, section_filter: str | None = None) -> str:
     section_output = _resolve_section_output(state, section_filter)
     plan = _resolve_research_plan(state, section_output)
@@ -412,6 +550,9 @@ def render_html(state: dict[str, Any], *, title: str | None = None, section_filt
     <pre>{html.escape(final_text)}</pre>
   </details>
 
+  <h2>Session Blackboard</h2>
+  {_blackboard_html_blocks(state, section_output, section_filter=section_filter)}
+
   <script>
     mermaid.initialize({{ startOnLoad: true, theme: "neutral", securityLevel: "loose" }});
   </script>
@@ -461,8 +602,10 @@ def render_markdown(state: dict[str, Any], *, section_filter: str | None = None)
             "### Final Section Text",
             "",
             str(section_output.get("final_section_text", "")),
+            "",
         ]
     )
+    lines.extend(_blackboard_markdown_blocks(state, section_output, section_filter=section_filter))
     return "\n".join(lines)
 
 

@@ -12,6 +12,7 @@ def empty_equity_research_state() -> dict[str, Any]:
     return {
         "ticker": "",
         "report_id": "",
+        "run_id": "",
         "company_name": "",
         "sector": "",
         "industry": "",
@@ -23,6 +24,9 @@ def empty_equity_research_state() -> dict[str, Any]:
         "mandate": {},
         "report_template": [],
         "active_section_id": None,
+        "selected_section_ids": [],
+        "human_review_1_patch": {},
+        "human_review_2_patch": {},
         "section_coverage": {},
         "completed_sections": [],
         "source_index": [],
@@ -102,6 +106,8 @@ def empty_equity_research_state() -> dict[str, Any]:
         "final_report": None,
         "cross_branch_discoveries": [],
         "research_traces": [],
+        "session_blackboard_summaries": [],
+        "session_blackboards": {},
         "review_findings": [],
         "data_quality_flags": [],
         "compliance_flags": [],
@@ -124,6 +130,7 @@ def empty_equity_research_state() -> dict[str, Any]:
 class EquityResearchState(TypedDict, total=False):
     ticker: str
     report_id: str
+    run_id: str
     company_name: str
     trade_date: str
     sector: str
@@ -136,6 +143,9 @@ class EquityResearchState(TypedDict, total=False):
     mandate: dict
     report_template: list[dict]
     active_section_id: str | None
+    selected_section_ids: list[str]
+    human_review_1_patch: dict
+    human_review_2_patch: dict
     section_coverage: dict[str, dict]
     completed_sections: list[str]
     source_index: list[dict]
@@ -216,6 +226,7 @@ class EquityResearchState(TypedDict, total=False):
     cross_branch_discoveries: list[dict]
     research_traces: list[dict]
     session_blackboard_summaries: list[dict]  # [{"section_id": "...", "summary": "..."}]
+    session_blackboards: dict[str, list[dict]]  # {section_id: [BlackboardEntry dicts]}
     review_findings: list[dict]
     data_quality_flags: list[dict]
     compliance_flags: list[dict]

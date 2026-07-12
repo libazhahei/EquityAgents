@@ -210,6 +210,10 @@ DEFAULT_CONFIG = _apply_env_overrides({
         },
         "web_search_max_url_fetches": 3,
         "human_tools_mode": "stub",
+        "checkpoint_enabled": True,
+        "checkpoint_dir": None,  # default: {data_cache}/checkpoints/equity_research
+        "human_review_interrupt": True,
+        "default_selected_section_ids": ["3_business_model"],
         "document_root": None,
         "code_root": None,
         "tools": {

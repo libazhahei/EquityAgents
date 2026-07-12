@@ -77,6 +77,7 @@ class EquityResearchDeps:
     info_sources: InfoSourceRegistry = field(default_factory=default_registry)
     rag: RAGService | None = None
     blackboard_store: Any = None  # BlackboardStore or InMemoryBlackboardStore
+    progress_bus: Any = None  # ProgressBus | None
     _use_memory: bool = False
 
     def __post_init__(self):

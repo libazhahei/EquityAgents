@@ -5,9 +5,22 @@ from tradingagents.equity_research.graph.routers import (
     ic_router,
     modeling_router,
     research_loop_router,
+    section_loop_router,
     valuation_router,
 )
 from tradingagents.equity_research.state.equity_research_state import empty_equity_research_state
+
+
+def test_section_loop_router_research():
+    state = empty_equity_research_state()
+    state["active_section_id"] = "3_business_model"
+    assert section_loop_router(state) == "section_research"
+
+
+def test_section_loop_router_end():
+    state = empty_equity_research_state()
+    state["active_section_id"] = None
+    assert section_loop_router(state) == "end"
 
 
 def test_research_loop_router_ready_for_modeling():

@@ -7,6 +7,7 @@ from typing import Any
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
 from tradingagents.equity_research.runtime.utils.dedupe import similarity
+from tradingagents.equity_research.runtime.utils.llm_resolve import resolve_research_llm
 from tradingagents.equity_research.runtime.utils.structured_invoke import invoke_structured_with_retry
 from tradingagents.equity_research.state.blackboard import format_blackboard_for_prompt
 from tradingagents.equity_research.state.consensus_schemas import QueryItem, QueryPlan
@@ -78,7 +79,7 @@ def create_planner_node(
                 return QueryPlan(queries=[])
 
             plan = invoke_structured_with_retry(
-                deps.deep_llm,
+                resolve_research_llm(deps, "deep"),
                 QueryPlan,
                 prompt,
                 agent_name=agent_name,

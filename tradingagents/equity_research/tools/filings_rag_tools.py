@@ -228,6 +228,7 @@ def filings_search_rag(
         search_filters["quarter"] = quarter
     search_quarter = quarter if form_type not in _annual_only_forms else None
 
+    # Initial search with all filters
     result = deps.rag.search(
         "sec_filings",
         SearchQuery(
@@ -239,6 +240,54 @@ def filings_search_rag(
             quarter=search_quarter,
         ),
     )
+    
+    # Fallback: if no results, progressively relax filters
+    if not result.hits:
+        # Try without quarter filter first
+        if search_quarter and form_type not in _annual_only_forms:
+            relaxed_filters = {k: v for k, v in search_filters.items() if k != "quarter"}
+            result = deps.rag.search(
+                "sec_filings",
+                SearchQuery(
+                    keywords=keywords.strip(),
+                    filters=relaxed_filters,
+                    top_k=pool_top_k,
+                    max_chars=pool_max_chars,
+                    year=year,
+                    quarter=None,
+                ),
+            )
+    
+    # Still no results? Try without year filter
+    if not result.hits and year:
+        relaxed_filters = {k: v for k, v in search_filters.items() if k not in ("year", "quarter")}
+        result = deps.rag.search(
+            "sec_filings",
+            SearchQuery(
+                keywords=keywords.strip(),
+                filters=relaxed_filters,
+                top_k=pool_top_k,
+                max_chars=pool_max_chars,
+                year=None,
+                quarter=None,
+            ),
+        )
+    
+    # Still no results? Try without form_type filter
+    if not result.hits and form_type:
+        relaxed_filters = {k: v for k, v in search_filters.items() if k not in ("form", "year", "quarter")}
+        result = deps.rag.search(
+            "sec_filings",
+            SearchQuery(
+                keywords=keywords.strip(),
+                filters=relaxed_filters,
+                top_k=pool_top_k,
+                max_chars=pool_max_chars,
+                year=None,
+                quarter=None,
+            ),
+        )
+    
     raw_hits = [
         {
             "chunk_text": h.text,

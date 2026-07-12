@@ -25,6 +25,10 @@ def _pick_section_id(parent: dict[str, Any]) -> str:
     if explicit:
         return str(explicit)
     completed = set((parent.get("section_research_outputs") or {}).keys())
+    selected = list(parent.get("selected_section_ids") or [])
+    for section_id in selected:
+        if section_id not in completed:
+            return section_id
     for section_id in MVP1_SECTION_ORDER:
         if section_id not in completed and section_id in (parent.get("section_plans") or {}):
             return section_id
@@ -189,6 +193,11 @@ def _map_section_research_result(
     # Persist blackboard and generate summary for cross-section reference
     blackboard_entries = result.get("blackboard") or []
     if blackboard_entries:
+        # Lift full entries into parent state for run-bundle / visualization
+        existing_blackboards = dict(parent.get("session_blackboards") or {})
+        existing_blackboards[section_id] = list(blackboard_entries)
+        updates["session_blackboards"] = existing_blackboards
+
         report_id = str(parent.get("report_id", ""))
         ticker = str(parent.get("ticker", ""))
         summary = _persist_blackboard_to_store(deps, report_id, section_id, blackboard_entries, ticker)

@@ -5,6 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 
+def section_loop_router(state: dict[str, Any]) -> str:
+    """After pick_next_section: research active section or end (never re-enter planner)."""
+    if state.get("active_section_id"):
+        return "section_research"
+    return "end"
+
+
 def research_loop_router(state: dict[str, Any]) -> str:
     status = state.get("research_status", "continue")
     iterations = int(state.get("research_iterations", 0))

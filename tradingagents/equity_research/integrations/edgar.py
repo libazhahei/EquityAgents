@@ -328,17 +328,25 @@ class EdgarClient:
                         "tables_summary": {"total": len(tables_index), "by_type": by_type},
                     })
 
+                # Dynamic instruction based on actual available_items
+                form_type = result.get("form", "")
+                items_list = ", ".join(available_items[:5]) if available_items else "none"
+                if len(available_items) > 5:
+                    items_list += f", ... ({len(available_items)} total)"
+                
+                instruction_text = (
+                    f"This is a {form_type or 'unknown'} form filing. "
+                    f"Available items: {items_list}. "
+                    "IMPORTANT: Only use items from the 'available_items' list above. "
+                    "Do NOT assume standard 10-K/10-Q sections exist - check available_items first. "
+                    "Use section='tables' with table_index=N to render tables from the index above."
+                )
+                
                 result.update({
                     "available_items": available_items,
                     "items_preview": items_preview,
                     "has_financials": has_financials,
-                    "instruction": (
-                        "Choose a specific item (e.g. 'mda') or a financial "
-                        "statement (e.g. 'income_statement'). Use section='tables' "
-                        "with table_index=N to render any table from the "
-                        "'tables' index above as markdown, including non-standard "
-                        "ones (ownership, compensation, exhibit index, etc.)."
-                    ),
+                    "instruction": instruction_text,
                 })
                 self._put_section_cached(cache_key, result)
                 return result
@@ -404,6 +412,58 @@ class EdgarClient:
             # ===== 3) Single sub-section: financial statements or narrative item =====
             if section != "full":
                 key = section.lower()
+                form_type = result.get("form", "")
+                
+                # For narrative sections (mda, risk_factors, business), check if they're available
+                # by looking at available_items from TOC or by attempting to find the section
+                narrative_aliases = {
+                    "mda": ["Item 7", "Item 2", "management_discussion"],
+                    "risk_factors": ["Item 1A", "item_1a"],
+                    "business": ["Item 1", "item_1"],
+                }
+                
+                if key in narrative_aliases:
+                    # Get available_items if not already loaded
+                    if 'available_items' not in locals():
+                        available_items = []
+                        if obj is not None:
+                            avail = getattr(obj, "items", [])
+                            if isinstance(avail, (list, tuple)):
+                                available_items = [str(i) for i in avail]
+                    
+                    # Check if any alias for this section is in available_items
+                    # Need to handle both "Item 2" and "Part I, Item 2" formats
+                    aliases = narrative_aliases[key]
+                    has_section = False
+                    for alias in aliases:
+                        # Exact match
+                        if alias in available_items:
+                            has_section = True
+                            break
+                        # Check if alias appears in "Part X, Item Y" format
+                        # Must be careful not to match "Item 2" with "Item 2.02" (8-K)
+                        for item in available_items:
+                            # Check for "Part X, Item Y" format
+                            if item.endswith(f", {alias}"):
+                                has_section = True
+                                break
+                            # Check for exact "Item Y" at the end (with word boundary)
+                            if item.endswith(alias) and (len(item) == len(alias) or item[-len(alias)-1] in [',', ' ']):
+                                has_section = True
+                                break
+                        if has_section:
+                            break
+                    
+                    if not has_section and available_items:
+                        return {
+                            "error": f"Section '{section}' is not available in this {form_type} filing. "
+                                     f"This filing has: {', '.join(available_items[:10])}. "
+                                     f"Call section='toc' first to see all available items.",
+                            "section": section,
+                            "form": form_type,
+                            "available_items": available_items,
+                        }
+                
                 fin_keys = {"income_statement", "balance_sheet", "cash_flow", "cash_flow_statement", "cashflow_statement"}
 
                 # --- 3a) structured financials first (XBRL-backed, most reliable) ---
@@ -474,7 +534,68 @@ class EdgarClient:
                             return result
 
                 # --- 3c) narrative sections (business / risk_factors / mda / financial_statements text) ---
-                item_label = self._EXTERNAL_TO_ITEM.get(key)
+                # Check if section is in section key format (e.g., "part_i_item_2")
+                import re
+                
+                # Handle "Part X, Item Y" format (with comma and space) - convert to "part_x_item_y"
+                part_comma_item_match = re.match(r'^part\s+([ivx]+),\s*item\s+(.+)$', key, re.IGNORECASE)
+                if part_comma_item_match:
+                    part = part_comma_item_match.group(1).lower()
+                    item = part_comma_item_match.group(2).strip().lower()
+                    key = f"part_{part}_item_{item}"
+                
+                section_key_match = re.match(r'^part_([ivx]+)_item_(.+)$', key, re.IGNORECASE)
+                if section_key_match:
+                    # Direct lookup by section key
+                    sections = getattr(obj, "sections", {})
+                    if key in sections:
+                        section_obj = sections[key]
+                        markdown_text = ""
+                        table_count = 0
+                        try:
+                            markdown_text = section_obj.markdown() or ""
+                        except Exception:
+                            try:
+                                markdown_text = section_obj.text() or ""
+                            except Exception:
+                                markdown_text = ""
+                        try:
+                            table_count = len(section_obj.tables())
+                        except Exception:
+                            table_count = 0
+                        
+                        if markdown_text:
+                            chunks = self._chunk_text(markdown_text, key)
+                            idx = max(0, min(chunk_index, len(chunks) - 1))
+                            _, chunk_text, _, _ = chunks[idx]
+                            
+                            result.update({
+                                "content": chunk_text,
+                                "content_format": "markdown",
+                                "item": key,
+                                "tables_in_section": table_count,
+                                "chunk_index": idx,
+                                "total_chunks": len(chunks),
+                                "has_more": idx < len(chunks) - 1,
+                            })
+                            self._put_section_cached(cache_key, result)
+                            return result
+                
+                # Check if section is already in "Item X" format
+                item_format_match = re.match(r'^item\s+(.+)$', key, re.IGNORECASE)
+                if item_format_match:
+                    # Extract the item number/letter (e.g., "2", "1A", "7")
+                    item_num = item_format_match.group(1).strip()
+                    # Reconstruct as "Item X" (preserve original case for matching)
+                    item_label = f"Item {item_num}"
+                else:
+                    # For narrative aliases, determine the correct Item based on form type
+                    # 10-Q uses Item 2 for MDA, 10-K uses Item 7
+                    if key == "mda" and form_type == "10-Q":
+                        item_label = "Item 2"
+                    else:
+                        item_label = self._EXTERNAL_TO_ITEM.get(key)
+                
                 if item_label:
                     section_obj = self._find_section_by_item(obj, item_label)
                     markdown_text = ""
@@ -516,6 +637,24 @@ class EdgarClient:
                         })
                         self._put_section_cached(cache_key, result)
                         return result
+                    else:
+                        # Section not found or empty - return error
+                        # Get available_items for better error message
+                        if 'available_items' not in locals():
+                            available_items = []
+                            if obj is not None:
+                                avail = getattr(obj, "items", [])
+                                if isinstance(avail, (list, tuple)):
+                                    available_items = [str(i) for i in avail]
+                        
+                        return {
+                            "error": f"Section '{section}' is not available in this {form_type} filing. "
+                                     f"This filing has: {', '.join(available_items[:10])}. "
+                                     f"Call section='toc' first to see all available items.",
+                            "section": section,
+                            "form": form_type,
+                            "available_items": available_items,
+                        }
 
             # ===== 4) Legacy fallback (unchanged) =====
             if section == "full":

@@ -8,6 +8,7 @@ from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.nodes.executor import create_executor_node
 from tradingagents.equity_research.runtime.nodes.planner import create_planner_node
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
+from tradingagents.equity_research.runtime.utils.llm_resolve import resolve_research_llm
 from tradingagents.equity_research.runtime.utils.search_memory import (
     build_search_memory_for_prompt,
     format_search_memory,
@@ -46,7 +47,7 @@ def create_assumption_query_planner(deps: EquityResearchDeps, task_profile: Task
         try:
             prompt = task_profile.build_assumption_planner_prompt(deps, state)
             plan = invoke_structured_with_retry(
-                deps.deep_llm,
+                resolve_research_llm(deps, "deep"),
                 QueryPlan,
                 prompt,
                 agent_name="assumption_query_planner",
@@ -136,7 +137,7 @@ def create_assumption_synthesizer(deps: EquityResearchDeps, task_profile: TaskPr
 
                 try:
                     assumptions = invoke_structured_with_retry(
-                        deps.quick_llm,
+                        resolve_research_llm(deps, "quick"),
                         assumptions_schema,
                         prompt,
                         agent_name="assumption_synthesizer",

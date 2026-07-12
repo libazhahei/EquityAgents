@@ -1,0 +1,10 @@
+{
+  "human_review_1": {
+    "consensus_view": {},
+    "assumption_view": {}
+  },
+  "human_review_2": {
+    "section_plans": {},
+    "selected_section_ids": ["3_business_model"]
+  }
+}

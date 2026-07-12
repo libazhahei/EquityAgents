@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Manual CLI demo for the section question tree planner."""
+"""Manual CLI demo for the section question tree planner.
+
+For the full parent spine with durable checkpoints, see demo_equity_research.py.
+"""
 
 from __future__ import annotations
 

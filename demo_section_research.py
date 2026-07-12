@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Manual CLI for section research subgraph."""
+"""Manual CLI for section research subgraph.
+
+For the full parent spine with durable checkpoints, see demo_equity_research.py.
+"""
 
 from __future__ import annotations
 
@@ -189,11 +192,23 @@ def main(argv: list[str] | None = None) -> int:
         default="wrapper",
         help="wrapper: seed+map; subgraph: direct invoke",
     )
+    parser.add_argument(
+        "--quick-research",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override equity_research.quick_research (default: config / env). "
+        "When on, deep-tier calls use quick_llm.",
+    )
     args = parser.parse_args(argv)
 
     config = DEFAULT_CONFIG.copy()
-    # config.update({"quick_research": "false"})
+    if args.quick_research is not None:
+        config.setdefault("equity_research", {})["quick_research"] = bool(args.quick_research)
     deps = _build_deps(config)
+    logger.info(
+        "quick_research=%s",
+        config.get("equity_research", {}).get("quick_research"),
+    )
 
     state = empty_equity_research_state()
     state.update({

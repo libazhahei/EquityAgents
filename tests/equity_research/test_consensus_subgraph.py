@@ -131,7 +131,8 @@ def _mock_deps(
     structured_invoke._RUNNABLE_CACHE.clear()
 
     deps = MagicMock()
-    deps.config = {"equity_research": {}}
+    # Keep deep_llm path in unit tests (production default quick_research=True remaps deep→quick).
+    deps.config = {"equity_research": {"quick_research": False}}
     deps.trace.return_value = {}
     deps.perplexity.api_key = "test-key"
     deps.perplexity.search.return_value = {
@@ -143,6 +144,8 @@ def _mock_deps(
     compact_resp = MagicMock()
     compact_resp.content = "compacted text"
     deps.quick_llm.invoke.return_value = compact_resp
+    # nano fallback used by compact/search_memory helpers
+    deps.nano_llm = deps.quick_llm
 
     _mock_skill_bind_tools(deps, skill_names)
 
@@ -150,6 +153,7 @@ def _mock_deps(
         _bind_structured_mock(deps.quick_llm, SkillSelectionResult, skill_result)
     if planner_result is not None:
         _bind_structured_mock(deps.deep_llm, QueryPlan, planner_result)
+        _bind_structured_mock(deps.quick_llm, QueryPlan, planner_result)
     if synthesizer_result is not None:
         _bind_structured_mock(deps.quick_llm, ConsensusViewUpdate, synthesizer_result)
     if reflector_result is not None:

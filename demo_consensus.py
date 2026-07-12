@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Manual CLI demo for the consensus research subgraph."""
+"""Manual CLI demo for the consensus research subgraph.
+
+For the full parent spine (consensus → assumption → HR → planner → section
+research) with durable checkpoints, see demo_equity_research.py.
+"""
 
 from __future__ import annotations
 
@@ -37,10 +41,17 @@ def _build_deps(config: dict) -> EquityResearchDeps:
         base_url=config.get("backend_url"),
         **llm_kwargs,
     )
+    nano_client = create_llm_client(
+        provider=config["llm_provider"],
+        model=config.get("nano_think_llm", "gpt-5.4-nano"),
+        base_url=config.get("backend_url"),
+        **llm_kwargs,
+    )
     return EquityResearchDeps(
         config=config,
         deep_llm=deep_client.get_llm(),
         quick_llm=quick_client.get_llm(),
+        nano_llm=nano_client.get_llm(),
     )
 
 
@@ -78,10 +89,23 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="After consensus subgraph, run ASSUMPTION_TASK_PROFILE",
     )
+    parser.add_argument(
+        "--quick-research",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override equity_research.quick_research (default: config / env). "
+        "When on, deep-tier planner calls use quick_llm.",
+    )
     args = parser.parse_args(argv)
 
     config = DEFAULT_CONFIG.copy()
+    if args.quick_research is not None:
+        config.setdefault("equity_research", {})["quick_research"] = bool(args.quick_research)
     deps = _build_deps(config)
+    logger.info(
+        "quick_research=%s",
+        config.get("equity_research", {}).get("quick_research"),
+    )
 
     if not getattr(deps.perplexity, "api_key", None):
         logger.warning("PERPLEXITY_API_KEY not set — searches may fail")

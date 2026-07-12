@@ -267,16 +267,30 @@ def _resolve_section_param(section: str | None, target: str) -> str:
     * ``"toc"``                → ``"toc"``
     * ``"tables"``             → ``"tables"``
     * ``"full"``               → ``"full"``
+    * ``"Part I, Item 2"``     → ``"Item 2"``    (extract Item from Part-qualified format)
     """
     if section is None or section == "full":
         return target if target else "full"
-    s = section.strip().lower()
+    s = section.strip()
+    s_lower = s.lower()
+    
+    # Handle "Part X, Item Y" format - convert to section key format
+    # Examples: "Part I, Item 2" -> "part_i_item_2", "Part II, Item 1A" -> "part_ii_item_1a"
+    import re
+    part_item_match = re.match(r'^Part\s+([IVX]+),\s*Item\s+(.+)$', s, re.IGNORECASE)
+    if part_item_match:
+        part = part_item_match.group(1).lower()  # "I" -> "i", "II" -> "ii"
+        item = part_item_match.group(2).strip().lower()  # "2" -> "2", "1A" -> "1a"
+        # Return in section key format: "part_i_item_2"
+        return f"part_{part}_item_{item}"
+    
+    s_lower = s.lower()
     # Direct passes-through — these are handled natively by EdgarClient
     allowed = {"toc", "full", "financial_statements", "income_statement",
                "balance_sheet", "cash_flow", "mda", "risk_factors",
                "business", "tables"}
-    if s in allowed:
-        return s
+    if s_lower in allowed:
+        return s_lower
     # Common aliases → canonical names
     alias_map: dict[str, str] = {
         "item_7": "mda",
@@ -295,7 +309,7 @@ def _resolve_section_param(section: str | None, target: str) -> str:
         "statements": "financial_statements",
         "statement": "financial_statements",
     }
-    canonical = alias_map.get(s)
+    canonical = alias_map.get(s_lower)
     if canonical:
         return canonical
     # Fallback: pass through as-is and let EdgarClient handle unknowns

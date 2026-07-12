@@ -7,6 +7,7 @@ from typing import Any
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.exploration_graph import ExplorationGraph
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
+from tradingagents.equity_research.runtime.utils.llm_resolve import resolve_research_llm
 from tradingagents.equity_research.runtime.utils.reflector_routing import (
     TERMINAL_LIMITED_GAP_LABELS,
     should_force_exit_on_terminal_gaps,
@@ -154,7 +155,7 @@ def create_reflector_node(deps: EquityResearchDeps, task_profile: TaskProfile):
 
             try:
                 evaluation = invoke_structured_with_retry(
-                    deps.quick_llm,
+                    resolve_research_llm(deps, "quick"),
                     task_profile.coverage_eval_schema,
                     prompt,
                     agent_name=f"{task_profile.task_id}_coverage_reflector",
