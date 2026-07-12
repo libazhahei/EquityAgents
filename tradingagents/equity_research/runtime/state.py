@@ -14,6 +14,7 @@ from tradingagents.equity_research.runtime.reducers import (
     fact_store_reducer,
     pending_evidence_reducer,
 )
+from tradingagents.equity_research.state.blackboard import blackboard_reducer
 
 
 class AgentState(TypedDict, total=False):
@@ -89,6 +90,7 @@ class AgentState(TypedDict, total=False):
     bfs_wave_index: int
     bfs_levels: list[list[str]]
     executor_context_snapshot: str
+    question_iterations: dict[str, int]  # per-question reflector cycle counts
 
     # Parameter registry (ParameterPreservingReducer)
     parameter_registry: dict[str, Any]
@@ -100,6 +102,9 @@ class AgentState(TypedDict, total=False):
     evidence_ledger: list[dict]
     claim_ledger: list[dict]
     memory_reflections: list[dict]
+
+    # Session blackboard — shared notes within a single section research session
+    blackboard: Annotated[list[dict], blackboard_reducer]
 
 
 def empty_agent_state(
@@ -152,4 +157,7 @@ def empty_agent_state(
         # Parameter registry — initialised empty
         "parameter_registry": {"parameters": {}, "dimensions": []},
         "parameter_grid": "",
+        # Session blackboard — initialised empty
+        "blackboard": [],
+        "question_iterations": {},
     }

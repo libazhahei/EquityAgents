@@ -30,6 +30,10 @@ from tradingagents.equity_research.storage.in_memory import (
     InMemoryTraceStore,
 )
 from tradingagents.equity_research.storage.trace_store import TraceStore
+from tradingagents.equity_research.storage.blackboard_store import (
+    BlackboardStore,
+    InMemoryBlackboardStore,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +76,7 @@ class EquityResearchDeps:
     redis: RedisClient = field(default_factory=lambda: RedisClient())
     info_sources: InfoSourceRegistry = field(default_factory=default_registry)
     rag: RAGService | None = None
+    blackboard_store: Any = None  # BlackboardStore or InMemoryBlackboardStore
     _use_memory: bool = False
 
     def __post_init__(self):
@@ -83,12 +88,19 @@ class EquityResearchDeps:
             self.facts = InMemoryFactStore()
             self.traces = InMemoryTraceStore()
             self.ledgers = InMemoryLedgerStore()
+            self.blackboard_store = InMemoryBlackboardStore()
         else:
             self.documents = _try_postgres_store(DocumentRegistry, InMemoryDocumentRegistry, self.config)
             self.evidence = _try_postgres_store(EvidenceStore, InMemoryEvidenceStore, self.config)
             self.facts = _try_postgres_store(FactStore, InMemoryFactStore, self.config)
             self.traces = _try_postgres_store(TraceStore, InMemoryTraceStore, self.config)
             self.ledgers = _try_postgres_store(LedgerStore, InMemoryLedgerStore, self.config)
+            # Initialize blackboard store
+            try:
+                self.blackboard_store = BlackboardStore(self.config)
+            except Exception as exc:
+                logger.warning("BlackboardStore init failed (%s); using in-memory", exc)
+                self.blackboard_store = InMemoryBlackboardStore()
         redis_cfg = {**self.config, "equity_research_use_memory": self._use_memory}
         self.redis = RedisClient(redis_cfg)
         er = self.config.get("equity_research", {})

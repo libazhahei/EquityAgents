@@ -7,6 +7,7 @@ import uuid
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from tradingagents.equity_research.state.blackboard import format_blackboard_for_prompt
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
@@ -405,7 +406,7 @@ def _resolve_active_task_step(state: dict[str, Any]) -> tuple[dict[str, Any] | N
 
     next_todo = get_next_research_todo(state)
     item = next_todo.get("next_item")
-    if not item:
+    if not isinstance(item, dict):
         return None, None
 
     plan_raw = state.get("research_plan") or {}
@@ -484,6 +485,12 @@ def create_section_executor_dispatch_node(
         llm = resolve_research_llm(deps, "deep").bind_tools(tools)
         if not messages or isinstance(messages[-1], ToolMessage):
             system = build_prompt(state, step_action) if build_prompt else ""
+            # Inject blackboard context for executor
+            bb = state.get("blackboard") or []
+            if bb:
+                bb_text = format_blackboard_for_prompt(bb, max_items=6, max_chars=1000, section_id=state.get("section_id"))
+                if bb_text:
+                    system = (system + "\n\n" + bb_text) if system else bb_text
             
             # Build group hint with action-specific guidance
             group_hint = (

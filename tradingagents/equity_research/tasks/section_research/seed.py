@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import uuid
 from typing import Any
 
@@ -79,21 +78,24 @@ def compute_dynamic_max_iterations(
     recursion_limit: int,
     profile_default: int,
 ) -> int:
-    """Compute max_iterations dynamically based on plan size and LangGraph budget.
+    """Compute per-question max_iterations based on LangGraph recursion budget.
 
-    Each research iteration consumes ~16 LangGraph transitions (executor dispatch,
-    tool calls, apply, synthesizer, reflector). The init overhead is ~6 transitions.
-    We estimate 3 plan steps per question and add a 20% buffer, then cap at the
-    safe ceiling derived from the recursion limit.
+    max_iterations is now a PER-QUESTION budget. Each question can run up to
+    max_iterations reflector cycles independently. The total transitions consumed
+    in the worst case is:
+        init_overhead + max_iterations * num_questions * transitions_per_iteration
+    We cap max_iterations so this stays within the recursion limit, while keeping
+    at least profile_default iterations per question.
     """
-    estimated_steps = num_questions * _estimate_steps_per_question()
-    estimated_iterations = int(math.ceil(estimated_steps * 1.2))
-    safe_ceiling = max(
-        5,
-        (recursion_limit - _init_transition_overhead()) // _transitions_per_iteration(),
+    effective_questions = max(1, num_questions)
+    per_question_ceiling = max(
+        profile_default,
+        (recursion_limit - _init_transition_overhead())
+        // (effective_questions * _transitions_per_iteration()),
     )
-    result = max(profile_default, estimated_iterations)
-    return min(result, safe_ceiling)
+    # Use profile_default as the baseline per-question budget, but never exceed
+    # the recursion-limit-derived ceiling.
+    return max(profile_default, min(profile_default, per_question_ceiling))
 
 
 def seed_section_research_state(
@@ -158,6 +160,10 @@ def seed_section_research_state(
         "consensus_report": parent.get("consensus_report", ""),
         "assumption_report": parent.get("assumption_report", ""),
         "section_plan": plan_data,
+        "prior_session_summaries": [
+            s for s in (parent.get("session_blackboard_summaries") or [])
+            if s.get("section_id") != section_id
+        ],
     }
     subgraph_input["research_objective"] = (
         f"Section research: {brief.section_title} — {brief.root_question[:200]}"

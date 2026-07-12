@@ -11,6 +11,10 @@ from tradingagents.equity_research.runtime.utils.structured_invoke import (
     StructuredOutputUnsupported,
     invoke_structured_with_retry,
 )
+from tradingagents.equity_research.state.blackboard import (
+    BlackboardEntry,
+    extract_tags_from_text,
+)
 from tradingagents.equity_research.tasks.section_research.merge import (
     collect_evidence_for_question,
     enforce_structured_answer_requirements,
@@ -19,6 +23,62 @@ from tradingagents.equity_research.tasks.section_research.merge import (
 
 def _max_retries(deps: EquityResearchDeps) -> int:
     return int(deps.config.get("equity_research", {}).get("structured_output_max_retries", 3))
+
+
+def _extract_blackboard_entries_from_evidence(
+    state: dict[str, Any],
+    pending: list[dict],
+    iteration: int,
+) -> list[dict]:
+    """Extract blackboard entries from evidence that may be useful across questions.
+
+    After merging evidence into structured_view, some evidence may contain
+    interesting findings that don't fit neatly into the current dimension/question
+    but could be valuable for other questions in the section.
+    """
+    entries: list[dict] = []
+    section_id = state.get("section_id", "")
+    active_task = state.get("active_task") or {}
+    current_qid = str(active_task.get("question_id") or "")
+
+    for ev in pending:
+        if not isinstance(ev, dict):
+            continue
+        snippet = str(ev.get("snippet") or ev.get("quote") or ev.get("content") or "")
+        if not snippet or len(snippet) < 20:
+            continue
+
+        # Check if evidence has cross-question potential
+        # Evidence with broad findings or unexpected data points
+        ev_qid = str(ev.get("question_id") or ev.get("target_dimension") or "")
+        is_cross = ev_qid != current_qid and ev_qid != "general"
+
+        # Determine entry type
+        entry_type = "cross_question" if is_cross else "finding"
+
+        # Extract tags from content
+        tags = extract_tags_from_text(snippet)
+
+        # Build content summary
+        content = snippet[:300] if len(snippet) > 300 else snippet
+        source = ev.get("source_type") or ev.get("source") or ""
+        if source:
+            content = f"{content} (source: {source})"
+
+        entry = BlackboardEntry(
+            section_id=section_id,
+            question_id=current_qid or None,
+            source_node="synthesizer",
+            entry_type=entry_type,
+            content=content,
+            tags=tags,
+            confidence=float(ev.get("reliability_score", 0.5)),
+            created_at_iteration=iteration,
+            related_evidence_ids=[str(ev.get("evidence_id", ""))] if ev.get("evidence_id") else [],
+        )
+        entries.append(entry.model_dump())
+
+    return entries
 
 
 def create_synthesizer_node(deps: EquityResearchDeps, task_profile: TaskProfile):
@@ -97,6 +157,14 @@ def create_synthesizer_node(deps: EquityResearchDeps, task_profile: TaskProfile)
                 )
             if task_profile.task_id == "consensus":
                 updates["consensus_view"] = view.model_dump()
+
+            # Auto-write blackboard entries from evidence
+            if pending and task_profile.task_id == "section_research":
+                iteration = int(state.get("iterations", 0))
+                bb_entries = _extract_blackboard_entries_from_evidence(state, pending, iteration)
+                if bb_entries:
+                    updates["blackboard"] = bb_entries
+
             updates.update(deps.trace({**state, **updates}, f"{task_profile.task_id}_synthesizer"))
             return updates
         except Exception as exc:

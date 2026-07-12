@@ -215,6 +215,7 @@ class EquityResearchState(TypedDict, total=False):
     final_report: str | None
     cross_branch_discoveries: list[dict]
     research_traces: list[dict]
+    session_blackboard_summaries: list[dict]  # [{"section_id": "...", "summary": "..."}]
     review_findings: list[dict]
     data_quality_flags: list[dict]
     compliance_flags: list[dict]

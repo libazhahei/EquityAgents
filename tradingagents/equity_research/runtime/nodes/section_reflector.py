@@ -34,31 +34,132 @@ def _max_retries(deps: EquityResearchDeps) -> int:
     return int(deps.config.get("equity_research", {}).get("structured_output_max_retries", 3))
 
 
+# ---------------------------------------------------------------------------
+# Per-question iteration helpers
+# ---------------------------------------------------------------------------
+
+def _get_question_iterations(state: dict[str, Any]) -> dict[str, int]:
+    """Return the current per-question iteration counters."""
+    return dict(state.get("question_iterations") or {})
+
+
+def _active_question_ids(state: dict[str, Any]) -> set[str]:
+    """Return question IDs that have pending work (tasks, steps, or todos)."""
+    qids: set[str] = set()
+    # From research_plan
+    plan_raw = state.get("research_plan") or {}
+    if plan_raw:
+        from tradingagents.equity_research.tasks.section_research.schemas import SectionResearchPlan
+        plan = SectionResearchPlan.model_validate(plan_raw)
+        for task in plan.tasks:
+            if task.status in ("pending", "in_progress"):
+                qids.add(task.question_id)
+            for step in task.steps:
+                if step.status in ("pending", "in_progress"):
+                    qids.add(task.question_id)
+    # From todo list
+    todo_raw = state.get("research_todo_list") or {}
+    if todo_raw:
+        todo = ResearchTodoList.model_validate(todo_raw)
+        for item in todo.items:
+            if item.status in ("pending", "in_progress") and item.question_id:
+                qids.add(item.question_id)
+    return qids
+
+
+def _question_has_budget(state: dict[str, Any], question_id: str) -> bool:
+    """True when a specific question still has iteration budget remaining."""
+    max_iter = int(state.get("max_iterations", 5))
+    q_iters = _get_question_iterations(state)
+    return q_iters.get(question_id, 0) < max_iter
+
+
+def _any_active_question_has_budget(state: dict[str, Any]) -> bool:
+    """True when at least one active question still has iteration budget."""
+    active_qids = _active_question_ids(state)
+    if not active_qids:
+        return False
+    return any(_question_has_budget(state, qid) for qid in active_qids)
+
+
+def _questions_exhausted(state: dict[str, Any]) -> bool:
+    """True when ALL active questions have exhausted their per-question budget."""
+    active_qids = _active_question_ids(state)
+    if not active_qids:
+        # No pending work — not exhausted, just no active questions
+        # Let the LLM recommendation or other logic decide
+        return False
+    return all(not _question_has_budget(state, qid) for qid in active_qids)
+
+
+def _increment_question_iterations(state: dict[str, Any]) -> dict[str, int]:
+    """Increment per-question counters for active questions. Returns updated dict."""
+    q_iters = _get_question_iterations(state)
+    for qid in _active_question_ids(state):
+        q_iters[qid] = q_iters.get(qid, 0) + 1
+    return q_iters
+
+
+def _min_remaining_budget(state: dict[str, Any]) -> int:
+    """Minimum remaining budget across active questions (0 if all exhausted)."""
+    max_iter = int(state.get("max_iterations", 5))
+    q_iters = _get_question_iterations(state)
+    active_qids = _active_question_ids(state)
+    if not active_qids:
+        return 0
+    return max(0, min(max_iter - q_iters.get(qid, 0) for qid in active_qids))
+
+
+def _max_used_budget(state: dict[str, Any]) -> int:
+    """Maximum iterations used by any single question."""
+    q_iters = _get_question_iterations(state)
+    if not q_iters:
+        return 0
+    return max(q_iters.values())
+
+
+
 def section_reflector_router(state: dict[str, Any]) -> str:
     report = state.get("coverage_report") or {}
     action = report.get("recommended_next_action", "exit")
-    iterations = int(state.get("iterations", 0))
-    max_iter = int(state.get("max_iterations", 5))
+    has_pending = has_pending_tasks_or_steps(state)
 
+    # Per-question budget replaces the old global iterations check
+    has_budget = _any_active_question_has_budget(state)
+    all_exhausted = _questions_exhausted(state)
+
+    # 1. needs_human — always goes to human review
     if action == "needs_human":
         return "needs_human"
 
-    if has_pending_tasks_or_steps(state):
+    # 2. Pending-tasks-and-budget hard guard: when any question has budget,
+    #    always execute pending work regardless of LLM exit signal
+    if has_budget and has_pending:
         return "run_existing_queue"
 
-    if iterations >= max_iter:
+    # 3. All active questions exhausted — hard limit
+    if all_exhausted:
         return "exit"
 
-    if report.get("routing_decision") == "exit" or action == "exit":
+    # 4. Respect LLM recommendation for other actions
+    if action == "exit":
         return "exit"
 
+    if action == "plan_more":
+        return "plan_more"
+
+    if action == "run_existing_queue":
+        return "run_existing_queue"
+
+    # 5. Fallback heuristics for robustness
     if wave_complete(state) and has_next_bfs_wave(state):
         return "plan_more"
 
     if report.get("critical_gaps"):
         return "plan_more"
 
-    if iterations <= 1:
+    # First reflector pass — always plan more to bootstrap
+    if _max_used_budget(state) <= 1:
         return "plan_more"
 
     return "exit"
@@ -114,6 +215,11 @@ def create_section_reflector_node(deps: EquityResearchDeps, task_profile: TaskPr
     def reflector(state: dict[str, Any]) -> dict[str, Any]:
         errors = list(state.get("errors", []))
         iterations = int(state.get("iterations", 0)) + 1
+        
+        # Compute per-question iteration updates early for budget decisions
+        new_question_iterations = _increment_question_iterations(state)
+        has_budget = _any_active_question_has_budget(state)
+        
         try:
             raw_view = state.get("structured_view") or {}
             if raw_view:
@@ -141,13 +247,15 @@ def create_section_reflector_node(deps: EquityResearchDeps, task_profile: TaskPr
             max_iter = int(state.get("max_iterations", task_profile.max_iterations))
             pending = _count_pending_tasks_steps(state)
             pending_todo_items = _count_pending_todo_items(state)
+            min_remaining = _min_remaining_budget(state)
             iteration_budget = {
                 "current": iterations,
                 "max": max_iter,
-                "remaining": max(0, max_iter - iterations),
+                "remaining": min_remaining,
                 "pending_tasks": pending["tasks"],
                 "pending_steps": pending["steps"],
                 "pending_todo_items": pending_todo_items,
+                "question_iterations": new_question_iterations,
             }
             user_prompt = build_reflector_user_prompt(
                 deps,
@@ -190,10 +298,11 @@ def create_section_reflector_node(deps: EquityResearchDeps, task_profile: TaskPr
             from tradingagents.equity_research.tasks.section_research.schemas import PlanCompletion
             report.plan_completion = PlanCompletion.model_validate(plan_completion)
 
-            max_iter = int(state.get("max_iterations", task_profile.max_iterations))
             availability = _data_availability_signal(view)
             availability_retry_count = int(state.get("_data_availability_retry_count", 0))
-            if pending_todo_items > 0 and iterations < max_iter:
+            
+            # Use per-question budget for decisions
+            if pending_todo_items > 0 and has_budget:
                 report.recommended_next_action = "run_existing_queue"
                 report.routing_decision = "continue"
                 report.data_quality_issues.append({
@@ -201,10 +310,10 @@ def create_section_reflector_node(deps: EquityResearchDeps, task_profile: TaskPr
                     "severity": "low",
                     "message": f"{pending_todo_items} todo items still pending/in_progress.",
                 })
-            elif has_pending_tasks_or_steps(state) and iterations < max_iter:
+            elif has_pending_tasks_or_steps(state) and has_budget:
                 report.recommended_next_action = "run_existing_queue"
                 report.routing_decision = "continue"
-            elif iterations >= max_iter and not has_pending_tasks_or_steps(state):
+            elif not has_budget and not has_pending_tasks_or_steps(state):
                 report.recommended_next_action = "exit"
                 report.routing_decision = "exit"
             elif (
@@ -220,7 +329,7 @@ def create_section_reflector_node(deps: EquityResearchDeps, task_profile: TaskPr
             # Data-availability gate:
             # - If required data appears obtainable but missing, force one extra cycle.
             # - If still missing after one retry, allow exit only when plan is complete.
-            if availability["obtainable_missing_cards"] > 0 and iterations < max_iter:
+            if availability["obtainable_missing_cards"] > 0 and has_budget:
                 if availability_retry_count < 1:
                     report.recommended_next_action = (
                         "run_existing_queue" if has_pending_tasks_or_steps(state) else "plan_more"
@@ -268,6 +377,7 @@ def create_section_reflector_node(deps: EquityResearchDeps, task_profile: TaskPr
                 "structured_view": view.model_dump(),
                 "answer_cards": answer_cards,
                 "iterations": iterations,
+                "question_iterations": new_question_iterations,
                 "unresolved_gaps": [g.get("gap", str(g)) for g in report.critical_gaps],
                 "status": "sufficient" if report.recommended_next_action == "exit" else "continue",
                 "_data_availability_retry_count": (
@@ -289,6 +399,7 @@ def create_section_reflector_node(deps: EquityResearchDeps, task_profile: TaskPr
             return {
                 "errors": errors,
                 "iterations": iterations,
+                "question_iterations": new_question_iterations,
                 "coverage_report": {
                     "recommended_next_action": "exit",
                     "routing_decision": "exit",

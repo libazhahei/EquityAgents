@@ -113,6 +113,16 @@ def build_initial_plan_prompt(deps: EquityResearchDeps, state: dict[str, Any]) -
     bfs_levels_data = state.get("bfs_levels") or []
     questions_block = _format_questions_context(brief)
     skills_block = _build_active_skills_block(deps, skills)
+    # Inject prior session summaries from blackboard
+    prior_summaries = (state.get("parent_context") or {}).get("prior_session_summaries") or []
+    prior_block = ""
+    if prior_summaries:
+        lines = []
+        for s in prior_summaries[:5]:
+            sid = s.get("section_id", "")
+            summary = s.get("summary", "")[:200]
+            lines.append(f"- Section {sid}: {summary}")
+        prior_block = "\nPrior section research summaries (from earlier sections):\n" + "\n".join(lines) + "\n"
     return f"""
 You are a senior equity research planner. Build a concise research plan for one report section.
     
@@ -136,6 +146,7 @@ Assumption context:
 {_format_assumption_context(deps, brief)}
 
 {skills_block}
+{prior_block}
 
 For each priority question in the current BFS wave, output a task with:
 - task_id, question_id
@@ -328,17 +339,33 @@ def build_reflector_user_prompt(
     pending_tasks = budget.get("pending_tasks", 0)
     pending_steps = budget.get("pending_steps", 0)
     pending_todo_items = budget.get("pending_todo_items", 0)
+    question_iterations = budget.get("question_iterations", {})
+    # Per-question budget summary
+    q_lines = []
+    for qid, used in sorted(question_iterations.items()):
+        q_rem = max(0, max_iter - used)
+        q_lines.append(f"  {qid}: {used}/{max_iter} (remaining {q_rem})")
+    q_block = "\n".join(q_lines) if q_lines else "  (no question iterations yet)"
     budget_block = (
-        f"\n── Iteration Budget ──\n"
-        f"Iteration budget: {current_iter}/{max_iter} completed, "
-        f"{remaining} remaining. "
+        f"\n── Iteration Budget (per-question) ──\n"
+        f"Max iterations per question: {max_iter}. "
+        f"Global reflector passes: {current_iter}. "
+        f"Min remaining across active questions: {remaining}.\n"
+        f"Per-question usage:\n{q_block}\n"
         f"Pending plan: {pending_tasks} tasks, {pending_steps} steps. "
         f"Pending todo items: {pending_todo_items}.\n"
     )
-    if remaining <= 1:
+    if remaining <= 0:
         budget_block += (
-            "\u26a0 CRITICAL BUDGET: You must recommend exit unless all required "
-            "coverage outputs are already satisfied. Consolidate what you have.\n"
+            "\u26a0 CRITICAL BUDGET: All active questions exhausted their iteration budget. "
+            "You must recommend exit unless all required coverage outputs are already satisfied. "
+            "Consolidate what you have.\n"
+        )
+    elif remaining <= 1:
+        budget_block += (
+            "\u26a0 CRITICAL BUDGET: At least one question has only 1 iteration left. "
+            "You must recommend exit unless all required coverage outputs are already satisfied. "
+            "Consolidate what you have.\n"
         )
     elif remaining <= 2:
         budget_block += (

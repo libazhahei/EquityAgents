@@ -8,11 +8,28 @@ from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
 from tradingagents.equity_research.runtime.utils.dedupe import similarity
 from tradingagents.equity_research.runtime.utils.structured_invoke import invoke_structured_with_retry
+from tradingagents.equity_research.state.blackboard import format_blackboard_for_prompt
 from tradingagents.equity_research.state.consensus_schemas import QueryItem, QueryPlan
 
 
 def _max_retries(deps: EquityResearchDeps) -> int:
     return int(deps.config.get("equity_research", {}).get("structured_output_max_retries", 3))
+
+
+def _inject_blackboard_into_prompt(prompt: str, state: dict[str, Any]) -> str:
+    """Append blackboard context to a planner prompt if entries exist."""
+    blackboard = state.get("blackboard") or []
+    if not blackboard:
+        return prompt
+    bb_text = format_blackboard_for_prompt(
+        blackboard,
+        max_items=8,
+        max_chars=1200,
+        section_id=state.get("section_id"),
+    )
+    if not bb_text:
+        return prompt
+    return prompt + "\n\n" + bb_text
 
 
 def create_planner_node(
@@ -50,6 +67,10 @@ def create_planner_node(
         ticker = state.get("ticker", "")
         try:
             prompt = prompt_builder(deps, state)
+
+            # Inject blackboard context for section research
+            if task_profile.task_id == "section_research":
+                prompt = _inject_blackboard_into_prompt(prompt, state)
 
             def _fallback() -> QueryPlan:
                 if fallback_plan:

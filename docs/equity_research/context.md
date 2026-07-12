@@ -210,3 +210,33 @@ Agent 级 skill 可见性可通过 `equity_research.agent_skills.{agent_id}` 覆
 | 新增 prompt 注入块 | 在对应 `prompt_format.py` 或 `rd_agent.py` 增加 formatter；超长块走 `compact_if_needed` |
 | 调整 context 预算 | 优先通过 config 键覆盖；硬编码上限应集中在 formatter 默认参数中 |
 | 自定义 skill 选择 prompt | 向 `create_skill_selector_agent` 传入 `prompt_builder` 回调 |
+
+---
+
+## 9. Session Blackboard 注入
+
+Session Blackboard 是单 section research session 内的跨节点共享笔记板，允许 planner/executor/synthesizer/reflector 共享中间态发现。
+
+### 9.1 注入时机与内容
+
+| 节点 | 注入时机 | 注入内容 |
+|------|----------|----------|
+| Section Planner (initial) | `prompt_builder()` 之后 | 最近 8 条 blackboard entries（≤1200 字符） |
+| Section Planner (loop) | `prompt_builder()` 之后 | 同上 |
+| Section Executor | system prompt 构建后 | 最近 6 条 entries（≤1000 字符） |
+| Section Reflector | reflector prompt 构建后 | 最近 8 条 entries（≤1200 字符） |
+| Initial Planner (prior sessions) | prompt 构建时 | 前序 section 的 blackboard 摘要 |
+
+### 9.2 注入格式
+
+```markdown
+## Session Blackboard (Recent Insights)
+- [finding, iter=2] NVDA data center revenue +40% YoY (tags: revenue, growth)
+- [contradiction, iter=2] Gross margin: 10-K says 72%, call says ~73% (tags: margin)
+```
+
+### 9.3 与前序 Session 摘要的关系
+
+后续 section 的 planner 会看到前序 section 的 blackboard 摘要（由 LLM 生成，≤500 字符/section），注入到 `build_initial_plan_prompt()` 的 "Prior section research summaries" 部分。这使 planner 能避免重复研究并利用前序发现。
+
+详见 [Memory 文档 §5](memory.md#5-session-blackboard单-session-共享笔记板)。

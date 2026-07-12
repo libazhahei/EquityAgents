@@ -34,6 +34,82 @@ def _pick_section_id(parent: dict[str, Any]) -> str:
     return MVP1_SECTION_ORDER[0]
 
 
+def _generate_blackboard_summary(
+    deps: EquityResearchDeps,
+    blackboard_entries: list[dict],
+    section_id: str,
+    ticker: str,
+) -> str:
+    """Generate a concise summary of blackboard entries using quick_llm.
+
+    The summary captures key findings, contradictions, and methodology insights
+    from the session for later sections to reference.
+    """
+    if not blackboard_entries:
+        return ""
+
+    # Format entries for the prompt
+    entries_text = []
+    for entry in blackboard_entries[:30]:  # Cap at 30 entries
+        entry_type = entry.get("entry_type", "finding")
+        content = entry.get("content", "")
+        tags = entry.get("tags", [])
+        tags_str = f" [{', '.join(tags[:3])}]" if tags else ""
+        entries_text.append(f"- [{entry_type}]{tags_str} {content}")
+
+    entries_block = "\n".join(entries_text)
+
+    prompt = (
+        f"Summarize the key research insights from the {section_id} section for ticker {ticker}.\n"
+        f"Focus on: critical findings, contradictions discovered, methodology notes, "
+        f"and cross-section hints.\n"
+        f"Keep the summary under 500 characters.\n\n"
+        f"Session blackboard entries:\n{entries_block}\n\n"
+        f"Summary:"
+    )
+
+    try:
+        response = deps.quick_llm.invoke(prompt)
+        summary = response.content if hasattr(response, "content") else str(response)
+        return summary[:600]  # Hard cap
+    except Exception:
+        # Fallback: simple concatenation of top entries
+        top_entries = [e.get("content", "")[:100] for e in blackboard_entries[:5]]
+        return "Key findings: " + "; ".join(top_entries)
+
+
+def _persist_blackboard_to_store(
+    deps: EquityResearchDeps,
+    report_id: str,
+    section_id: str,
+    blackboard_entries: list[dict],
+    ticker: str,
+) -> str:
+    """Save blackboard to store and generate summary. Returns summary string."""
+    if not blackboard_entries:
+        return ""
+
+    # Save full entries to store
+    store = getattr(deps, "blackboard_store", None)
+    if store is not None:
+        try:
+            store.save_session_blackboard(report_id, section_id, blackboard_entries, ticker=ticker)
+        except Exception:
+            pass
+
+    # Generate summary
+    summary = _generate_blackboard_summary(deps, blackboard_entries, section_id, ticker)
+
+    # Save summary to store
+    if store is not None and summary:
+        try:
+            store.save_session_summary(report_id, section_id, summary)
+        except Exception:
+            pass
+
+    return summary
+
+
 def _map_section_research_result(
     deps: EquityResearchDeps,
     parent: dict[str, Any],
@@ -109,6 +185,21 @@ def _map_section_research_result(
         "action": action,
     }))
     updates.update(merge_subgraph_ledgers_to_parent(parent, result))
+
+    # Persist blackboard and generate summary for cross-section reference
+    blackboard_entries = result.get("blackboard") or []
+    if blackboard_entries:
+        report_id = str(parent.get("report_id", ""))
+        ticker = str(parent.get("ticker", ""))
+        summary = _persist_blackboard_to_store(deps, report_id, section_id, blackboard_entries, ticker)
+        if summary:
+            # Add to parent's session_blackboard_summaries
+            existing_summaries = list(parent.get("session_blackboard_summaries") or [])
+            # Remove any existing summary for this section
+            existing_summaries = [s for s in existing_summaries if s.get("section_id") != section_id]
+            existing_summaries.append({"section_id": section_id, "summary": summary})
+            updates["session_blackboard_summaries"] = existing_summaries
+
     merged = {**parent, **updates}
     updates.update(run_memory_maintenance(merged, deps))
     updates.update(capture_iteration_snapshot({**merged, **updates}, deps))

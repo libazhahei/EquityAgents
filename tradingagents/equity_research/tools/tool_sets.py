@@ -44,6 +44,7 @@ EXECUTOR_TOOL_SETS: dict[ToolGroupId, tuple[str, ...]] = {
         # Todos
         "list_research_todos",
         "get_next_research_todo",
+        "update_research_todo_status",
     ),
     "computation": (
         "calculator",

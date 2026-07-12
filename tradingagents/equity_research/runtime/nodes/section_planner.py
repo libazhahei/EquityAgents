@@ -26,6 +26,8 @@ from tradingagents.equity_research.tasks.section_research.planning import (
     expand_outline_to_plan,
     expand_task_outlines,
 )
+from tradingagents.equity_research.state.blackboard import format_blackboard_for_prompt
+
 from tradingagents.equity_research.tasks.section_research.schemas import (
     SectionResearchPlan,
     SectionResearchPlanOutlineLLMOutput,
@@ -135,6 +137,12 @@ def create_section_planner_node(
                 llm = resolve_research_llm(deps, "deep")
                 try:
                     prompt = prompt_builder(deps, state)
+                    # Inject blackboard context
+                    bb = state.get("blackboard") or []
+                    if bb:
+                        bb_text = format_blackboard_for_prompt(bb, max_items=8, max_chars=1200, section_id=state.get("section_id"))
+                        if bb_text:
+                            prompt = prompt + "\n\n" + bb_text
                     llm_out = invoke_structured_with_retry(
                         llm,
                         SectionResearchPlanOutlineLLMOutput,
@@ -186,6 +194,12 @@ def create_section_planner_node(
 
             try:
                 prompt = prompt_builder(deps, state)
+                # Inject blackboard context
+                bb = state.get("blackboard") or []
+                if bb:
+                    bb_text = format_blackboard_for_prompt(bb, max_items=8, max_chars=1200, section_id=state.get("section_id"))
+                    if bb_text:
+                        prompt = prompt + "\n\n" + bb_text
                 llm = resolve_research_llm(deps, "deep")
                 replan = invoke_structured_with_retry(
                     llm,

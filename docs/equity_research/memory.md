@@ -265,3 +265,199 @@ flowchart TD
 | 启用 embedding 检索 | 配置 `memory_use_embedding=True` 并向 `build_memory_context` 传入 `deps` |
 | 多维检索 | `build_memory_context(..., filters={"metric": "revenue", "confidence_min": 0.5})` |
 | 新增写入 Tool | 在 `evidence_memory.py` 或 `memory_tools.py` 实现，并在 `tools/lc/memory.py` 注册 LangChain 包装 |
+
+---
+
+## 5. Session Blackboard（单 Session 共享笔记板）
+
+### 5.1 设计原则
+
+Session Blackboard 是单个 section research session 内的**跨 agent 共享笔记板**，允许 PER 节点（planner/executor/synthesizer/reflector）在研究过程中共享中间态发现、假设和矛盾观察。
+
+**核心特性**：
+- **单 session 生命周期**：blackboard 随 `SectionResearchSubgraph` 创建而初始化，随 subgraph 结束而持久化到 BlackboardStore
+- **全局可见**：所有 PER 节点都能看到完整 blackboard 内容
+- **自动写入**：synthesizer 和 reflector 节点自动写入 discoveries
+- **跨 section 引用**：session 结束后完整内容持久化，后续 section 通过 LLM 生成的摘要获取前序 insights
+
+**与现有机制的关系**：
+
+| 机制 | 生命周期 | 写入者 | 用途 |
+|------|----------|--------|------|
+| `evidence_ledger` | 跨 session（合并到 parent） | `store_evidence` tool | 长期证据存储 |
+| `fact_store` | 单 session | executor tool | 结构化数值事实 |
+| `answer_cards` | 单 session | synthesizer | 每个 question 的最终答案 |
+| **`blackboard`** | **单 session + 跨 session 摘要** | **synthesizer, reflector** | **中间态发现、假设、矛盾、跨 question 线索** |
+
+### 5.2 数据结构
+
+**BlackboardEntry Schema**（定义于 `state/blackboard.py`）：
+
+```python
+class BlackboardEntry(BaseModel):
+    entry_id: str                          # uuid
+    section_id: str                        # 当前 section
+    question_id: str | None = None         # 可选：关联到 question_graph 中的 question
+    source_node: str                       # "synthesizer" | "reflector"
+    entry_type: str                        # 见下方分类
+    content: str                           # 核心内容
+    tags: list[str] = []                   # 预定义 + 扩展标签
+    confidence: float = 0.5                # 0-1，初始置信度
+    superseded_by: str | None = None       # 被哪条 entry 取代
+    created_at_iteration: int = 0          # PER 第几轮写入
+    related_evidence_ids: list[str] = []   # 可选关联
+```
+
+**entry_type 枚举**：
+- `"finding"`: 研究发现（如 "NVDA data center revenue grew 40% YoY"）
+- `"hypothesis"`: 临时假设（如 "margin compression is mix-shift driven"）
+- `"contradiction"`: 发现的矛盾（如 "10-K says X, but earnings call says Y"）
+- `"cross_question"`: 对其他 question 有用的线索
+- `"methodology"`: 研究方法备注（如 "SEC filing for this ticker lags by 2 quarters"）
+- `"data_pointer"`: 数据源指引（如 "investor relations page has better segment breakdown"）
+
+**预定义 Tags**（`BLACKBOARD_CORE_TAGS`）：
+```python
+{
+    "revenue", "margin", "growth", "valuation", "risk", "catalyst",
+    "consensus", "assumption", "kpi", "guidance", "capex", "opex",
+    "competitive", "regulatory", "macro", "liquidity", "leverage",
+    "segment", "geography", "product", "customer", "supply_chain"
+}
+```
+
+### 5.3 写入路径
+
+#### Synthesizer 自动写入
+
+**触发条件**：当 `pending_evidence` 非空时，synthesizer 在合并 evidence 到 `structured_view` 后，提取可能跨 question 有用的发现。
+
+**实现位置**：`runtime/nodes/synthesizer.py` 的 `_extract_blackboard_entries_from_evidence()`
+
+**写入逻辑**：
+- 遍历 `pending_evidence`，为每条 evidence 创建 `BlackboardEntry`
+- 如果 evidence 的 `question_id` 与当前 question 不同，标记为 `entry_type="cross_question"`
+- 否则标记为 `entry_type="finding"`
+- 使用 `extract_tags_from_text()` 从 content 中提取预定义 tags
+
+#### Reflector 自动写入
+
+**触发条件**：reflector 在生成 `coverage_report` 后，从 coverage insights 中提取有价值的观察。
+
+**实现位置**：`runtime/nodes/reflector.py` 的 `_extract_blackboard_entries_from_coverage()`
+
+**写入逻辑**：
+- 从 `critical_gaps` 提取 insights → `entry_type="methodology"`
+- 从 `suggested_focus` 提取假设 → `entry_type="hypothesis"`
+- 从低覆盖度维度（score < 0.4）提取矛盾 → `entry_type="contradiction"` 或 `"finding"`
+
+### 5.4 读取路径
+
+**注入格式**（`format_blackboard_for_prompt()`）：
+
+```markdown
+## Session Blackboard (Recent Insights)
+- [finding, iter=2] NVDA data center revenue +40% YoY, driven by H100 demand (tags: revenue, growth)
+- [contradiction, iter=2] Gross margin: 10-K says 72%, earnings call says "approximately 73%" (tags: margin)
+- [cross_question, iter=1] Capex guidance may affect capacity expansion question (tags: capex)
+```
+
+**注入参数**：
+- `max_items=8`（最近 8 条）
+- `max_chars=1200`（总字符数上限）
+- `filter_tags`：根据当前 question 的 tags 过滤（可选）
+- `section_id`：仅包含当前 section 的 entries
+
+**注入节点**：
+- **Planner**（initial + loop）：在 `prompt_builder()` 后追加 blackboard context
+- **Executor**：在 system prompt 中追加 blackboard context
+- **Synthesizer**：不注入（避免循环依赖）
+- **Reflector**：在 reflector prompt 中追加 blackboard context
+
+### 5.5 跨 Session 机制
+
+#### Session 结束时的持久化
+
+**实现位置**：`agents/research_loop/subgraph.py` 的 `_map_section_research_result()`
+
+**流程**：
+1. 调用 `_persist_blackboard_to_store()` 保存完整 blackboard 到 BlackboardStore
+2. 调用 `_generate_blackboard_summary()` 使用 `quick_llm` 生成摘要（≤500 字符）
+3. 将摘要写入 parent state 的 `session_blackboard_summaries` 字段
+
+**摘要生成 Prompt**：
+```
+Summarize the key research insights from the {section_id} section for ticker {ticker}.
+Focus on: critical findings, contradictions discovered, methodology notes, and cross-section hints.
+Keep the summary under 500 characters.
+
+Session blackboard entries:
+{entries_block}
+
+Summary:
+```
+
+#### 后续 Session 的摘要注入
+
+**实现位置**：`tasks/section_research/seed.py` 的 `seed_section_research_state()`
+
+**注入逻辑**：
+- 从 parent state 读取 `session_blackboard_summaries`
+- 过滤掉当前 section
+- 将前序 session 摘要注入到 `subgraph_input["parent_context"]["prior_session_summaries"]`
+
+**Prompt 注入**（`tasks/section_research/prompts.py` 的 `build_initial_plan_prompt()`）：
+```markdown
+Prior section research summaries (from earlier sections):
+- Section 1_investment_summary: Key findings: NVDA data center revenue growth 40% YoY...
+- Section 2_business_model: Margin compression drivers identified...
+```
+
+### 5.6 BlackboardStore 持久化
+
+**实现位置**：`storage/blackboard_store.py`
+
+**两种实现**：
+- `BlackboardStore`：PostgreSQL 后端，存储到 `blackboard_sessions` 表
+- `InMemoryBlackboardStore`：进程内存储，用于测试和无数据库环境
+
+**数据库 Schema**：
+```sql
+CREATE TABLE blackboard_sessions (
+    id SERIAL PRIMARY KEY,
+    report_id VARCHAR(255) NOT NULL,
+    section_id VARCHAR(255) NOT NULL,
+    ticker VARCHAR(50) NOT NULL DEFAULT '',
+    entries JSONB NOT NULL DEFAULT '[]'::jsonb,
+    summary TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(report_id, section_id)
+);
+```
+
+**API**：
+- `save_session_blackboard(report_id, section_id, entries, ticker)`：保存完整 entries
+- `save_session_summary(report_id, section_id, summary)`：保存 LLM 生成的摘要
+- `load_session_summary(report_id, section_id)`：加载特定 session 的摘要
+- `get_prior_sessions_summaries(report_id, exclude_section_id)`：获取前序 session 摘要列表
+
+### 5.7 配置项
+
+| 配置 / 常量 | 默认值 | 说明 |
+|-------------|--------|------|
+| `blackboard_db_url` | `None` | BlackboardStore 数据库 URL（None 时使用 InMemoryBlackboardStore） |
+| `BLACKBOARD_CORE_TAGS` | 22 个预定义 tags | 核心标签集合 |
+| `format_blackboard_for_prompt(max_items)` | 8 | 注入 prompt 时的最大条目数 |
+| `format_blackboard_for_prompt(max_chars)` | 1200 | 注入 prompt 时的最大字符数 |
+| `_generate_blackboard_summary()` | 500 字符 | LLM 生成的摘要长度限制 |
+
+### 5.8 扩展指南
+
+| 场景 | 建议做法 |
+|------|----------|
+| 新增 entry_type | 在 `BLACKBOARD_ENTRY_TYPES` 中添加，并在 synthesizer/reflector 的提取逻辑中处理 |
+| 新增预定义 tag | 在 `BLACKBOARD_CORE_TAGS` 中添加，并在 `extract_tags_from_text()` 的 `tag_keywords` 中添加关键词映射 |
+| 调整注入策略 | 修改各节点中 `format_blackboard_for_prompt()` 的 `max_items`、`max_chars`、`filter_tags` 参数 |
+| 自定义摘要生成 | 修改 `_generate_blackboard_summary()` 的 prompt 或替换为规则压缩 |
+| 启用跨 session 完整内容检索 | 在 `BlackboardStore` 中添加 `load_session_entries()` 方法，并在 seed 时注入完整内容 |

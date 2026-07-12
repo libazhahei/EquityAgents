@@ -244,7 +244,8 @@ def test_collect_evidence_for_question_dedupes_sources():
     assert len(collected) == 2
 
 
-def test_reflector_router_blocks_exit_with_pending_verify():
+def test_reflector_pending_tasks_override_llm_exit():
+    """Pending-tasks-and-budget hard guard overrides LLM exit signal → executor."""
     state = {
         "coverage_report": {"recommended_next_action": "exit", "routing_decision": "exit"},
         "iterations": 1,
@@ -265,11 +266,13 @@ def test_reflector_router_blocks_exit_with_pending_verify():
     assert section_reflector_router(state) == "run_existing_queue"
 
 
-def test_reflector_router_blocks_exit_at_max_iter_with_pending_plan():
+def test_reflector_respects_exit_when_pending_and_at_max_iter():
+    """Explicit exit still wins when all questions exhausted their per-question budget."""
     state = {
         "coverage_report": {"recommended_next_action": "exit"},
         "iterations": 5,
         "max_iterations": 3,
+        "question_iterations": {"q1": 3},  # q1 has exhausted its budget
         "research_plan": {
             "tasks": [{
                 "task_id": "t1",
@@ -280,8 +283,7 @@ def test_reflector_router_blocks_exit_at_max_iter_with_pending_plan():
         },
         "research_todo_list": {"items": []},
     }
-    assert section_reflector_router(state) == "run_existing_queue"
-
+    assert section_reflector_router(state) == "exit"
 
 def test_reflector_router_allows_exit_when_plan_complete():
     state = {
@@ -299,6 +301,47 @@ def test_reflector_router_allows_exit_when_plan_complete():
         "research_todo_list": {"items": []},
     }
     assert section_reflector_router(state) == "exit"
+
+
+def test_reflector_routes_to_loop_planner_on_plan_more():
+    """When LLM recommends plan_more, router goes to loop_planner."""
+    state = {
+        "coverage_report": {"recommended_next_action": "plan_more", "routing_decision": "continue"},
+        "iterations": 2,
+        "max_iterations": 5,
+        "research_plan": {
+            "tasks": [{
+                "task_id": "t1",
+                "question_id": "q1",
+                "status": "done",
+                "steps": [{"step_id": "s1", "status": "done", "action": "search"}],
+            }],
+        },
+        "research_todo_list": {"items": []},
+    }
+    assert section_reflector_router(state) == "plan_more"
+
+
+def test_reflector_routes_to_executor_on_run_existing_queue():
+    """When LLM recommends run_existing_queue, router goes to executor."""
+    state = {
+        "coverage_report": {"recommended_next_action": "run_existing_queue", "routing_decision": "continue"},
+        "iterations": 2,
+        "max_iterations": 5,
+        "research_plan": {
+            "tasks": [{
+                "task_id": "t1",
+                "question_id": "q1",
+                "status": "in_progress",
+                "steps": [
+                    {"step_id": "s1", "status": "done", "action": "search"},
+                    {"step_id": "s2", "status": "pending", "action": "verify"},
+                ],
+            }],
+        },
+        "research_todo_list": {"items": []},
+    }
+    assert section_reflector_router(state) == "run_existing_queue"
 
 
 def test_synthesizer_force_run_on_synthesize_step():
