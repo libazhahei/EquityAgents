@@ -236,6 +236,67 @@ def _estimate_tokens(chars: int) -> int:
     return max(0, (chars + 3) // 4)
 
 
+def _todo_items(data: dict[str, Any], section_id: str) -> list[dict[str, Any]]:
+    todo = data.get("research_todo_list") or {}
+    sro = _section_output(data, section_id)
+    if not todo and isinstance(sro.get("research_todo_list"), dict):
+        todo = sro["research_todo_list"]
+    items = todo.get("items") if isinstance(todo, dict) else None
+    if not isinstance(items, list):
+        return []
+    return [i for i in items if isinstance(i, dict)]
+
+
+def _structural_uptake(
+    entries: list[dict[str, Any]],
+    todo_items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Measure BB→todo linkage via blackboard_entry_id (honest structured uptake)."""
+    bb_ids = {str(e.get("entry_id")) for e in entries if e.get("entry_id")}
+    materializable_n = sum(
+        1 for e in entries if str(e.get("entry_type") or "") in {"methodology", "contradiction"}
+    )
+
+    linked_todos = [
+        i for i in todo_items
+        if i.get("blackboard_entry_id") and str(i.get("blackboard_entry_id")) in bb_ids
+    ]
+    linked_ids = {str(i.get("blackboard_entry_id")) for i in linked_todos}
+    linked_pending = [i for i in linked_todos if i.get("status") in ("pending", "in_progress")]
+    linked_done = [i for i in linked_todos if i.get("status") == "done"]
+    reflector_without_id = [
+        i for i in todo_items
+        if str(i.get("source") or "") == "reflector" and not i.get("blackboard_entry_id")
+    ]
+
+    linked_n = len(linked_todos)
+    done_n = len(linked_done)
+    pending_n = len(linked_pending)
+    link_rate = (len(linked_ids) / materializable_n) if materializable_n else 0.0
+    done_rate = (done_n / linked_n) if linked_n else 0.0
+
+    return {
+        "materializable_entry_count": materializable_n,
+        "structural_linked": linked_n,
+        "structural_linked_unique_entries": len(linked_ids),
+        "structural_done": done_n,
+        "structural_pending": pending_n,
+        "structural_done_rate": round(done_rate, 4),
+        "link_rate": round(link_rate, 4),
+        "reflector_source_without_entry_id": len(reflector_without_id),
+        "linked_todo_previews": [
+            {
+                "item_id": i.get("item_id"),
+                "status": i.get("status"),
+                "action": i.get("action"),
+                "blackboard_entry_id": i.get("blackboard_entry_id"),
+                "title": str(i.get("title") or "")[:120],
+            }
+            for i in linked_todos[:8]
+        ],
+    }
+
+
 def audit_dump(
     data: dict[str, Any],
     *,
@@ -363,8 +424,11 @@ def audit_dump(
         )
     if not u2_buckets["planner_traces"] or sum(len(s) for s in u2_buckets["planner_traces"]) < 80:
         limitations.append(
-            "planner trace payloads are sparse; uptake leans on final research_plan / research_todo_list."
+            "planner trace payloads are sparse; text uptake leans on final research_plan / "
+            "research_todo_list. Prefer structural_* metrics when blackboard_entry_id is present."
         )
+
+    structural = _structural_uptake(entries, _todo_items(data, section_id))
 
     # Primary verdict uses agreed Jaccard near-dup; also flag synthesizer-only
     # echo boards that never appear in plan/todo (common when BB stores raw tables
@@ -375,9 +439,11 @@ def audit_dump(
         and source_counts.get("synthesizer", 0) / n >= 0.9
         and uptake_n == 0
         and uptake_covered_n == 0
+        and structural["structural_linked"] == 0
     )
     efficacy_suspect = bool(
         n > 0
+        and structural["structural_linked"] == 0
         and non_finding_share < non_finding_threshold
         and uptake_n == 0
         and uptake_covered_n == 0
@@ -387,7 +453,34 @@ def audit_dump(
             or echo_without_uptake
         )
     )
-    if efficacy_suspect:
+
+    if n == 0:
+        verdict = "no_data"
+        verdict_detail = "No blackboard entries for this section."
+    elif structural["structural_linked"] > 0 and structural["structural_done"] > 0:
+        verdict = "structural_uptake_ok"
+        verdict_detail = (
+            f"structural_linked={structural['structural_linked']} "
+            f"(unique entries {structural['structural_linked_unique_entries']}), "
+            f"done={structural['structural_done']}, pending={structural['structural_pending']}, "
+            f"link_rate={structural['link_rate']:.0%} of methodology/contradiction entries."
+        )
+    elif structural["structural_linked"] > 0 and structural["structural_pending"] > 0:
+        verdict = "materialized_but_unexecuted"
+        verdict_detail = (
+            f"BB→todo linked={structural['structural_linked']} but none done "
+            f"(pending/in_progress={structural['structural_pending']}). "
+            f"link_rate={structural['link_rate']:.0%}. "
+            f"Fix routing/exit so linked todos run before exit."
+        )
+    elif structural["structural_linked"] > 0:
+        # Linked but neither pending nor done (e.g. cancelled only)
+        verdict = "structural_linked_inactive"
+        verdict_detail = (
+            f"structural_linked={structural['structural_linked']} but no pending/done items "
+            f"(check cancelled/other statuses)."
+        )
+    elif efficacy_suspect:
         verdict = "efficacy_suspect"
         if echo_without_uptake and near_dup_rate <= near_dup_threshold and covered_rate <= near_dup_threshold:
             verdict_detail = (
@@ -405,14 +498,11 @@ def audit_dump(
                 f"non_finding_share={non_finding_share:.0%} < {non_finding_threshold:.0%}, "
                 f"novel_uptake={uptake_n} (soft={uptake_covered_n}). Skip instrumentation for now."
             )
-    elif n == 0:
-        verdict = "no_data"
-        verdict_detail = "No blackboard entries for this section."
     else:
         verdict = "needs_instrumentation_or_broader_sample"
         verdict_detail = (
-            "Coarse signals are not one-sided; consider prompt-injection logging "
-            "and/or more dumps before concluding."
+            "No blackboard_entry_id linkage and coarse text signals are mixed; "
+            "consider prompt-injection logging and/or more dumps before concluding."
         )
 
     return {
@@ -431,6 +521,7 @@ def audit_dump(
         "uptake_rate_among_novel": round(uptake_rate_among_novel, 4),
         "soft_uptake_count_among_novel": uptake_covered_n,
         "soft_uptake_rate_among_novel": round(soft_uptake_rate_among_novel, 4),
+        "structural": structural,
         "cost": {
             "max_items_injected": max_items,
             "injected_chars": injected_chars,
@@ -478,6 +569,26 @@ def _print_human(report: dict[str, Any]) -> None:
         f"soft_uptake: {report['soft_uptake_count_among_novel']} "
         f"({report['soft_uptake_rate_among_novel']:.1%})"
     )
+    structural = report.get("structural") or {}
+    if structural:
+        print(
+            f"structural: linked={structural.get('structural_linked', 0)} "
+            f"(unique={structural.get('structural_linked_unique_entries', 0)}, "
+            f"link_rate={structural.get('link_rate', 0):.1%} of "
+            f"{structural.get('materializable_entry_count', 0)} methodology/contradiction); "
+            f"done={structural.get('structural_done', 0)} "
+            f"pending={structural.get('structural_pending', 0)}; "
+            f"reflector_source_without_entry_id="
+            f"{structural.get('reflector_source_without_entry_id', 0)}"
+        )
+        previews = structural.get("linked_todo_previews") or []
+        if previews:
+            print("structural linked todos:")
+            for item in previews[:5]:
+                print(
+                    f"  [{item.get('status')}/{item.get('action')}] "
+                    f"{item.get('blackboard_entry_id')} {item.get('title')!r}"
+                )
     print(
         f"cost: inject~{cost['injected_chars']} chars "
         f"(~{cost['injected_tokens_est']} tok, top {cost['max_items_injected']}); "

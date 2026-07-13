@@ -18,102 +18,13 @@ from tradingagents.equity_research.runtime.utils.structured_invoke import (
     invoke_structured_with_retry,
 )
 from tradingagents.equity_research.state.blackboard import (
-    BlackboardEntry,
-    extract_tags_from_text,
+    extract_blackboard_entries_from_coverage,
+    format_blackboard_for_prompt,
 )
 
 
 def _max_retries(deps: EquityResearchDeps) -> int:
     return int(deps.config.get("equity_research", {}).get("structured_output_max_retries", 3))
-
-
-def _extract_blackboard_entries_from_coverage(
-    state: dict[str, Any],
-    report: Any,
-    iteration: int,
-) -> list[dict]:
-    """Extract blackboard entries from coverage report insights.
-
-    The reflector identifies critical gaps, contradictions, and cross-dimension
-    insights during coverage evaluation. These are valuable for other nodes
-    (planner, executor) to know about.
-    """
-    entries: list[dict] = []
-    section_id = state.get("section_id", "")
-
-    # Extract entries from critical_gaps
-    critical_gaps = getattr(report, "critical_gaps", []) or []
-    for gap in critical_gaps:
-        if isinstance(gap, dict):
-            gap_text = gap.get("description") or gap.get("gap") or str(gap)
-            gap_label = gap.get("label") or gap.get("dimension") or ""
-        else:
-            gap_text = str(gap)
-            gap_label = ""
-
-        if not gap_text or len(gap_text) < 10:
-            continue
-
-        content = f"Critical gap: {gap_text}"
-        if gap_label:
-            content = f"[{gap_label}] {content}"
-
-        tags = extract_tags_from_text(gap_text)
-        if gap_label:
-            tags = list(dict.fromkeys(tags + [gap_label.lower().replace(" ", "_")]))
-
-        entry = BlackboardEntry(
-            section_id=section_id,
-            source_node="reflector",
-            entry_type="methodology",
-            content=content[:300],
-            tags=tags[:5],
-            confidence=0.6,
-            created_at_iteration=iteration,
-        )
-        entries.append(entry.model_dump())
-
-    # Extract entries from suggested_focus (potential hypotheses)
-    suggested_focus = getattr(report, "suggested_focus", "") or ""
-    if suggested_focus and len(suggested_focus) > 20:
-        tags = extract_tags_from_text(suggested_focus)
-        entry = BlackboardEntry(
-            section_id=section_id,
-            source_node="reflector",
-            entry_type="hypothesis",
-            content=f"Reflector suggests: {suggested_focus}"[:300],
-            tags=tags[:5],
-            confidence=0.4,
-            created_at_iteration=iteration,
-        )
-        entries.append(entry.model_dump())
-
-    # Extract entries from dimension_scores with low coverage (contradictions/findings)
-    dimension_scores = getattr(report, "dimension_scores", {}) or {}
-    if isinstance(dimension_scores, dict):
-        for dim_name, dim_data in dimension_scores.items():
-            if isinstance(dim_data, dict):
-                score = float(dim_data.get("score", 1.0))
-                notes = dim_data.get("notes") or dim_data.get("gaps") or ""
-            else:
-                score = float(dim_data) if dim_data else 1.0
-                notes = ""
-
-            # Low coverage dimensions may indicate contradictions or data issues
-            if score < 0.4 and notes:
-                tags = extract_tags_from_text(f"{dim_name} {notes}")
-                entry = BlackboardEntry(
-                    section_id=section_id,
-                    source_node="reflector",
-                    entry_type="contradiction" if score < 0.2 else "finding",
-                    content=f"Low coverage on {dim_name}: {notes}"[:300],
-                    tags=tags[:5],
-                    confidence=0.3,
-                    created_at_iteration=iteration,
-                )
-                entries.append(entry.model_dump())
-
-    return entries
 
 
 def create_reflector_node(deps: EquityResearchDeps, task_profile: TaskProfile):
@@ -220,10 +131,9 @@ def create_reflector_node(deps: EquityResearchDeps, task_profile: TaskProfile):
             }
 
             # Auto-write blackboard entries from coverage insights
-            if task_profile.task_id == "section_research":
-                bb_entries = _extract_blackboard_entries_from_coverage(state, report, iterations)
-                if bb_entries:
-                    updates["blackboard"] = bb_entries
+            bb_entries = extract_blackboard_entries_from_coverage(state, report, iterations)
+            if bb_entries:
+                updates["blackboard"] = bb_entries
 
             updates.update(deps.trace({**state, **updates}, f"{task_profile.task_id}_coverage_reflector", {
                 "overall_score": report.overall_score,

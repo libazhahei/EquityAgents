@@ -6,8 +6,9 @@ polluting long-term ledgers or parent state.
 
 Lifecycle:
 - Initialized empty at section research session start
-- Appended to by synthesizer (leftover evidence) and reflector (coverage insights)
-- Read by all PER nodes via `format_blackboard_for_prompt()`
+- Appended primarily by reflector (coverage gaps / contradictions); synthesizer
+  evidence echo is off by default (``blackboard_synthesizer_auto_write``)
+- Read by planner/executor via `format_blackboard_for_prompt()`
 - Session end: full content persisted to BlackboardStore; summary injected to later sessions
 """
 
@@ -20,6 +21,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from tradingagents.equity_research.memory.similarity import text_similarity
+
+# Max auto-written notes per reflector pass (Category-B style cap).
+BLACKBOARD_COVERAGE_EXTRACT_MAX = 5
 
 
 # Core tags for filtering — can be extended with free-form tags
@@ -200,3 +204,229 @@ def extract_tags_from_text(text: str) -> list[str]:
         if any(kw in text_lower for kw in keywords):
             found.append(tag)
     return found
+
+
+def synthesizer_blackboard_auto_write_enabled(config: dict[str, Any] | None) -> bool:
+    """Whether synthesizer may echo pending evidence onto the session blackboard.
+
+    Default is False — evidence echo was measured as unused noise. Opt in via
+    ``equity_research.blackboard_synthesizer_auto_write: true``.
+    """
+    if not isinstance(config, dict):
+        return False
+    er = config.get("equity_research")
+    if not isinstance(er, dict):
+        return False
+    return bool(er.get("blackboard_synthesizer_auto_write", False))
+
+
+def _report_field(report: Any, name: str, default: Any = None) -> Any:
+    if report is None:
+        return default
+    if isinstance(report, dict):
+        return report.get(name, default)
+    return getattr(report, name, default)
+
+
+def _gap_text_and_label(gap: Any) -> tuple[str, str]:
+    if isinstance(gap, dict):
+        text = str(
+            gap.get("description")
+            or gap.get("gap")
+            or gap.get("message")
+            or gap.get("issue")
+            or ""
+        ).strip()
+        if not text:
+            text = str(gap).strip()
+        label = str(
+            gap.get("label")
+            or gap.get("dimension")
+            or gap.get("coverage_output")
+            or gap.get("type")
+            or ""
+        ).strip()
+        return text, label
+    return str(gap).strip(), ""
+
+
+def _is_severe_data_quality_issue(issue: Any) -> bool:
+    if not isinstance(issue, dict):
+        return False
+    severity = str(issue.get("severity") or "").strip().lower()
+    if severity in {"high", "critical", "severe"}:
+        return True
+    # Numeric severities occasionally appear in older payloads.
+    try:
+        if float(issue.get("severity")) >= 0.7:
+            return True
+    except (TypeError, ValueError):
+        pass
+    return False
+
+
+def _make_coverage_entry(
+    *,
+    section_id: str,
+    entry_type: str,
+    content: str,
+    tags: list[str],
+    confidence: float,
+    iteration: int,
+) -> dict[str, Any]:
+    return BlackboardEntry(
+        section_id=section_id,
+        source_node="reflector",
+        entry_type=entry_type,
+        content=content[:300],
+        tags=tags[:5],
+        confidence=confidence,
+        created_at_iteration=iteration,
+    ).model_dump()
+
+
+def extract_blackboard_entries_from_coverage(
+    state: dict[str, Any],
+    report: Any,
+    iteration: int,
+    *,
+    max_entries: int = BLACKBOARD_COVERAGE_EXTRACT_MAX,
+) -> list[dict[str, Any]]:
+    """Rule-extract blackboard notes from a coverage / reflector report.
+
+    Priority (until ``max_entries``):
+    1. ``contradictions`` → ``contradiction``
+    2. ``critical_gaps`` → ``methodology``
+    3. severe ``data_quality_issues`` → ``finding``
+    4. ``suggested_focus`` → ``hypothesis`` (consensus-style reports)
+    5. low ``dimension_scores`` with notes → ``contradiction`` / ``finding``
+    """
+    if max_entries <= 0 or report is None:
+        return []
+
+    section_id = str(state.get("section_id") or "")
+    entries: list[dict[str, Any]] = []
+
+    def _remaining() -> int:
+        return max_entries - len(entries)
+
+    # 1) Contradictions
+    for item in _report_field(report, "contradictions", []) or []:
+        if _remaining() <= 0:
+            break
+        text, label = _gap_text_and_label(item)
+        if len(text) < 10:
+            continue
+        content = f"Contradiction: {text}"
+        if label:
+            content = f"[{label}] {content}"
+        tags = extract_tags_from_text(text)
+        if label:
+            tags = list(dict.fromkeys(tags + [label.lower().replace(" ", "_")]))
+        entries.append(
+            _make_coverage_entry(
+                section_id=section_id,
+                entry_type="contradiction",
+                content=content,
+                tags=tags,
+                confidence=0.7,
+                iteration=iteration,
+            )
+        )
+
+    # 2) Critical gaps
+    for gap in _report_field(report, "critical_gaps", []) or []:
+        if _remaining() <= 0:
+            break
+        gap_text, gap_label = _gap_text_and_label(gap)
+        if len(gap_text) < 10:
+            continue
+        content = f"Critical gap: {gap_text}"
+        if gap_label:
+            content = f"[{gap_label}] {content}"
+        tags = extract_tags_from_text(gap_text)
+        if gap_label:
+            tags = list(dict.fromkeys(tags + [gap_label.lower().replace(" ", "_")]))
+        entries.append(
+            _make_coverage_entry(
+                section_id=section_id,
+                entry_type="methodology",
+                content=content,
+                tags=tags,
+                confidence=0.6,
+                iteration=iteration,
+            )
+        )
+
+    # 3) Severe data-quality issues
+    for issue in _report_field(report, "data_quality_issues", []) or []:
+        if _remaining() <= 0:
+            break
+        if not _is_severe_data_quality_issue(issue):
+            continue
+        text, label = _gap_text_and_label(issue)
+        if len(text) < 10:
+            continue
+        content = f"Data quality: {text}"
+        if label:
+            content = f"[{label}] {content}"
+        tags = extract_tags_from_text(text)
+        if label:
+            tags = list(dict.fromkeys(tags + [label.lower().replace(" ", "_")]))
+        entries.append(
+            _make_coverage_entry(
+                section_id=section_id,
+                entry_type="finding",
+                content=content,
+                tags=tags,
+                confidence=0.5,
+                iteration=iteration,
+            )
+        )
+
+    # 4) Suggested focus (consensus-style)
+    if _remaining() > 0:
+        suggested_focus = str(_report_field(report, "suggested_focus", "") or "").strip()
+        if len(suggested_focus) > 20:
+            tags = extract_tags_from_text(suggested_focus)
+            entries.append(
+                _make_coverage_entry(
+                    section_id=section_id,
+                    entry_type="hypothesis",
+                    content=f"Reflector suggests: {suggested_focus}",
+                    tags=tags,
+                    confidence=0.4,
+                    iteration=iteration,
+                )
+            )
+
+    # 5) Low dimension scores with notes
+    dimension_scores = _report_field(report, "dimension_scores", {}) or {}
+    if isinstance(dimension_scores, dict):
+        for dim_name, dim_data in dimension_scores.items():
+            if _remaining() <= 0:
+                break
+            if isinstance(dim_data, dict):
+                score = float(dim_data.get("score", 1.0))
+                notes = str(dim_data.get("notes") or dim_data.get("gaps") or "").strip()
+            else:
+                try:
+                    score = float(dim_data) if dim_data is not None else 1.0
+                except (TypeError, ValueError):
+                    score = 1.0
+                notes = ""
+            if score >= 0.4 or not notes:
+                continue
+            tags = extract_tags_from_text(f"{dim_name} {notes}")
+            entries.append(
+                _make_coverage_entry(
+                    section_id=section_id,
+                    entry_type="contradiction" if score < 0.2 else "finding",
+                    content=f"Low coverage on {dim_name}: {notes}",
+                    tags=tags,
+                    confidence=0.3,
+                    iteration=iteration,
+                )
+            )
+
+    return entries[:max_entries]

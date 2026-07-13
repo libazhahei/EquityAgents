@@ -9,8 +9,10 @@ from tradingagents.equity_research.state.blackboard import (
     BLACKBOARD_ENTRY_TYPES,
     BlackboardEntry,
     blackboard_reducer,
+    extract_blackboard_entries_from_coverage,
     extract_tags_from_text,
     format_blackboard_for_prompt,
+    synthesizer_blackboard_auto_write_enabled,
 )
 
 
@@ -316,3 +318,114 @@ class TestBlackboardEntryTypes:
         """Test that all entry types are strings."""
         for entry_type in BLACKBOARD_ENTRY_TYPES:
             assert isinstance(entry_type, str)
+
+
+class TestSynthesizerBlackboardAutoWriteFlag:
+    def test_default_off(self):
+        assert synthesizer_blackboard_auto_write_enabled(None) is False
+        assert synthesizer_blackboard_auto_write_enabled({}) is False
+        assert synthesizer_blackboard_auto_write_enabled({"equity_research": {}}) is False
+
+    def test_explicit_on(self):
+        assert synthesizer_blackboard_auto_write_enabled(
+            {"equity_research": {"blackboard_synthesizer_auto_write": True}}
+        ) is True
+
+    def test_explicit_off(self):
+        assert synthesizer_blackboard_auto_write_enabled(
+            {"equity_research": {"blackboard_synthesizer_auto_write": False}}
+        ) is False
+
+
+class TestExtractBlackboardFromCoverage:
+    def test_maps_section_coverage_fields(self):
+        report = {
+            "contradictions": [
+                {"gap": "10-K segment mix disagrees with earnings call commentary on networking."}
+            ],
+            "critical_gaps": [
+                {
+                    "coverage_output": "margin_driver_analysis",
+                    "gap": "No dedicated margin driver analysis output is present.",
+                }
+            ],
+            "data_quality_issues": [
+                {
+                    "type": "missing_source",
+                    "severity": "high",
+                    "message": "Primary filing tables were not attached to the evidence bundle.",
+                },
+                {
+                    "type": "pending_todo_items",
+                    "severity": "low",
+                    "message": "3 todo items still pending.",
+                },
+            ],
+        }
+        entries = extract_blackboard_entries_from_coverage(
+            {"section_id": "3_business_model"},
+            report,
+            iteration=2,
+        )
+        assert len(entries) == 3
+        assert [e["entry_type"] for e in entries] == [
+            "contradiction",
+            "methodology",
+            "finding",
+        ]
+        assert all(e["source_node"] == "reflector" for e in entries)
+        assert all(e["section_id"] == "3_business_model" for e in entries)
+        assert all(e["created_at_iteration"] == 2 for e in entries)
+        assert "Contradiction:" in entries[0]["content"]
+        assert "Critical gap:" in entries[1]["content"]
+        assert "Data quality:" in entries[2]["content"]
+
+    def test_priority_and_cap(self):
+        report = {
+            "contradictions": [
+                {"gap": f"Contradiction number {i} with enough detail here."}
+                for i in range(3)
+            ],
+            "critical_gaps": [
+                {"gap": f"Critical gap number {i} needs more research detail."}
+                for i in range(4)
+            ],
+            "data_quality_issues": [
+                {
+                    "severity": "critical",
+                    "message": "Severe missing primary source for revenue bridge.",
+                }
+            ],
+        }
+        entries = extract_blackboard_entries_from_coverage(
+            {"section_id": "s1"},
+            report,
+            iteration=1,
+            max_entries=5,
+        )
+        assert len(entries) == 5
+        assert [e["entry_type"] for e in entries] == [
+            "contradiction",
+            "contradiction",
+            "contradiction",
+            "methodology",
+            "methodology",
+        ]
+
+    def test_suggested_focus_and_dimension_scores(self):
+        report = {
+            "suggested_focus": "Probe whether margin compression is mix-shift driven versus ASP.",
+            "dimension_scores": {
+                "revenue": {"score": 0.15, "notes": "Segment tables incomplete for auto."},
+                "margin": {"score": 0.9, "notes": "Fine"},
+            },
+        }
+        entries = extract_blackboard_entries_from_coverage(
+            {"section_id": "s1"},
+            report,
+            iteration=4,
+        )
+        types = [e["entry_type"] for e in entries]
+        assert "hypothesis" in types
+        assert "contradiction" in types  # score < 0.2
+

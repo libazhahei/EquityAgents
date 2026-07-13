@@ -1,6 +1,6 @@
 # SEC Filing RAG
 
-> 语言：[中文](sec-filing-rag.md) | [English](../../README.md) · [中文主文档](../../README.zh-CN.md) · [文档索引](../zh/README.md)  
+> 语言：[中文](sec-filing-rag.md) · [English](../EQUITY_RESEARCH.md) · [中文主文档](../../README.zh-CN.md) · [文档索引](../zh/README.md)  
 > 相关文档：[RAG 架构](../rag/architecture.md) · [storage.md](storage.md) · [memory.md](memory.md)
 
 SEC 申报文件通过独立 RAG 模块（`tradingagents/rag/`）摄取与混合检索，由 `filings_search` 工具按 **keywords** 查询。

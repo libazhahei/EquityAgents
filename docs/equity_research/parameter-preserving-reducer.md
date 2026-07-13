@@ -1,6 +1,6 @@
 # ParameterPreservingReducer：Skill-Driven 参数提取与版本链架构
 
-> 语言：[中文](parameter-preserving-reducer.md) | [English](../../README.md) · [中文主文档](../../README.zh-CN.md) · [文档索引](../zh/README.md)  
+> 语言：[中文](parameter-preserving-reducer.md) | [English](../EQUITY_RESEARCH.md) · [中文主文档](../../README.zh-CN.md) · [文档索引](../zh/README.md)  
 > 模块路径：`tradingagents/equity_research/runtime/parameter_*.py`、`reducers.py`、`skill_parameter_parser.py`  
 > 相关文档：[Agent Loop & Tasks](agent-loop-and-tasks.md) · [Memory](memory.md) · [Skills & Tools](skills-and-tools.md) · [Storage](storage.md)
 

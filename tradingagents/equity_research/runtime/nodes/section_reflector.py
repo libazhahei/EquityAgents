@@ -28,6 +28,10 @@ from tradingagents.equity_research.tasks.section_research.prompts import (
 from tradingagents.equity_research.tasks.section_research.schemas import SectionCoverageEvaluation
 from tradingagents.equity_research.tasks.section_research.todo_sync import has_pending_tasks_or_steps
 from tradingagents.equity_research.tasks.section_research.schemas import ResearchTodoList
+from tradingagents.equity_research.state.blackboard import extract_blackboard_entries_from_coverage
+from tradingagents.equity_research.tasks.section_research.blackboard_todos import (
+    materialize_blackboard_todos,
+)
 
 
 def _max_retries(deps: EquityResearchDeps) -> int:
@@ -390,6 +394,24 @@ def create_section_reflector_node(deps: EquityResearchDeps, task_profile: TaskPr
             updates.update(todo_update)
             merged_for_todo_count = {**state, **updates}
             updates["pending_todo_items"] = _count_pending_todo_items(merged_for_todo_count)
+            bb_entries = extract_blackboard_entries_from_coverage(state, report, iterations)
+            if bb_entries:
+                updates["blackboard"] = bb_entries
+                materialized = materialize_blackboard_todos(
+                    {**state, **updates},
+                    bb_entries,
+                    config=deps.config,
+                )
+                if materialized is not None:
+                    updates["research_todo_list"] = materialized.model_dump()
+                    updates["pending_todo_items"] = _count_pending_todo_items(
+                        {**state, **updates}
+                    )
+                    if updates["pending_todo_items"] > 0 and has_budget:
+                        report.recommended_next_action = "run_existing_queue"
+                        report.routing_decision = "continue"
+                        updates["coverage_report"] = report.model_dump()
+                        updates["status"] = "continue"
             updates.update(deps.trace({**state, **updates}, f"{task_profile.task_id}_reflector", {
                 "overall_score": report.overall_score,
                 "action": report.recommended_next_action,

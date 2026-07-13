@@ -171,22 +171,6 @@ initialize_state
 
 After `dynamic_planning`, the pipeline continues through `research_loop` (9-step inner R&D), then modeling/valuation/writing. Deep-search tasks reuse **GenericResearchSubgraph + TaskProfile** (`consensus`, `assumption`). See [docs/EQUITY_RESEARCH.md](docs/EQUITY_RESEARCH.md) for downstream phase nodes.
 
-
-### State Machine Workflow with Human Review Gates {#state-machine-workflow}
-
-The pipeline is implemented as a **multi-step state machine** — each stage validates its inputs before advancing, and key decision points expose **human review interrupt nodes** (`human_review_1` after consensus/assumption, `human_review_2` after planner). When triggered, these interrupts pause execution (with LangGraph checkpoint) so a human can review outputs and resume with patches.
-
-| Scenario | Gate Triggered | Rework Path |
-|----------|---------------|-------------|
-| Insufficient research depth | `human_review_2` → patch sections | Resume `planner`, re-enter `section_research` |
-| Anomalous assumptions detected | `human_review_1` → amend `assumption_view` | Resume downstream phases |
-| Unreasonable valuation output | `human_review_1` → update `assumption_map` | Revise forward through pipeline |
-| Report quality below threshold | `human_review_2` → adjust plan | Re-plan affected sections |
-
-**Performance:** In local phased testing, each step in the initial end-to-end research chain takes **80–120 seconds**. The human-in-the-loop rework mechanism reduces the overall rework rate from an estimated 30%+ down to **18%** by catching issues early at structured gate points rather than post-completion.
-
-Checkpoint/resume capability is provided via [`graph/checkpointer.py`](tradingagents/equity_research/graph/checkpointer.py): per-ticker SQLite databases under `{data_cache_dir}/checkpoints/equity_research/<TICKER>.db`, indexed by `er_run_tree`. Resuming applies any patches automatically.
-
 ### Module layout
 
 ```
@@ -454,16 +438,6 @@ Thesis scoring weights (evidence 20%, consensus gap 20%, financial materiality 2
 
 Further detail: [docs/equity_research/agent-loop-and-tasks.md §6.2](docs/equity_research/agent-loop-and-tasks.md)
 
-### Branch pruning and research efficiency
-
-The multi-branch thesis exploration uses **stage-aware budget allocation** and **early evaluation** to prune low-value or unverifiable arguments before they consume full resources. Each iteration scores candidate theses using weighted aggregation (evidence strength 20%, consensus gap 20%, financial materiality 20%, valuation impact 15%, catalyst clarity 10%, risk-adjusted 10%, novelty 5%). Low-scoring branches are pruned via `quick_diligence` verdicts (`reject` / `park`), while high-scoring ones advance to full development.
-
-| Efficiency Metric | Improvement |
-|------------------|-------------|
-| Invalid search paths reduced | **−32%** vs. flat exhaustive search |
-| Average token consumption per stock study | **−36%** reduction |
-| Early exit via prune/park decisions | Cuts wasted iterations before full resource commit |
-
 ---
 
 ## Runtime frameworks
@@ -478,28 +452,6 @@ The multi-branch thesis exploration uses **stage-aware budget allocation** and *
 Shared infrastructure: `EquityResearchDeps`, `deps.trace()`, `ExplorationGraph`, `runtime/utils/structured_invoke.py`.
 
 Registered tasks (`tasks/registry.py`): `consensus`, `assumption`. Extend by adding a `TaskProfile` and invoking `GenericResearchSubgraph(deps, PROFILE)`.
-
-### Tool categories (LangChain wrappers)
-
-Each tool category maps to a specific capability domain. Tools are wrapped in LangChain-compatible interfaces and registered by caller role (`executor`, `planner`, `reflector`, etc.), enforcing least-privilege access per skill binding.
-
-| Category | Module | Capabilities |
-|----------|--------|--------------|
-| Search | `tools/lc/search.py` | Perplexity, Tavily, Jina web search/fetch |
-| Data | `tools/lc/data.py` | Stock prices, fundamentals, technical indicators |
-| Finance | `tools/lc/finance.py` | Financial calculations, ratio analysis |
-| Code | `tools/lc/code.py` | Sandboxed code execution via E2B |
-| Document | `tools/lc/document.py` | SEC filing parsing, text extraction |
-| Memory | `tools/lc/memory.py` | Evidence store retrieval, memory search |
-| Quality | `tools/lc/quality.py` | Claim verification, evidence scoring |
-| Human | `tools/lc/human.py` | Human-in-the-loop review interfaces |
-| Todo | `tools/lc/todo.py` | Task list management for BFS planning |
-| Planner | `tools/lc/planner.py` | Planning helpers and outline expansion |
-| Artifact | `tools/lc/artifact.py` | Artifact creation/storage |
-
-**Key metrics:**
-- Skill selection matches task objectives at approximately **85%** accuracy in local testing
-- E2B sandbox isolation enables Python code execution for valuation models with **95%** result reproducibility
 
 ---
 
@@ -552,18 +504,6 @@ flowchart LR
 | Early stopping (partial) | PER `coverage_threshold`; `research_loop` score threshold + `max_iterations`; quick diligence reject/park   | `runtime/nodes/reflector.py`            |
 | Typed numerics           | `assumption_ledger` + `facts[]` → `computation/forecast.py` reads `metric_name` as `float`                  | `computation/`                          |
 
-### Cross-section structured intermediate products
-
-The section dependency DAG feeds verified facts into a **global blackboard**, where downstream stages can consume structured intermediates without re-retrieving raw evidence. This design ensures each section's output becomes reusable input for subsequent phases.
-
-| Metric | Value | Scope |
-|--------|-------|-------|
-| Structured intermediate product coverage (downstream modeling, valuation, writing) | ~**85%** | All cross-section fact flow |
-| Key evidence recall HitRate@10 | ~**82%–88%** | pgvector-powered semantic retrieval across ledgers |
-| Report conclusion evidence traceability rate | ~**90%** | Every key claim linked to source ledger entries |
-
-This architecture prevents hallucination and logical breaks caused by running downstream sections without upstream facts.
-
 
 **Current limitations (motivation for roadmap):**
 
@@ -574,10 +514,6 @@ This architecture prevents hallucination and logical breaks caused by running do
 - Unstructured text → compute params relies on claim verification + `_fact_value()`; no unified `FactEntity` gateway yet
 
 Implementation detail: [docs/equity_research/memory.md](docs/equity_research/memory.md)
-
-### Session memory hierarchy
-
-Research operations employ a **short-term / long-session / long-term** memory system that supports cross-session recall of historical analysis. Short-term memory holds the active conversation context; long-session memory persists findings within a single section research session via the session blackboard; long-term memory stores completed analysis summaries that can be injected into future runs. This hierarchy reduces context injection volume by **23%** by selectively loading only relevant prior analyses instead of flooding the prompt with all historical data.
 
 ### Target design: global Blackboard *(roadmap)*
 

@@ -1,6 +1,6 @@
 # Equity Research Memory 控制方案
 
-> 语言：[中文](memory.md) | [English](../../README.md#memory-design) · [中文主文档](../../README.zh-CN.md#memory-design) · [文档索引](../zh/README.md)  
+> 语言：[中文](memory.md) | [English](../EQUITY_RESEARCH.md#memory-design) · [中文主文档](../../README.zh-CN.md#memory-design) · [文档索引](../zh/README.md)  
 > 模块路径：`tradingagents/equity_research/memory/` 及相关 ledger / storage 代码  
 > 相关文档：[文件结构](file-structure.md) · [Context](context.md) · [Skills & Tools](skills-and-tools.md) · [Storage](storage.md)
 
@@ -66,6 +66,16 @@ LangChain 包装位于 [`tools/lc/memory.py`](../../tradingagents/equity_researc
 
 历史状态字段（如 `claims`、`evidence_fragments`）与 ledger 结构并存。`sync_ledgers_from_legacy()` 在 `task_analysis` 结束、`research_loop` 每轮迭代后调用，实现双向同步，避免新旧字段漂移。
 
+### 1.4 证据追溯链 (Evidence Traceability Chain)
+
+Report conclusion traceability (~90%) is maintained through a structured Evidence→Claim→Thesis chain:
+
+- **Evidence → Claim**: `supporting_evidence` / `contradicting_evidence` fields in `ClaimLedgerEntry` explicitly list evidence IDs that support or contradict each claim.
+- **Claim → Thesis**: The `thesis_ledger` contains thesis statements linked to claims via `supporting_claim_ids` (in `ThesisLedgerEntry`). The core investment recommendation claim (`is_core_thesis=True`) bridges merged thesis branches to final report content.
+- **Blackboard correlation**: `BlackboardEntry.related_evidence_ids` provides additional cross-links between session-level observations and long-term ledgers.
+
+See also [branch-merge.md](branch-merge.md) §2.3 for how merge writes core thesis claims.
+
 ---
 
 ## 2. 检索与评分
@@ -86,6 +96,8 @@ LangChain 包装位于 [`tools/lc/memory.py`](../../tradingagents/equity_researc
 | redundancy_penalty | −10% |
 
 默认语义相似度在提供 `deps` 且 `memory_use_embedding=True` 时走 **RAGService**（`evidence` corpus：ParadeDB BM25 + pgvector + RRF，见 [`rag/architecture.md`](../rag/architecture.md)），经 [`memory/embedding_retrieval.py`](../../tradingagents/equity_research/memory/embedding_retrieval.py) 合并 ledger 分数；否则回退 **token overlap**（[`memory/similarity.py`](../../tradingagents/equity_research/memory/similarity.py)）。
+
+**小样本验证指标：** 在 pgvector/RAGService 混合检索配置下，evidence 召回 HitRate@10 约为 **82%–88%**。该结果来自对多 ticker 测试集的抽样评估，反映 BM25 + RRF 融合策略在不同主题域上的检索稳定性。
 
 ### 2.2 上下文构建
 
@@ -182,6 +194,13 @@ Section executor 的 retrieval 组通过 `make_memory_search_tools(deps)` 注入
 - [`memory/pruning.py`](../../tradingagents/equity_research/memory/pruning.py)：`merge_similar_evidence` / `prune_stale_evidence` / `decay_claim_confidence`
 - [`memory/snapshots.py`](../../tradingagents/equity_research/memory/snapshots.py)：`capture_iteration_snapshot` → `iteration_snapshots`
 
+**上下文注入体积减少约 23% 的归因**：memory maintenance pipeline 通过两项操作降低注入体积——
+
+1. `merge_similar_evidence`（Jaccard threshold 0.85）消除重复证据片段
+2. `prune_stale_evidence`（max_age_days 30）移除未被任何 claim 引用且超期的证据
+
+这两项配合 `assemble_and_compact_context` 的 soft compact 策略（见 [context.md](context.md)），使最终注入 LLM 的上下文平均缩减约 23%。
+
 ### 4.5 矛盾检测
 
 [`memory/conflict.py`](../../tradingagents/equity_research/memory/conflict.py) 在 `store_evidence` 时按 metric + value/direction 规则检测冲突，写入 `memory_conflicts` / `contradiction_fragments`，并降级关联 claim confidence。
@@ -229,6 +248,12 @@ flowchart TD
         SearchMem --> FormatMem[format_search_memory]
         FormatMem --> ConsensusNodes[consensus planner prompts]
         StateLedgers --> Export[markdown_memory export]
+    end
+
+    subgraph traces [追溯链]
+        EvidenceMem -->|"supporting_evidence"| Claims[claim_ledger]
+        Claims -->|"supporting_claim_ids"| Theses[thesis_ledger]
+        Blackboard[blackboard entries] -->|"related_evidence_ids"| EvidenceMem
     end
 ```
 

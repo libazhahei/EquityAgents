@@ -14,6 +14,7 @@ from tradingagents.equity_research.runtime.utils.structured_invoke import (
 from tradingagents.equity_research.state.blackboard import (
     BlackboardEntry,
     extract_tags_from_text,
+    synthesizer_blackboard_auto_write_enabled,
 )
 from tradingagents.equity_research.tasks.section_research.merge import (
     collect_evidence_for_question,
@@ -187,8 +188,12 @@ def create_synthesizer_node(deps: EquityResearchDeps, task_profile: TaskProfile)
                         question_text=qtext or getattr(card, "question", "") or "",
                     )
 
-            # Auto-write blackboard entries from evidence
-            if pending and task_profile.task_id == "section_research":
+            # Optional evidence echo onto blackboard (off by default).
+            if (
+                pending
+                and task_profile.task_id == "section_research"
+                and synthesizer_blackboard_auto_write_enabled(deps.config)
+            ):
                 iteration = int(state.get("iterations", 0))
                 bb_entries = _extract_blackboard_entries_from_evidence(state, pending, iteration)
                 if bb_entries:

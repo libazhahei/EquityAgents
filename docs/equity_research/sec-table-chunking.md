@@ -1,6 +1,6 @@
 # SEC 表格感知分块 v2
 
-> 语言：[中文](sec-table-chunking.md) | [English](../../README.md)  
+> 语言：[中文](sec-table-chunking.md) | [English](../EQUITY_RESEARCH.md)  
 > 相关文档：[SEC Filing RAG](sec-filing-rag.md) · [RAG 架构](../rag/architecture.md)
 
 ## 概述

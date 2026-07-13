@@ -63,6 +63,10 @@
 | [storage.md](../equity_research/storage.md) | PostgreSQL、Redis、本地文件的配置与数据流 |
 | [sec-filing-rag.md](../equity_research/sec-filing-rag.md) | SEC 申报 RAG：MVP1 现状与规划模块 |
 | [sec-table-chunking.md](../equity_research/sec-table-chunking.md) | SEC 表格感知分块 v2：行级拆分、层级标签、上下文段落 |
+| [section-research-subgraph.md](../equity_research/section-research-subgraph.md) | SectionResearchSubgraph：多步 todo PER loop, ReAct executor, tool_router, blackboard |
+| [parameter-preserving-reducer.md](../equity_research/parameter-preserving-reducer.md) | ParameterPreservingReducer：三阶段参数提取与版本链架构 |
+| [branch-merge.md](../equity_research/branch-merge.md) | BranchMerge：论点分支整合算法，top-N 筛选 → LLM merge → ledger 输出 |
+| [risk-mapping.md](../equity_research/risk-mapping.md) | RiskMapping：风险到论点映射 + 催化剂日历，skill-driven 回退路径 |
 
 ### 全项目架构
 

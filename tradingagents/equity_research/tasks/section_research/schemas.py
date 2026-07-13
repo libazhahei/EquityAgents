@@ -84,6 +84,7 @@ class ResearchTodoItem(BaseModel):
     status: TodoStatus = "pending"
     source: TodoSource = "planner"
     tool_hints: list[str] = Field(default_factory=list)
+    blackboard_entry_id: str | None = None
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     completed_at: str | None = None
 

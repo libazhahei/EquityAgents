@@ -163,22 +163,6 @@ initialize_state
 
 `dynamic_planning` 之后，流水线经 `research_loop`（9 步内层研发）继续，再进入建模/估值/撰写。深度搜索任务复用 **GenericResearchSubgraph（通用研究子图）+ TaskProfile（任务配置）**（`consensus`、`assumption`）。下游阶段节点详见 [docs/zh/EQUITY_RESEARCH.md](docs/zh/EQUITY_RESEARCH.md)。
 
-
-### 多步状态机式工作流与人工评审节点 {#state-machine-workflow}
-
-整个流水线以**多步状态机（State Machine）**方式实现 —— 每个阶段在推进前验证其输入，关键决策点暴露**人工评审中断节点**（共识/假设后的 `human_review_1` 和规划器后的 `human_review_2`）。触发时这些中断会暂停执行（配合 LangGraph Checkpoint），以便人类审查输出并通过补丁恢复。
-
-| 场景 | 触发的门控 | 返工路径 |
-|------|-----------|---------|
-| 研究深度不足 | `human_review_2` → 修改章节选择 | 重新进入 `planner`，重入 `section_research` |
-| 发现异常假设 | `human_review_1` → 修正 assumption_view | 向后修订下游阶段 |
-| 估值输出不合理 | `human_review_1` → 更新 assumption_map | 沿管道向前修订 |
-| 报告质量未达标 | `human_review_2` → 调整规划 | 重新规划受影响的章节 |
-
-**性能指标：** 在本地阶段性测试中，单股初研究链路每步耗时控制在 **80–120 秒**。通过结构化门控点的提前拦截而非事后补救，人工介入的返工率降低至 **18%**。
-
-检查点/断点续跑能力由 [`graph/checkpointer.py`](tradingagents/equity_research/graph/checkpointer.py) 提供：按标的的 SQLite 数据库位于 `{data_cache_dir}/checkpoints/equity_research/<TICKER>.db`，通过 `er_run_tree` 索引。恢复时自动应用任何补丁。
-
 ### 模块布局
 
 ```
@@ -446,17 +430,6 @@ flowchart TD
 
 更多细节：[docs/equity_research/agent-loop-and-tasks.md §6.2](docs/equity_research/agent-loop-and-tasks.md)
 
-
-### 分支剪枝与研究效率
-
-多分支论点探索使用**分阶段预算分配**和**提前评估**机制，在进入完整资源消耗前剪除低价值或不可验证的论点。每次迭代使用加权聚合（证据强度 20%、共识缺口 20%、财务重要性 20%、估值影响 15%、催化剂清晰度 10%、风险调整 10%、新颖性 5%）对候选论点评分。低分分支通过 `quick_diligence` 裁决（`reject` / `park`）被剪枝，高分分支才进入完整开发。
-
-| 效率指标 | 改进 |
-|---------|------|
-| 无效搜索路径减少 | **−32%** vs. 扁平穷举搜索 |
-| 单股研究平均 token 消耗 | **−36%** 下降 |
-| 通过 prune/park 决策提前退出 | 在完全投入资源前切断浪费的迭代 |
-
 ---
 
 ## 运行时框架
@@ -524,19 +497,6 @@ flowchart LR
 | 类型化数值           | `assumption_ledger` + `facts[]` → `computation/forecast.py` 将 `metric_name` 读为 `float`                  | `computation/`                          |
 
 
-### 跨章节结构化中间产物
-
-章节依赖 DAG 将已验证的事实写入**全局黑板（Global Blackboard）**，下游阶段可以直接消费这些结构化中间产物而无需重新检索原始证据。这确保每个章节的输出成为后续阶段的复用输入。
-
-| 指标 | 数值 | 范围 |
-|------|------|------|
-| 下游建模、估值和写作阶段可复用的结构化中间产物覆盖率 | ~**85%** | 全部跨章节事实流转 |
-| 关键证据召回 HitRate@10 | ~**82%–88%** | 基于 pgvector 的语义检索，跨账本 |
-| 报告结论的证据可追溯率 | ~**90%** | 每条关键主张均链接至源账本条目 |
-
-该架构从根本上避免了因缺乏上游事实而导致下游章节产生幻觉或逻辑断裂的问题。
-
-
 **当前限制（路线图动机）：**
 
 - 账本位于图状态 — 无独立线程安全、字段级写隔离的 Blackboard
@@ -546,11 +506,6 @@ flowchart LR
 - 非结构化文本 → 计算参数依赖主张验证 + `_fact_value()`；尚无统一 `FactEntity` 网关
 
 实现细节：[docs/equity_research/memory.md](docs/equity_research/memory.md)
-
-
-### 短/长会话/长期记忆体系
-
-研究工作采用**短期/长会话/长期**三层记忆体系，支持跨会话召回历史分析结果。短期记忆维持当前对话上下文；长会话记忆通过会话黑板在单个章节研究期间持久化发现；长期记忆存储已完成的分析摘要，可在未来运行中注入。该记忆体系通过将仅相关的先前分析选择性加载到提示中而非将所有历史数据灌入，使上下文注入体积减少 **23%**。
 
 ### 目标设计：全局 Blackboard *（路线图）*
 

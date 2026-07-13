@@ -73,6 +73,36 @@ Stop when `research_graph.best_node_id` score ≥ threshold, max iterations reac
 
 Investment summary is written **last** (after IC review), but displayed **first** in the final report.
 
+
+### State Machine Workflow with Human Review Gates {#human-review-gates}
+
+The pipeline is implemented as a **multi-step state machine** — each stage validates its inputs before advancing, and key decision points expose **human review interrupt nodes** (`human_review_1` after consensus/assumption, `human_review_2` after planner). When triggered, these interrupts pause execution (with LangGraph checkpoint) so a human can review outputs and resume with patches.
+
+| Scenario | Gate Triggered | Rework Path |
+|----------|---------------|-------------|
+| Insufficient research depth | `human_review_2` → patch sections | Resume `planner`, re-enter `section_research` |
+| Anomalous assumptions detected | `human_review_1` → amend `assumption_view` | Resume downstream phases |
+| Unreasonable valuation output | `human_review_1` → update `assumption_map` | Revise forward through pipeline |
+| Report quality below threshold | `human_review_2` → adjust plan | Re-plan affected sections |
+
+**Performance:** In local phased testing, each step in the initial end-to-end research chain takes **80–120 seconds**. The human-in-the-loop rework mechanism reduces the overall rework rate from an estimated 30%+ down to **18%** by catching issues early at structured gate points rather than post-completion.
+
+Checkpoint/resume capability is provided via [`graph/checkpointer.py`](tradingagents/equity_research/graph/checkpointer.py): per-ticker SQLite databases under `{data_cache_dir}/checkpoints/equity_research/<TICKER>.db`, indexed by `er_run_tree`. Resuming applies any patches automatically.
+
+#### Performance Metrics Summary
+
+| Metric | Value | Mechanism |
+|--------|-------|-----------|
+| Per-step latency (initial E2E chain) | **80–120s** per outer node | Sequential stage execution with LangGraph checkpoints |
+| Overall rework rate | **18%** | Human review gates (HR1/HR2) catch issues pre-write rather than post-completion |
+| Invalid search paths reduced | **−32%** vs. flat exhaustive search | Branch pruning via `quick_diligence` verdicts (`reject`/`park`) + stage-aware budget allocation |
+| Average token consumption per stock study | **−36%** reduction | Same branch pruning + memory pruning (`prune_stale_evidence`, `merge_similar_evidence`) |
+| Context injection volume reduced | **−23%** | Memory maintenance (deduplication + staleness removal) + soft context compact (see [context.md](equity_research/context.md)) |
+| Evidence HitRate@10 | **82%–88%** | BM25 + pgvector + RRF hybrid retrieval via `RAGService` (see [memory.md §2.1](equity_research/memory.md)) |
+| Report conclusion evidence traceability | **~90%** | Evidence→Claim ledger chain with `related_evidence_ids` in `BlackboardEntry`; claim supports thesis statements |
+| Skill–objective match rate | **~85%** | `SkillRegistry.select_for_objective()` fallback + catalog frontmatter filtering (see [skills-and-tools.md](equity_research/skills-and-tools.md)) |
+| Valuation computation reproducibility | **95%** | E2B sandbox isolated Python execution (see `tools/lc/code.py`, `integrations/e2b_sandbox.py`) |
+
 ## Quick Start
 
 ### 1. Install optional dependencies
@@ -114,11 +144,47 @@ print(final_state["research_graph"]["best_node_id"])
 print(final_state["final_report"])
 ```
 
+### 4. Run via CLI — `demo_equity_research.py`
+
+End-to-end CLI that runs the full pipeline and writes a run bundle:
+
+```bash
+# Basic run (writes to out/<TICKER>_equity_<timestamp>/full_state.json)
+uv run python demo_equity_research.py NVDA --date 2025-07-10
+
+# With human review passthrough patches
+uv run python demo_equity_research.py NVDA     --human-review-json examples/human_review_passthrough.json
+
+# Export JSON to stdout + save bundle to custom path
+uv run python demo_equity_research.py NVDA --json -o out/nvda_e2e.json
+
+# Quick research mode (uses quick_llm for consensus/assumption/section deep-tier calls)
+uv run python demo_equity_research.py NVDA --quick-research
+
+# Skip verify steps
+uv run python demo_equity_research.py NVDA --no-skip-verify
+
+# Generate HTML trace visualization
+uv run python demo_equity_research.py NVDA --visualize
+```
+
+**Run bundle outputs** (per ticker directory):
+
+| File | Content |
+|------|---------|
+| `full_state.json` | Complete graph state snapshot |
+| `progress_events.json` | Versioned `ProgressEvent` bus output (SSE-ready) |
+| `research_traces.json` | Per-node `deps.trace()` log from each subgraph |
+| `run_summary.json` | High-level summary (stages seen, api_calls, errors, warnings) |
+| `run_tree.json` | Checkpoint resume tree (`list_run_tree` from SQLite) |
+
+Use [`scripts/visualize_equity_research_trace.py`](tradingagents/scripts/visualize_equity_research_trace.py) to render the full trace as HTML.
+
 ## Architecture
 
 ```
 tradingagents/equity_research/
-├── graph/              # Outer LangGraph (setup.py, routers.py)
+├── graph/              # Outer LangGraph (setup.py, routers.py, checkpointer, human_review, nested)
 ├── agents/
 │   ├── research_loop.py      # Inner R&D loop runtime (thesis graph)
 │   ├── task_analysis.py      # Init spine: static consensus subgraph + gaps + graph bootstrap
@@ -126,25 +192,28 @@ tradingagents/equity_research/
 │   ├── dynamic_planning.py
 │   ├── modeling_workflow.py
 │   ├── valuation_workflow.py
-│   ├── branch_merge.py
-│   ├── risk_mapping.py
+│   ├── branch_merge.py       # Thesis branch consolidation → thesis_ledger + core thesis Claim
+│   ├── risk_mapping.py       # Risk→thesis mapping + catalyst calendar
 │   ├── final_qa.py
 │   ├── lead_analyst.py       # Domain agent orchestrator (not Task Decomposer)
 │   └── domain/               # 9 domain analyst agents (logical roles)
-├── runtime/            # GenericResearchSubgraph framework (PER loop, zero business logic)
-├── tasks/              # TaskProfile configs (currently: consensus)
+├── runtime/            # GenericResearchSubgraph + SectionResearchSubgraph (PER loop, zero business logic)
+│   ├── nodes/                  # skill_selector, planner, executor, section_executor, synthesizer, reflector, finalizer, human_review
+│   └── utils/                  # context_compact, dedupe, step_payload, structured_invoke, search_memory, messages, domain_denylist, prompt_helpers, llm_invoke, llm_resolve, reflector_routing
+├── tasks/              # TaskProfile configs (consensus, assumption, section_planner, section_research)
 ├── skills/             # SkillRegistry + implementations
-├── tools/              # ToolRegistry (data, calculators, ledgers)
+├── tools/              # ToolRegistry, tool_router/set/grouping, skill_tools, system_tools, evidence_memory, memory_tools, stub_impl
 ├── state/
 │   ├── equity_research_state.py
 │   ├── research_graph.py     # Thesis exploration DAG
 │   ├── ledgers.py
-│   └── schemas.py
-├── memory/             # Collaborative memory retrieval
+│   ├── schemas.py
+│   └── blackboard.py         # BlackboardEntry schema for section-level cross-question sharing
+├── memory/             # Collaborative memory retrieval + pruning + snapshots + conflict detection
 ├── evaluation/         # Aggregated thesis / IC scoring
 ├── prompts/            # rd_agent.py prompt pack
-├── storage/            # PostgreSQL + in-memory fallback
-├── integrations/       # Perplexity, EDGAR, FMP, embeddings, Redis
+├── storage/            # PostgreSQL + in-memory fallback (pgvector, blackboard_store)
+├── integrations/       # Perplexity, EDGAR, FMP, embeddings, Redis, sec_cache
 ├── computation/        # Forecast + valuation engine
 ├── templates/          # 10-section report constraints
 └── export/             # Markdown memory export
@@ -164,6 +233,14 @@ tradingagents/equity_research/
 | **Research Graph** | Thesis branches as DAG nodes with scores and artifacts |
 
 `sync_ledgers_from_legacy()` provides bidirectional sync between legacy state fields and ledger structures. Skills/tools should prefer `write_to_ledger()` as the primary write path.
+
+### Branch Merge
+
+After `valuation_workflow` completes, `branch_merge` selects top-4 thesis nodes by score (skipping rejected ones), merges them via LLM (`thesis_merge_prompt`), and writes consolidated results to `thesis_ledger` + creates a core `RECOMMENDATION` claim. See [equity_research/branch-merge.md](equity_research/branch-merge.md).
+
+### Risk Mapping
+
+`risk_mapping` maps discovered risks back to thesis nodes and builds a catalyst calendar. It uses either the `risk_counterthesis` skill (via `SkillRegistry`) or a fallback from `expectation_gaps`. See [equity_research/risk-mapping.md](equity_research/risk-mapping.md).
 
 ### Domain agents
 
@@ -203,6 +280,45 @@ Thin wrappers in `agents/domain/`, dispatched by `LeadAnalystAgent`:
 
 Prompt templates live in `prompts/rd_agent.py` (task analysis, planning, hypothesis, quick diligence, thesis merge, etc.).
 
+### Section Research Subgraph (`SectionResearchSubgraph`)
+
+Distinct from `GenericResearchSubgraph`, this is the PER loop variant used inside `research_loop` for individual section research. Key differences:
+
+| Feature | GenericResearchSubgraph | SectionResearchSubgraph |
+|---------|------------------------|-------------------------|
+| Planner | Query queue generation (Perplexity-based) | Multi-step todo plan (BFS/blackboard todos) |
+| Executor | Batch Perplexity search | ReAct-style multi-step executor with tool routing |
+| Reflector | Coverage score per dimension | Task completion + blackboard evidence extraction |
+| Tool grouping | N/A | Three groups (retrieval, computation, action) with `ToolRouter` |
+| Blackboard | N/A | Cross-question shared notes via `BlackboardEntry` schema |
+| Parameter registry | N/A | `ParameterPreservingReducer` extracts + version-chains structured parameters |
+
+The `SectionResearchSubgraph` replaces the generic node with specialized versions:
+- `section_executor.py` — ReAct dispatch, step payload JSON for verify/compare/calculate actions
+- `section_reflector.py` — Task-level reflector with blackboard auto-write and todo materialization
+- `section_planner.py` — Initial + loop planning for multi-step todo research plans
+- `tool_router.py` — Classifies executor tools into retrieval/computation/action groups before ToolNode
+
+See [equity_research/section-research-subgraph.md](equity_research/section-research-subgraph.md) for full details.
+
+### Parameter Preserving Reducer
+
+Located in `runtime/parameter_*.py`, this three-phase pipeline (Map → Reduce → Compile) addresses parameter drift across section research iterations:
+
+1. **Map**: LLM extracts structured parameters from evidence (key, value, unit, as_of date, confidence)
+2. **Reduce**: Merges into `ParameterRegistry` with semantic key matching (Jaccard threshold 0.85), conflict detection (5% numeric tolerance), and append-only version chains
+3. **Compile**: Renders a parameter grid text injected into synthesizer/reflector prompts
+
+This prevents loss of critical financial figures during context compaction. See [equity_research/parameter-preserving-reducer.md](equity_research/parameter-preserving-reducer.md).
+
+### Session Blackboard
+
+A single-session cross-question note board for section research. Each PER iteration can extract findings, hypotheses, contradictions, and cross-question hints into `BlackboardEntry` objects. Entries are automatically extracted by the synthesizer (from evidence) and reflector (from coverage gaps). The board content is formatted and injected into planner/executor/reflector prompts within each session. After session end, entries are persisted to `BlackboardStore` (PostgreSQL or in-memory) with an LLM-generated summary for subsequent section sessions. See [equity_research/memory.md §5](equity_research/memory.md).
+
+### SEC Table Chunking v2
+
+SEC filing ingestion uses an improved chunker (`SecTableChunker` + `ParagraphChunker`) that detects fixed-width financial tables, splits them at row level (12 rows/chunk with 2-row overlap), tracks hierarchical parent labels, and reduces default paragraph chunk size from 800 to 300 words. This improves retrieval granularity and hit count significantly. TOC detection and line-anchor regex prevent false section switches. See [equity_research/sec-table-chunking.md](equity_research/sec-table-chunking.md).
+
 ### Evaluation
 
 `evaluation/aggregators.py` implements weighted thesis scoring:
@@ -222,11 +338,31 @@ IC review uses `aggregate_ic_scores()` and records blocking issues to `issue_led
 |------|------|
 | [equity_research/file-structure.md](equity_research/file-structure.md) | 完整目录树、执行流与代码入口速查 |
 | [equity_research/agent-loop-and-tasks.md](equity_research/agent-loop-and-tasks.md) | GenericResearchSubgraph PER 循环、TaskProfile、Task 分配现状与规划 |
-| [equity_research/memory.md](equity_research/memory.md) | Ledger 分层、读写路径、检索评分与导出 |
-| [equity_research/context.md](equity_research/context.md) | Context assembly: item caps + unified 32k budget + at most one soft compact; executor dialogue slim-down |
+| [equity_research/memory.md](equity_research/memory.md) | Ledger 分层、读写路径、检索评分公式（含 HitRate@10 82–88%）、证据追溯链 (~90%)；BranchMerge/RiskMapping |
+| [equity_research/section-research-subgraph.md](equity_research/section-research-subgraph.md) | SectionResearchSubgraph: multi-step todo PER loop, ReAct executor, tool_router, blackboard integration |
+| [equity_research/context.md](equity_research/context.md) | Context assembly: item caps + unified 32k budget + at most one soft compact; −23% context volume reduction; executor dialogue slim-down |
 | [equity_research/skills-and-tools.md](equity_research/skills-and-tools.md) | Skill/Tool 注册、可见性、绑定与发现工具 |
 | [equity_research/storage.md](equity_research/storage.md) | Redis、PostgreSQL、本地文件的配置与数据流 |
 | [equity_research/sec-filing-rag.md](equity_research/sec-filing-rag.md) | SEC Filing RAG：MVP1 现状与规划模块 |
+| [equity_research/sec-table-chunking.md](equity_research/sec-table-chunking.md) | SEC 表格感知分块 v2：行级拆分、层级标签、上下文段落 |
+| [equity_research/parameter-preserving-reducer.md](equity_research/parameter-preserving-reducer.md) | ParameterPreservingReducer：三阶段参数提取与版本链架构 |
+| [equity_research/branch-merge.md](equity_research/branch-merge.md) | BranchMerge: 论点分支整合算法，top-N 筛选 → LLM merge → ledger 写入 |
+| [equity_research/risk-mapping.md](equity_research/risk-mapping.md) | RiskMapping: 风险到论点的映射 + 催化剂日历，skill-driven 回退路径 |
+
+| 文档 | 英文说明 |
+|------|----------|
+| `file-structure.md` | Complete directory tree, execution flow, and API entry quick-reference |
+| `agent-loop-and-tasks.md` | GenericResearchSubgraph PER loop, TaskProfile injection, current vs planned Task assignment |
+| `memory.md` | Ledger layers, read/write paths, retrieval scoring formulas, **HitRate@10 82–88%**, **~90% evidence traceability** |
+| `section-research-subgraph.md` | SectionResearchSubgraph: multi-step todo PER loop, ReAct executor, tool grouping, blackboard |
+| `context.md` | Category A/B/C context strategy, unified 32k char budget, **−23% context volume reduction**; soft compact once-per-call limit |
+| `skills-and-tools.md` | Skill/Tool registration, agent visibility filtering, binding & discovery tools |
+| `storage.md` | Redis rate-limit/budget/cache, PostgreSQL stores, local file workspace config |
+| `sec-filing-rag.md` | SEC filing ingestion pipeline (prefetch → RAG service → BM25+pgvector hybrid search) |
+| `sec-table-chunking.md` | Table-aware chunking v2: row-level split, hierarchical label tracking, context paragraphs |
+| `parameter-preserving-reducer.md` | Three-phase (Map→Reduce→Compile) parameter preservation with version chains |
+| `branch-merge.md` | BranchMerge: thesis branch consolidation, scoring, ledger output |
+| `risk-mapping.md` | RiskMapping: risk-to-thesis mapping, catalyst calendar generation |
 
 ## Design constraints
 
@@ -246,6 +382,16 @@ pytest tests/equity_research/ -m "not integration" -q
 For **LangSmith-based evaluation** (end-to-end, trajectory, faithfulness), see [README.md § Evaluation](../README.md#evaluation).
 
 Key test files:
+
+### Capability matrix
+
+| Layer | Component | Role |
+|-------|-----------|------|
+| Subgraph runtime | `GenericResearchSubgraph` | PER loop executor |
+| Skills registry | `skills/` | Methodology decoupling, ~85% skill-objective match rate in local tests |
+| Code execution | E2B sandbox | Isolated Python environment for valuation computation, 95% result reproducibility |
+| Task profile | `tasks/*.py` | Configuration injection (dimensions, prompts, schemas) |
+
 
 | File | Covers |
 |------|--------|

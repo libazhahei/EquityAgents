@@ -164,6 +164,10 @@ DEFAULT_CONFIG = _apply_env_overrides({
         # Unified prompt context budget (info-preserving; compact only when over).
         "prompt_context_max_chars": 32000,
         "executor_context_max_chars": 32000,
+        # Session blackboard: synthesizer evidence-echo write (default off; noisy).
+        "blackboard_synthesizer_auto_write": False,
+        # When plan has no runnable step, materialize BB gaps/contradictions into todos.
+        "blackboard_todo_materialize": True,
         "section_research_recursion_limit": 250,
         "consensus_context_max_chars": 32000,
         "max_hypotheses_per_section": 5,

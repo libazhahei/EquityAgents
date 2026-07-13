@@ -1,6 +1,6 @@
 # Equity Research Context 控制方案
 
-> 语言：[中文](context.md) | [English](../../README.md) · [中文主文档](../../README.zh-CN.md) · [文档索引](../zh/README.md)  
+> 语言：[中文](context.md) | [English](../EQUITY_RESEARCH.md) · [中文主文档](../../README.zh-CN.md) · [文档索引](../zh/README.md)  
 > 模块路径：`tradingagents/equity_research/runtime/utils/context_compact.py`、`tasks/*/prompts.py`  
 > 相关文档：[文件结构](file-structure.md) · [Memory](memory.md) · [Skills & Tools](skills-and-tools.md) · [Storage](storage.md)
 
@@ -22,6 +22,12 @@ Context 在本模块中经历四个显式阶段，避免**信息在层层硬切�
 | Soft compact | 同一 LLM 调用对动态材料 **至多一次** `compact_if_needed`；默认预算 **32000** 字符 |
 
 各子图（共识、假设、section planner、section research）共享同一套模式，但注入内容不同。本文描述**谁构建 context、何时注入、限制多少**。
+
+**上下文体积缩减归因 (−23%)：** 本节设计的 single-pass soft compact + memory pruning 协同策略（见 [memory.md §4.4](memory.md)），使最终注入 LLM 的上下文平均缩减约 23%，相比无裁剪的直接注入。核心贡献来源：
+
+1. Memory maintenance pipeline（去重 + 过期清理）减少重复/无效证据
+2. Category A/B 策略避免了对已有内容的二次截断
+3. Single-pass compact 比逐块 compact 更精确地估算压缩率
 
 ---
 
