@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from tradingagents.equity_research.runtime.utils.context_compact import compact_if_needed
+from tradingagents.equity_research.runtime.utils.context_compact import (
+    assemble_and_compact_context,
+)
 from tradingagents.equity_research.runtime.utils.prompt_helpers import (
     format_coverage_report_for_planner,
     format_dimension_list,
@@ -46,22 +48,17 @@ def _format_sources(sources: list[str]) -> list[str]:
 
 
 def format_consensus_view(view: StructuredConsensusView) -> str:
-    lines: list[str] = [f"**Consensus view**"]
     lines: list[str] = [f"- Ticker: {view.ticker}", f"- Coverage score: {view.coverage_score}"]
     qe = view.quantitative_estimates
     lines.append("- Quantitative estimates:")
     lines.append(f"  - Analyst count: {qe.analyst_count}")
     lines.append(f"  - Coverage: {_status_label(view.dimension_coverage.get('quantitative_estimates'))}")
-    # lines.append("  - Sources:")
-    # lines.extend(_format_sources(qe.sources))
 
     kpi = view.kpi_focus
     lines.append("- KPI focus:")
     lines.append(f"  - Coverage: {_status_label(view.dimension_coverage.get('kpi_focus'))}")
     for item in kpi.primary_kpis[:5]:
         lines.append(f"  - KPI: {item.name} — expected {item.expected_level} ({item.importance})")
-    # lines.append("  - Sources:")
-    # lines.extend(_format_sources(kpi.sources))
 
     pa = view.pricing_assumptions
     lines.append("- Pricing assumptions:")
@@ -69,32 +66,26 @@ def format_consensus_view(view: StructuredConsensusView) -> str:
     lines.append(f"  - Coverage: {_status_label(view.dimension_coverage.get('pricing_assumptions'))}")
     for peer in pa.peer_comparison[:3]:
         lines.append(f"  - Peer {peer.ticker}: {peer.metric} = {peer.value} ({peer.comparison})")
-    # lines.append("  - Sources:")
-    # lines.extend(_format_sources(pa.sources))
 
     nf = view.narrative_framework
     lines.append("- Narrative framework:")
     lines.append(f"  - Coverage: {_status_label(view.dimension_coverage.get('narrative_framework'))}")
     if nf.bull_case:
-        lines.append(f"  - Bull case: {nf.bull_case[:400]}")
+        lines.append(f"  - Bull case: {nf.bull_case}")
     if nf.bear_case:
-        lines.append(f"  - Bear case: {nf.bear_case[:400]}")
+        lines.append(f"  - Bear case: {nf.bear_case}")
     for debate in nf.key_debates[:5]:
         lines.append(f"  - Debate: {debate}")
-    # lines.append("  - Sources:")
-    # lines.extend(_format_sources(nf.sources))
 
     rd = view.recent_delta
     lines.append("- Recent delta:")
     lines.append(f"  - Coverage: {_status_label(view.dimension_coverage.get('recent_delta'))}")
     if rd.estimate_revisions:
-        lines.append(f"  - Estimate revisions: {rd.estimate_revisions[:300]}")
+        lines.append(f"  - Estimate revisions: {rd.estimate_revisions}")
     if rd.guidance_change:
-        lines.append(f"  - Guidance change: {rd.guidance_change[:300]}")
+        lines.append(f"  - Guidance change: {rd.guidance_change}")
     if rd.sentiment_shift:
-        lines.append(f"  - Sentiment shift: {rd.sentiment_shift[:300]}")
-    # lines.append("  - Sources:")
-    # lines.extend(_format_sources(rd.sources))
+        lines.append(f"  - Sentiment shift: {rd.sentiment_shift}")
     return "\n".join(lines)
 
 
@@ -107,11 +98,12 @@ def _parse_view(state: dict[str, Any]) -> StructuredConsensusView:
 
 
 def build_skill_prompt(state: dict[str, Any], catalog_table: str, ticker: str) -> str:
+    instrument = str(state.get("instrument_context", "") or "")
     return (
         f"Select equity research skills to load for building market consensus on {ticker}.\n"
         f"Sector: {state.get('sector', '')}\n"
         f"Report type: {state.get('report_type', '')}\n"
-        f"Instrument context: {state.get('instrument_context', '')[:500]}\n\n"
+        f"Instrument context: {instrument}\n\n"
         f"Skill catalog (read descriptions and when_to_use before deciding):\n{catalog_table}\n\n"
         "Choose skill names from the catalog only.\n"
         "You may return an empty load_skills list if no skill is needed.\n"
@@ -123,19 +115,22 @@ def build_initial_planner_prompt(deps: Any, state: dict[str, Any]) -> str:
     ticker = state.get("ticker", "")
     skill_ctx = state.get("active_skill_context", {})
     search_memory = state.get("search_memory", [])
-    memory_block = ""
-    if search_memory:
-        memory_block = (
-            f"\nPrior search memory:\n"
-            f"{build_search_memory_for_prompt(deps, search_memory)}\n"
-        )
+    context = assemble_and_compact_context(
+        deps,
+        {
+            "Active skills": format_skill_names(skill_ctx.get("names", [])),
+            "Skill context": format_skill_context(skill_ctx),
+            "Prior search memory": build_search_memory_for_prompt(
+                deps, search_memory, compact=False,
+            ) if search_memory else "",
+        },
+        purpose="consensus initial planner context",
+    )
     return (
         f"Generate an initial Perplexity search query queue for market consensus on {ticker}.\n"
         f"Sector: {state.get('sector', '')}\n"
-        f"Report type: {state.get('report_type', '')}\n"
-        f"Active skills:\n{format_skill_names(skill_ctx.get('names', []))}\n\n"
-        f"{format_skill_context(skill_ctx)}\n"
-        f"{memory_block}\n"
+        f"Report type: {state.get('report_type', '')}\n\n"
+        f"{context}\n\n"
         f"{PUBLIC_DATA_SOURCE_NOTE}\n\n"
         "Produce exactly 5 query items, one for each dimension. Each item must include:\n"
         "- query: 10-80 English words targeting public sources only (no FactSet, Bloomberg Terminal, or Refinitiv)\n"
@@ -153,26 +148,31 @@ def build_loop_planner_prompt(deps: Any, state: dict[str, Any]) -> str:
     search_memory = state.get("search_memory", [])
     executed = queries_from_memory(search_memory) or state.get("executed_queries", [])
     view = _parse_view(state)
-    view_text = compact_if_needed(deps, format_consensus_view(view), purpose="consensus view for gap planning")
 
     human_history = state.get("human_followup_history") or []
     human_block = ""
     if human_history:
-        human_block = (
-            "\nAnalyst follow-up requests (most recent last):\n"
-            + "\n".join(f"- {q}" for q in human_history[-3:])
-            + "\n"
-        )
+        human_block = "\n".join(f"- {q}" for q in human_history[-3:])
+
+    context = assemble_and_compact_context(
+        deps,
+        {
+            "Coverage evaluation": format_coverage_report_for_planner(report, state),
+            "Current consensus view": format_consensus_view(view),
+            "Prior search memory": build_search_memory_for_prompt(
+                deps, search_memory, compact=False,
+            ),
+            "Executed queries": format_executed_queries(executed),
+            "Skill context": format_skill_context(skill_ctx),
+            "Analyst follow-up requests": human_block,
+        },
+        purpose="consensus loop planner context",
+    )
 
     return (
         f"Generate up to 2 new Perplexity queries to find consensus gaps in the view for {ticker}.\n"
-        f"Last coverage evaluation (round {state.get('iterations', 0)}):\n"
-        f"{format_coverage_report_for_planner(report, state)}\n\n"
-        f"Current consensus view:\n{view_text}\n\n"
-        f"Prior search memory:\n{build_search_memory_for_prompt(deps, search_memory)}\n"
-        f"Executed queries:\n{format_executed_queries(executed)}\n\n"
-        f"{format_skill_context(skill_ctx)}\n"
-        f"{human_block}\n"
+        f"Round: {state.get('iterations', 0)}\n\n"
+        f"{context}\n\n"
         f"{PUBLIC_DATA_SOURCE_NOTE}\n\n"
         "Produce a query plan with up to 2 items. Each item must include:\n"
         "- query: 10-80 English words, different from prior queries; public sources only "
@@ -208,18 +208,27 @@ _ASSUMPTION_THEMES = (
 def build_assumption_planner_prompt(deps: Any, state: dict[str, Any]) -> str:
     ticker = state.get("ticker", "")
     view = _parse_view(state)
-    view_text = compact_if_needed(deps, format_consensus_view(view), purpose="consensus view for assumption probe")
     themes = "\n".join(f"- {theme}: {question}" for theme, question in _ASSUMPTION_THEMES)
     report = state.get("coverage_report", {})
     search_memory = state.get("search_memory", [])
 
+    context = assemble_and_compact_context(
+        deps,
+        {
+            "Current consensus view": format_consensus_view(view),
+            "Coverage summary": format_coverage_report_for_planner(report, state),
+            "Prior search memory": build_search_memory_for_prompt(
+                deps, search_memory, compact=False,
+            ),
+            "Probe themes": themes,
+        },
+        purpose="consensus assumption probe planner context",
+    )
+
     return (
         f"Generate 3-5 Perplexity search queries to probe key assumptions behind "
         f"market consensus on {ticker}.\n\n"
-        f"Current consensus view:\n{view_text}\n\n"
-        f"Coverage summary:\n{format_coverage_report_for_planner(report, state)}\n\n"
-        f"Prior search memory:\n{build_search_memory_for_prompt(deps, search_memory)}\n\n"
-        f"Probe themes (prioritize gaps, not every theme needs a query):\n{themes}\n\n"
+        f"{context}\n\n"
         f"{PUBLIC_DATA_SOURCE_NOTE}\n"
         f"{COMPLIANCE_QUERY_SUFFIX}\n\n"
         "Each query item must include:\n"
@@ -283,14 +292,20 @@ def normalize_assumption_queries(
 
 def build_synthesizer_prompt(deps: Any, state: dict[str, Any], view: StructuredConsensusView, pending: list) -> str:
     ticker = state.get("ticker", "")
-    view_text = compact_if_needed(deps, format_consensus_view(view), purpose="consensus view")
-    evidence_text = build_search_memory_for_prompt(deps, pending, max_chars=None)
+    evidence_text = build_search_memory_for_prompt(deps, pending, compact=False)
     if not evidence_text or evidence_text == "- No prior searches recorded.":
-        evidence_text = format_search_memory(pending)
+        evidence_text = format_search_memory(pending, prefer_full_answer=True)
+    context = assemble_and_compact_context(
+        deps,
+        {
+            "Current view": format_consensus_view(view),
+            "New search evidence (this round only)": evidence_text,
+        },
+        purpose="consensus synthesizer context",
+    )
     return (
         f"Update the structured consensus view for {ticker} using search evidence.\n"
-        f"Current view:\n{view_text}\n\n"
-        f"New search evidence (this round only):\n{evidence_text}\n\n"
+        f"{context}\n\n"
         "Merge incrementally — do not erase existing content.\n"
         "If there is any conflict between existing content and new evidence, "
         "add a structured conflict record (claim_a, claim_b, interpretation) in conflicts; "
@@ -307,13 +322,17 @@ def build_synthesizer_prompt(deps: Any, state: dict[str, Any], view: StructuredC
 
 
 def build_reflector_prompt(deps: Any, view: StructuredConsensusView, memory_summary: str) -> str:
-    view_text = compact_if_needed(
-        deps, format_consensus_view(view), purpose="consensus view for coverage evaluation",
+    context = assemble_and_compact_context(
+        deps,
+        {
+            "View": format_consensus_view(view),
+            "Search history": memory_summary,
+        },
+        purpose="consensus reflector context",
     )
     return (
         f"Evaluate coverage of the consensus view for {view.ticker}.\n"
-        f"View:\n{view_text}\n"
-        f"{memory_summary}\n"
+        f"{context}\n"
         "Score each dimension as empty, partial, sufficient, or strong.\n"
         "Also assess source_quality across dimensions (reliability of citations, period clarity).\n"
         "For quantitative_estimates: distinguish missing content from source_quality limits. "
@@ -329,13 +348,17 @@ def build_reflector_prompt(deps: Any, view: StructuredConsensusView, memory_summ
 
 
 def build_assumption_synth_prompt(deps: Any, view: StructuredConsensusView, evidence_text: str) -> str:
-    view_text = compact_if_needed(
-        deps, format_consensus_view(view), purpose="consensus view for assumption synthesis",
+    context = assemble_and_compact_context(
+        deps,
+        {
+            "Current view": format_consensus_view(view),
+            "Assumption probe evidence": evidence_text,
+        },
+        purpose="consensus assumption synthesis context",
     )
     return (
         f"Extract key assumptions behind market consensus for {view.ticker}.\n"
-        f"Current view:\n{view_text}\n\n"
-        f"Assumption probe evidence:\n{evidence_text}\n\n"
+        f"{context}\n\n"
         "Populate all ConsensusAssumptions fields from evidence only.\n"
         "Label claims without public citation as [UNVERIFIED].\n"
         "If evidence conflicts, keep both views and label [CON].\n"
@@ -354,27 +377,32 @@ def build_finalizer_prompt(deps: Any, ctx: dict[str, Any]) -> str:
     report_max_chars = ctx["report_max_chars"]
     ticker = state.get("ticker", "")
 
-    view_text = compact_if_needed(deps, format_consensus_view(view), purpose="consensus final report")
-    memory_text = build_search_memory_for_prompt(deps, search_memory) if search_memory else ""
     compliance_text = ""
     if compliance_flags:
-        compliance_text = (
-            "\nCompliance flags:\n"
-            + "\n".join(
-                f"- [{f.get('type', 'flag')}] {f.get('message', '')}"
-                for f in compliance_flags[:10]
-            )
+        compliance_text = "\n".join(
+            f"- [{f.get('type', 'flag')}] {f.get('message', '')}"
+            for f in compliance_flags[:10]
         )
+
+    context = assemble_and_compact_context(
+        deps,
+        {
+            "Structured consensus view": format_consensus_view(view),
+            "Key assumptions behind consensus": str(assumptions or ""),
+            "Coverage evaluation": str(coverage or ""),
+            "Search memory summary": build_search_memory_for_prompt(
+                deps, search_memory, compact=False,
+            ) if search_memory else "",
+            "Active skills context": format_skill_context(skill_ctx),
+            "Compliance flags": compliance_text,
+        },
+        purpose="consensus finalizer context",
+    )
 
     return (
         f"Write a moderate-length market consensus report for {ticker} "
         f"(target 800-1500 words, aim for roughly {report_max_chars} characters).\n\n"
-        f"Structured consensus view:\n{view_text}\n\n"
-        f"Key assumptions behind consensus:\n{assumptions}\n\n"
-        f"Coverage evaluation:\n{coverage}\n\n"
-        f"Search memory summary:\n{memory_text}\n\n"
-        f"Active skills context:\n{format_skill_context(skill_ctx)}\n"
-        f"{compliance_text}\n\n"
+        f"{context}\n\n"
         "Requirements:\n"
         "- Organize by the five consensus dimensions\n"
         "- Include a section titled 'Key Assumptions Behind Consensus'\n"

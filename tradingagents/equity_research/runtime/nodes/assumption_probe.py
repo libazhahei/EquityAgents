@@ -120,9 +120,9 @@ def create_assumption_synthesizer(deps: EquityResearchDeps, task_profile: TaskPr
             assumptions = assumptions_schema() if assumptions_schema else {}
 
             if pending and assumptions_schema:
-                evidence_text = build_search_memory_for_prompt(deps, pending, max_chars=None)
+                evidence_text = build_search_memory_for_prompt(deps, pending, compact=False)
                 if not evidence_text or evidence_text == "- No prior searches recorded.":
-                    evidence_text = format_search_memory(pending)
+                    evidence_text = format_search_memory(pending, prefer_full_answer=True)
 
                 prompt = task_profile.build_assumption_synth_prompt(deps, view, evidence_text)
 

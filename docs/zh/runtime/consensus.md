@@ -82,7 +82,7 @@ flowchart TD
 Select equity research skills to load for building market consensus on {ticker}.
 Sector: {sector}
 Report type: {report_type}
-Instrument context: {instrument_context[:500]}
+Instrument context: {instrument_context}
 
 Skill catalog (read descriptions and when_to_use before deciding):
 {catalog_table}
@@ -394,6 +394,8 @@ LLM 通过 `load_research_skills` 最多选 **2 个** skill。选中后 `build_s
 | 配置路径 | 默认值 | 作用 |
 |----------|--------|------|
 | `equity_research.consensus_human_review` | `enabled=false` | 人工审阅 |
+| `equity_research.prompt_context_max_chars` | 32000 | 统一 prompt context 预算；超长才一次 soft compact |
+| `equity_research.consensus_context_max_chars` | 32000 | legacy 对齐键（回退读 `prompt_context_max_chars`） |
 | `equity_research.consensus_report_max_chars` | 6000 | finalizer prompt 软引导字数（不硬截断） |
 | `equity_research.structured_output_max_retries` | 3 | 结构化输出重试 |
 | `equity_research.batch_search_concurrency` | batch_size | 并发搜索数 |

@@ -7,13 +7,18 @@ from typing import Any
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
-from tradingagents.equity_research.runtime.utils.context_compact import compact_prompt_block
-from tradingagents.equity_research.runtime.utils.search_memory import build_search_memory_for_prompt, build_evidence_for_prompt
+from tradingagents.equity_research.runtime.utils.context_compact import (
+    assemble_and_compact_context,
+)
+from tradingagents.equity_research.runtime.utils.search_memory import (
+    build_evidence_for_prompt,
+)
 from tradingagents.equity_research.state.consensus_schemas import get_consensus_view_for_prompt
 from tradingagents.equity_research.tasks.section_research.schemas import (
     ResearchBrief,
     SectionResearchView,
 )
+
 
 def build_markdown_table(headers: list[str], rows: list[list[Any]]) -> str:
     """Build a markdown table from headers and rows."""
@@ -22,12 +27,20 @@ def build_markdown_table(headers: list[str], rows: list[list[Any]]) -> str:
     data_rows = ["| " + " | ".join(str(cell) for cell in row) + " |" for row in rows]
     return "\n".join([header_row, separator_row] + data_rows) + "\n"
 
+
 def get_assumption_context(brief: ResearchBrief) -> str:
     if not brief.assumption_view:
         return "{}"
-    
+
     assumptions_map = build_markdown_table(
-        headers=["Consensus Anchor", "Assumption Statement", "Falsification Tests", "Model Drivers", "Next to Watch", "Priority"],
+        headers=[
+            "Consensus Anchor",
+            "Assumption Statement",
+            "Falsification Tests",
+            "Model Drivers",
+            "Next to Watch",
+            "Priority",
+        ],
         rows=[
             [
                 a.get("consensus_anchor") or "N/A",
@@ -48,36 +61,42 @@ def get_assumption_context(brief: ResearchBrief) -> str:
                 c.get("claim_b") or "N/A",
                 c.get("interpretation") or "N/A",
                 c.get("status") or "N/A",
-                c.get("next_check") or "N/A"
+                c.get("next_check") or "N/A",
             ]
-            for c in brief.assumption_view['conflicts']
-        ]
+            for c in brief.assumption_view["conflicts"]
+        ],
     )
-    top_research_priorities = brief.assumption_view.get('top_research_priorities', [])
-    return assumptions_map + "\n\n" + conflicts + "\n\n" + f"Top Research Priorities: \n- {'\n- '.join(top_research_priorities)}"
+    top_research_priorities = brief.assumption_view.get("top_research_priorities", [])
+    return (
+        assumptions_map
+        + "\n\n"
+        + conflicts
+        + "\n\n"
+        + f"Top Research Priorities: \n- {'\n- '.join(top_research_priorities)}"
+    )
 
 
-def _format_consensus_context(deps: EquityResearchDeps, brief: ResearchBrief) -> str:
+def _raw_consensus_context(brief: ResearchBrief) -> str:
     if not brief.consensus_view:
         return "{}"
     if isinstance(brief.consensus_view, str):
-        raw = brief.consensus_view
-    else:
-        raw = get_consensus_view_for_prompt({"consensus_view": brief.consensus_view})
-    return compact_prompt_block(deps, raw, purpose="consensus view for section planner")
+        return brief.consensus_view
+    return get_consensus_view_for_prompt({"consensus_view": brief.consensus_view})
 
-
-def _format_assumption_context(deps: EquityResearchDeps, brief: ResearchBrief) -> str:
-    if not brief.assumption_view:
-        return "{}"
-    return compact_prompt_block(deps, get_assumption_context(brief), purpose="assumption context for section planner")
 
 def _format_questions_context(brief: ResearchBrief) -> str:
     if not brief.questions:
         return "[]"
-    # print(brief.questions)
     return build_markdown_table(
-        headers=["Question ID", "Parent Question ID", "Question Text", "Expected Output", "Suggested Sources", "Priority", "Required Evidence"],
+        headers=[
+            "Question ID",
+            "Parent Question ID",
+            "Question Text",
+            "Expected Output",
+            "Suggested Sources",
+            "Priority",
+            "Required Evidence",
+        ],
         rows=[
             [
                 q.get("id") or "N/A",
@@ -92,19 +111,18 @@ def _format_questions_context(brief: ResearchBrief) -> str:
         ],
     )
 
+
 def _build_active_skills_block(deps: EquityResearchDeps, skills: dict[str, Any]) -> str:
     if not skills:
         return "{}"
-    prompt_template_block = ""
-    # print(skills)
     prompt_template = skills.get("prompt_template", "")
     query_guidance = skills.get("query_guidance", "")
     constraints = skills.get("constraints", "")
-    skill_block = f"Prompt Template: {prompt_template}\nQuery Guidance: {query_guidance}\nConstraints: {constraints}\n"
-    prompt_template_block += skill_block + "\n"
-    return prompt_template_block.strip()
-    
-    
+    return (
+        f"Prompt Template: {prompt_template}\n"
+        f"Query Guidance: {query_guidance}\n"
+        f"Constraints: {constraints}\n"
+    ).strip()
 
 
 def build_initial_plan_prompt(deps: EquityResearchDeps, state: dict[str, Any]) -> str:
@@ -113,16 +131,28 @@ def build_initial_plan_prompt(deps: EquityResearchDeps, state: dict[str, Any]) -
     bfs_levels_data = state.get("bfs_levels") or []
     questions_block = _format_questions_context(brief)
     skills_block = _build_active_skills_block(deps, skills)
-    # Inject prior session summaries from blackboard
     prior_summaries = (state.get("parent_context") or {}).get("prior_session_summaries") or []
     prior_block = ""
     if prior_summaries:
         lines = []
         for s in prior_summaries[:5]:
             sid = s.get("section_id", "")
-            summary = s.get("summary", "")[:200]
+            summary = s.get("summary", "")
             lines.append(f"- Section {sid}: {summary}")
-        prior_block = "\nPrior section research summaries (from earlier sections):\n" + "\n".join(lines) + "\n"
+        prior_block = "\n".join(lines)
+
+    context = assemble_and_compact_context(
+        deps,
+        {
+            "Questions (from section planner)": questions_block,
+            "BFS question waves": json.dumps(bfs_levels_data[:8]),
+            "Consensus view (structured)": _raw_consensus_context(brief),
+            "Assumption context": get_assumption_context(brief) if brief.assumption_view else "",
+            "Active skills": skills_block,
+            "Prior section research summaries": prior_block,
+        },
+        purpose="section research initial planner context",
+    )
     return f"""
 You are a senior equity research planner. Build a concise research plan for one report section.
     
@@ -133,20 +163,7 @@ Planning thesis: {brief.planning_thesis}
 Required coverage outputs: {json.dumps(brief.coverage_outputs[:15])}
 Data quality flags: {json.dumps(brief.data_quality_flags[:10])}
 
-
-Questions (from section planner):
-{questions_block}
-
-BFS question waves (executor runs wave-by-wave): {json.dumps(bfs_levels_data[:8])}
-
-Consensus view (structured):
-{_format_consensus_context(deps, brief)}
-
-Assumption context:
-{_format_assumption_context(deps, brief)}
-
-{skills_block}
-{prior_block}
+{context}
 
 For each priority question in the current BFS wave, output a task with:
 - task_id, question_id
@@ -176,15 +193,13 @@ def build_replan_prompt(deps: EquityResearchDeps, state: dict[str, Any]) -> str:
         k: v.get("short_answer", "")
         for k, v in (state.get("answer_cards") or {}).items()
     }
-    cards_block = compact_prompt_block(
+    context = assemble_and_compact_context(
         deps,
-        json.dumps(answer_summary, indent=2),
-        purpose="answer cards summary for replan",
-    )
-    gaps_block = compact_prompt_block(
-        deps,
-        json.dumps(gaps[:10], indent=2),
-        purpose="critical gaps for replan",
+        {
+            "Critical gaps": json.dumps(gaps[:10], indent=2),
+            "Answer cards summary": json.dumps(answer_summary, indent=2),
+        },
+        purpose="section research replan context",
     )
     return f"""You are replanning section research based on coverage gaps or BFS wave advance.
 
@@ -194,11 +209,7 @@ Current plan version: {plan.get("version", 1)}
 Current BFS wave index: {wave_index}
 Next wave question ids (if advancing): {json.dumps(next_wave)}
 
-Critical gaps:
-{gaps_block}
-
-Answer cards summary:
-{cards_block}
+{context}
 
 If wave-advance: add tasks only for next-wave questions (objective + approach each).
 Otherwise add follow-up tasks ONLY for gaps. Do not replan completed work.
@@ -216,25 +227,24 @@ def build_synthesizer_prompt(
     view: SectionResearchView,
     pending: list[dict],
 ) -> str:
-    evidence_text = build_evidence_for_prompt(deps, pending, max_chars=8000)
     active = state.get("active_task") or {}
-    active_block = compact_prompt_block(
-        deps,
-        json.dumps(active),
-        purpose="active task for synthesizer",
-    )
-    # Inject parameter grid if available
     parameter_grid = state.get("parameter_grid", "")
-    parameter_block = f"\n\n{parameter_grid}\n" if parameter_grid else ""
+    context = assemble_and_compact_context(
+        deps,
+        {
+            "Active task": json.dumps(active),
+            "Parameter registry": parameter_grid or "",
+            "Pending evidence": build_evidence_for_prompt(deps, pending, compact=False),
+        },
+        purpose="section research synthesizer context",
+    )
     return f"""Synthesize pending evidence into section research view updates.
 
 Ticker: {state.get("ticker", "")}
 Section: {view.section_id}
-Active task: {active_block}
 Current answer cards: {list(view.answer_cards.keys())}
-{parameter_block}
-Pending evidence:
-{evidence_text}
+
+{context}
 
 Update answer_cards for relevant question_ids. Include verified_facts, calculations, citations, confidence.
 Return SectionResearchViewUpdate JSON."""
@@ -286,52 +296,32 @@ def build_reflector_user_prompt(
         k: {"confidence": v.confidence, "gaps": v.open_gaps}
         for k, v in view.answer_cards.items()
     }
-    cards_block = compact_prompt_block(
-        deps,
-        json.dumps(cards_payload, indent=2),
-        purpose="answer cards for reflector",
-    )
-    coverage_outputs = compact_prompt_block(
-        deps,
-        json.dumps((state.get("research_brief") or {}).get("coverage_outputs", [])[:12]),
-        purpose="coverage outputs for reflector",
-    )
-    executor_block = ""
-    if executor_context:
-        executor_block = compact_prompt_block(
-            deps,
-            executor_context,
-            purpose="executor context for reflector",
-        )
-    memory_block = memory_summary
-    if memory_summary.strip():
-        memory_block = compact_prompt_block(
-            deps,
-            memory_summary,
-            purpose="search memory for reflector",
-        )
     todo_items_raw = todo.get("items") or []
     todo_summary_lines = []
     for item in todo_items_raw:
         if item.get("status") in ("pending", "in_progress"):
             todo_summary_lines.append(
-                f"  - [{item.get('item_id')}] {item.get('title', '')[:80]}"
+                f"  - [{item.get('item_id')}] {item.get('title', '')}"
                 f" | qid={item.get('question_id', '')}"
                 f" | status={item.get('status')}"
             )
     todo_block = "\n".join(todo_summary_lines) if todo_summary_lines else "(none pending)"
 
-    # Inject parameter grid for the reflector's coverage assessment
-    parameter_grid = state.get("parameter_grid", "")
-    parameter_block = ""
-    if parameter_grid:
-        parameter_block = compact_prompt_block(
-            deps,
-            parameter_grid,
-            purpose="parameter registry for reflector",
-        )
-    
-    # Build budget block at the END to preserve prompt cache on static prefix
+    context = assemble_and_compact_context(
+        deps,
+        {
+            "Coverage outputs required": json.dumps(
+                (state.get("research_brief") or {}).get("coverage_outputs", [])[:12]
+            ),
+            "Answer cards": json.dumps(cards_payload, indent=2),
+            "Todo items to double-check": todo_block,
+            "Executor context (this iteration)": executor_context or "",
+            "Search memory": memory_summary or "",
+            "Parameter registry": state.get("parameter_grid", "") or "",
+        },
+        purpose="section research reflector context",
+    )
+
     budget = iteration_budget or {}
     current_iter = budget.get("current", int(state.get("iterations", 0)))
     max_iter = budget.get("max", int(state.get("max_iterations", 0)))
@@ -340,7 +330,6 @@ def build_reflector_user_prompt(
     pending_steps = budget.get("pending_steps", 0)
     pending_todo_items = budget.get("pending_todo_items", 0)
     question_iterations = budget.get("question_iterations", {})
-    # Per-question budget summary
     q_lines = []
     for qid, used in sorted(question_iterations.items()):
         q_rem = max(0, max_iter - used)
@@ -372,25 +361,14 @@ def build_reflector_user_prompt(
             "\u26a0 LOW BUDGET: Prioritize finishing existing evidence over new research. "
             "Do NOT recommend plan_more. Recommend run_existing_queue or exit.\n"
         )
-    
-    # Static prefix first (for prompt cache), dynamic content after
+
     return f"""Evaluate section research coverage and plan completion.
 
 Ticker: {view.ticker}
 Section: {view.section_id}
-Coverage outputs required: {coverage_outputs}
-Answer cards: {cards_block}
-
 Research plan tasks: {len(plan.get("tasks", []))}
-Todo items to double-check (mark genuinely finished ones in completed_todo_ids):
-{todo_block}
 
-Executor context (this iteration):
-{executor_block or "(none)"}
-
-{memory_block}
-Parameter registry:
-{parameter_block or "(none)"}
+{context}
 {budget_block}"""
 
 
@@ -420,32 +398,22 @@ def build_finalizer_prompt(deps: EquityResearchDeps, ctx: dict[str, Any]) -> str
     view: SectionResearchView | None = ctx.get("view")
     brief = state.get("research_brief") or {}
     cards = view.answer_cards if view else {}
-    intent_block = compact_prompt_block(
+    context = assemble_and_compact_context(
         deps,
-        str(brief.get("intent_hint", "")),
-        purpose="intent hint for finalizer",
-    )
-    cards_block = compact_prompt_block(
-        deps,
-        json.dumps({k: c.model_dump() for k, c in cards.items()}, indent=2),
-        purpose="answer cards for finalizer",
-    )
-    coverage_block = compact_prompt_block(
-        deps,
-        json.dumps(ctx.get("coverage") or {}, indent=2),
-        purpose="coverage for finalizer",
+        {
+            "Intent": str(brief.get("intent_hint", "")),
+            "Answer cards": json.dumps({k: c.model_dump() for k, c in cards.items()}, indent=2),
+            "Coverage": json.dumps(ctx.get("coverage") or {}, indent=2),
+        },
+        purpose="section research finalizer context",
     )
     return f"""Write the final section research report draft.
 
 Ticker: {state.get("ticker", "")}
 Section: {brief.get("section_title", "")} ({brief.get("section_id", "")})
 Root question: {brief.get("root_question", "")}
-Intent: {intent_block}
 
-Answer cards:
-{cards_block}
-
-Coverage: {coverage_block}
+{context}
 
 Produce professional equity research prose with citations. Max {ctx.get("report_max_chars", 6000)} chars.
 Include executive summary at top.
@@ -466,8 +434,6 @@ def build_skill_prompt(state: dict[str, Any], catalog_table: str, ticker: str) -
 
 
 def build_executor_system_prompt(state: dict[str, Any], action: str) -> str:
-    # task = state.get("active_task") or {}
-    # step = state.get("active_step") or {}
     synthesize_note = ""
     if "synthesize" in action.lower():
         synthesize_note = (

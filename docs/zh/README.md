@@ -58,7 +58,7 @@
 | [file-structure.md](../equity_research/file-structure.md) | Equity Research 完整目录树、执行流与 API 入口 |
 | [agent-loop-and-tasks.md](../equity_research/agent-loop-and-tasks.md) | 三层 Agent 架构、PER 循环、TaskProfile 与 Task 分配 |
 | [memory.md](../equity_research/memory.md) | Ledger 分层、读写路径、检索评分与导出 |
-| [context.md](../equity_research/context.md) | Context 四阶段注入、预算上限与 LLM 压缩 |
+| [context.md](../equity_research/context.md) | Context 组装：条数策展 + 统一预算（默认 32000）+ 至多一次 soft compact；executor 对话瘦身 |
 | [skills-and-tools.md](../equity_research/skills-and-tools.md) | Skill/Tool 注册、可见性白名单、绑定与发现 |
 | [storage.md](../equity_research/storage.md) | PostgreSQL、Redis、本地文件的配置与数据流 |
 | [sec-filing-rag.md](../equity_research/sec-filing-rag.md) | SEC 申报 RAG：MVP1 现状与规划模块 |

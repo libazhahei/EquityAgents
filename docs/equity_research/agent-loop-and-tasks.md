@@ -377,7 +377,8 @@ uv run python scripts/visualize_consensus_trace.py ./out/nvda.json -o ./out/nvda
 | `coverage_threshold` | 0.75 | reflector 达标退出 |
 | `max_iterations` | 5（`CONSENSUS_TASK_PROFILE` 默认；demo 常传 3） | 强制退出上限 |
 | `consensus_human_review` | config 开关 | 是否进入 `human_review` |
-| `report_max_chars` | 6000 | finalizer 报告长度 |
+| `report_max_chars` | 6000 | finalizer 报告字数**软引导**（不硬截断输出） |
+| `prompt_context_max_chars` | 32000 | 统一 prompt context 预算；超长才一次 soft compact（见 [Context](context.md)） |
 
 ### 7.3 调试建议
 
@@ -592,7 +593,7 @@ initial_planner → executor → synthesizer → reflector
 
 | 节点 | 读入 | 做什么 | 写出 | 下一步 |
 |------|------|--------|------|--------|
-| `finalizer` | `structured_view`、`coverage_report`、`search_memory`、`active_skill_context` | `quick_llm` 生成 Markdown 共识报告（默认 ≤6000 字符）；LLM 失败时 fallback 到 `view.to_legacy_summary()` | `final_report`（同时写 `consensus_report` 别名） | 若 `enable_human_review` → `human_review`；否则 → END |
+| `finalizer` | `structured_view`、`coverage_report`、`search_memory`、`active_skill_context` | `quick_llm` 生成 Markdown 共识报告（`report_max_chars` 仅软引导）；动态材料经 `assemble_and_compact_context`；LLM 失败时 fallback 到 `view.to_legacy_summary()` | `final_report`（同时写 `consensus_report` 别名） | 若 `enable_human_review` → `human_review`；否则 → END |
 | `human_review` | `final_report`、`coverage_report`、可选 `human_followup_query` | 构建 `human_review_payload`（报告摘要、coverage gaps、分数）；若存在 followup 则设 `_pending_human_followup` 并改 `routing_decision` 为 `continue` | `human_review_payload` | followup → `loop_planner`；否则 → END |
 
 > `CONSENSUS_TASK_PROFILE.enable_human_review=True`，子图在 `finalizer` 之后**总会经过** `human_review` 节点。demo 默认配置 `consensus_human_review.enabled=False`，因此该节点仅写出 `human_review_payload`、不等待人工输入，随即路由到 END。若配置 `enabled=True` 且 `interrupt=True`，可在 `human_review` 处暂停图执行以接收 `human_followup_query`。

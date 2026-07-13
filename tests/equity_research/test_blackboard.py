@@ -154,8 +154,8 @@ class TestFormatBlackboardForPrompt:
         # Should only include 5 entries
         assert result.count("[finding, iter=") == 5
 
-    def test_max_chars_limit(self):
-        """Test max_chars limit."""
+    def test_max_chars_ignored_keeps_full_content(self):
+        """max_chars is ignored; content is not hard-truncated."""
         entries = [
             {
                 "entry_id": "bb_1",
@@ -167,8 +167,8 @@ class TestFormatBlackboardForPrompt:
             },
         ]
         result = format_blackboard_for_prompt(entries, max_chars=100)
-        # Should truncate or skip due to char limit
-        assert len(result) < 600  # Header + truncated content
+        assert "A" * 500 in result
+        assert "..." not in result or result.count("A") >= 500
 
     def test_filter_by_tags(self):
         """Test filtering by tags."""

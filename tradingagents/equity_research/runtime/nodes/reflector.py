@@ -130,9 +130,8 @@ def create_reflector_node(deps: EquityResearchDeps, task_profile: TaskProfile):
             search_memory = state.get("search_memory", [])
             memory_summary = ""
             if search_memory:
-                memory_summary = (
-                    f"\nSearch history summary:\n"
-                    f"{build_search_memory_for_prompt(deps, search_memory)}\n"
+                memory_summary = build_search_memory_for_prompt(
+                    deps, search_memory, compact=False,
                 )
 
             prompt = task_profile.build_reflector_prompt(deps, view, memory_summary)
@@ -140,7 +139,7 @@ def create_reflector_node(deps: EquityResearchDeps, task_profile: TaskProfile):
             if task_profile.task_id == "section_research":
                 bb = state.get("blackboard") or []
                 if bb:
-                    bb_text = format_blackboard_for_prompt(bb, max_items=8, max_chars=1200, section_id=state.get("section_id"))
+                    bb_text = format_blackboard_for_prompt(bb, max_items=8, section_id=state.get("section_id"))
                     if bb_text:
                         prompt = prompt + "\n\n" + bb_text
 

@@ -140,10 +140,10 @@ Section executor 的 retrieval 组通过 `make_memory_search_tools(deps)` 注入
 |------|------|
 | 记录搜索 | 每次 Perplexity 查询保存 query、dimension、answer、summary、citations |
 | 长回答摘要 | 超过 1500 字符时经 `quick_llm` 压缩 |
-| 格式化注入 | `format_search_memory(max_records=20)` → 共识 planner prompt |
-| 上下文压缩 | 过长时经 `compact_if_needed()` 二次压缩（见 [Context 文档](context.md)） |
+| 格式化注入 | `format_search_memory(max_records=20, prefer_full_answer=True)` → 优先全文 `answer` |
+| 上下文压缩 | 与其它动态块一并进入 `assemble_and_compact_context`（同一调用至多一次 compact；见 [Context 文档](context.md)） |
 
-辅助函数 `build_search_memory_for_prompt()`、`queries_from_memory()` 供 [`agents/consensus/prompt_format.py`](../../tradingagents/equity_research/agents/consensus/prompt_format.py) 组装注入块。
+辅助函数 `build_search_memory_for_prompt(..., compact=False)`、`queries_from_memory()` 供 task prompt builders 组装注入块（避免二次 compact）。
 
 ---
 
@@ -363,14 +363,16 @@ class BlackboardEntry(BaseModel):
 ```
 
 **注入参数**：
-- `max_items=8`（最近 8 条）
-- `max_chars=1200`（总字符数上限）
+- `max_items=8`（最近 8 条，Category B 条数策展）
+- `max_chars`：**已忽略**（不再做总字符硬切；超长由 `assemble_and_compact_context` / 统一 `prompt_context_max_chars` 处理）
 - `filter_tags`：根据当前 question 的 tags 过滤（可选）
 - `section_id`：仅包含当前 section 的 entries
 
+单条 `content` **不再**截断到 200 字符。
+
 **注入节点**：
 - **Planner**（initial + loop）：在 `prompt_builder()` 后追加 blackboard context
-- **Executor**：在 system prompt 中追加 blackboard context
+- **Executor**：在 system prompt 中追加 blackboard context（`max_items=6`）
 - **Synthesizer**：不注入（避免循环依赖）
 - **Reflector**：在 reflector prompt 中追加 blackboard context
 
@@ -448,9 +450,10 @@ CREATE TABLE blackboard_sessions (
 |-------------|--------|------|
 | `blackboard_db_url` | `None` | BlackboardStore 数据库 URL（None 时使用 InMemoryBlackboardStore） |
 | `BLACKBOARD_CORE_TAGS` | 22 个预定义 tags | 核心标签集合 |
-| `format_blackboard_for_prompt(max_items)` | 8 | 注入 prompt 时的最大条目数 |
-| `format_blackboard_for_prompt(max_chars)` | 1200 | 注入 prompt 时的最大字符数 |
+| `format_blackboard_for_prompt(max_items)` | 8 | 注入 prompt 时的最大条目数（Category B） |
+| `format_blackboard_for_prompt(max_chars)` | （忽略） | 兼容参数；控长改由 `prompt_context_max_chars` + 一次 soft compact |
 | `_generate_blackboard_summary()` | 500 字符 | LLM 生成的摘要长度限制 |
+| `prompt_context_max_chars` | 32000 | 统一 prompt context 预算（见 [Context 文档](context.md)） |
 
 ### 5.8 扩展指南
 
@@ -458,6 +461,6 @@ CREATE TABLE blackboard_sessions (
 |------|----------|
 | 新增 entry_type | 在 `BLACKBOARD_ENTRY_TYPES` 中添加，并在 synthesizer/reflector 的提取逻辑中处理 |
 | 新增预定义 tag | 在 `BLACKBOARD_CORE_TAGS` 中添加，并在 `extract_tags_from_text()` 的 `tag_keywords` 中添加关键词映射 |
-| 调整注入策略 | 修改各节点中 `format_blackboard_for_prompt()` 的 `max_items`、`max_chars`、`filter_tags` 参数 |
+| 调整注入策略 | 修改各节点中 `format_blackboard_for_prompt()` 的 `max_items`、`filter_tags`；总长预算改 `prompt_context_max_chars` |
 | 自定义摘要生成 | 修改 `_generate_blackboard_summary()` 的 prompt 或替换为规则压缩 |
 | 启用跨 session 完整内容检索 | 在 `BlackboardStore` 中添加 `load_session_entries()` 方法，并在 seed 时注入完整内容 |

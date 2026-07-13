@@ -89,24 +89,18 @@ def format_blackboard_for_prompt(
     entries: list[dict] | list[BlackboardEntry],
     *,
     max_items: int = 10,
-    max_chars: int = 1500,
+    max_chars: int | None = None,
     filter_tags: list[str] | None = None,
     filter_types: list[str] | None = None,
     section_id: str | None = None,
 ) -> str:
     """Format blackboard entries for injection into a node prompt.
 
-    Args:
-        entries: List of blackboard entry dicts or BlackboardEntry models
-        max_items: Maximum number of entries to include
-        max_chars: Maximum total character count
-        filter_tags: If provided, only include entries with at least one matching tag
-        filter_types: If provided, only include entries of these types
-        section_id: If provided, only include entries from this section
-
-    Returns:
-        Formatted markdown string, or empty string if no entries match
+    Keeps Category-B item caps (``max_items``). Does not hard-truncate entry
+    content; ``max_chars`` is retained for API compatibility but ignored —
+    callers should fold this block into ``assemble_and_compact_context``.
     """
+    del max_chars  # intentionally unused; no hard truncation
     if not entries:
         return ""
 
@@ -143,30 +137,17 @@ def format_blackboard_for_prompt(
     # Sort by iteration (desc), then by created_at (desc)
     items.sort(key=lambda e: (e.get("created_at_iteration", 0), e.get("created_at", "")), reverse=True)
 
-    # Take top N
+    # Take top N (Category B item cap)
     items = items[:max_items]
 
-    # Format as markdown bullets
     lines: list[str] = []
-    total_chars = 0
     for entry in items:
         entry_type = entry.get("entry_type", "finding")
         iteration = entry.get("created_at_iteration", 0)
         content = entry.get("content", "")
         tags = entry.get("tags", [])
-        confidence = entry.get("confidence", 0.5)
-
-        # Truncate long content
-        if len(content) > 200:
-            content = content[:197] + "..."
-
         tags_str = f" (tags: {', '.join(tags[:3])})" if tags else ""
-        line = f"- [{entry_type}, iter={iteration}] {content}{tags_str}"
-
-        if total_chars + len(line) > max_chars:
-            break
-        lines.append(line)
-        total_chars += len(line)
+        lines.append(f"- [{entry_type}, iter={iteration}] {content}{tags_str}")
 
     if not lines:
         return ""

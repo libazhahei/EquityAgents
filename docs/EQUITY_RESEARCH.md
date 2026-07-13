@@ -223,7 +223,7 @@ IC review uses `aggregate_ic_scores()` and records blocking issues to `issue_led
 | [equity_research/file-structure.md](equity_research/file-structure.md) | 完整目录树、执行流与代码入口速查 |
 | [equity_research/agent-loop-and-tasks.md](equity_research/agent-loop-and-tasks.md) | GenericResearchSubgraph PER 循环、TaskProfile、Task 分配现状与规划 |
 | [equity_research/memory.md](equity_research/memory.md) | Ledger 分层、读写路径、检索评分与导出 |
-| [equity_research/context.md](equity_research/context.md) | Context 注入链路、预算上限与 LLM 压缩 |
+| [equity_research/context.md](equity_research/context.md) | Context assembly: item caps + unified 32k budget + at most one soft compact; executor dialogue slim-down |
 | [equity_research/skills-and-tools.md](equity_research/skills-and-tools.md) | Skill/Tool 注册、可见性、绑定与发现工具 |
 | [equity_research/storage.md](equity_research/storage.md) | Redis、PostgreSQL、本地文件的配置与数据流 |
 | [equity_research/sec-filing-rag.md](equity_research/sec-filing-rag.md) | SEC Filing RAG：MVP1 现状与规划模块 |

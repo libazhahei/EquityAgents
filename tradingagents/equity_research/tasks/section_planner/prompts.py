@@ -8,13 +8,18 @@ from typing import Any
 from tradingagents.equity_research.tasks.section_planner.schemas import SectionPlannerRequest
 
 
-def pack_background(reports: dict[str, str], max_chars: int = 20000) -> str:
+def pack_background(reports: dict[str, str], max_chars: int | None = None) -> str:
+    """Join background reports into one block.
+
+    ``max_chars`` is retained for API compatibility but is ignored — callers
+    should compact via ``assemble_and_compact_context`` / ``compact_if_needed``.
+    """
+    del max_chars  # intentionally unused; no hard truncation
     parts = []
     for name, text in reports.items():
         if text:
             parts.append(f"## {name}\n{text}")
-    packed = "\n\n".join(parts)
-    return packed[:max_chars]
+    return "\n\n".join(parts)
 
 
 def build_background_extractor_prompt(req: SectionPlannerRequest, background: str) -> str:

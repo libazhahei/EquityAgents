@@ -3,21 +3,45 @@
 from __future__ import annotations
 
 import hashlib
-from functools import lru_cache
-from typing import Any
+from typing import Any, Mapping
 
 from tradingagents.equity_research.runtime.utils.llm_resolve import resolve_research_llm
 
 _COMPACT_CACHE: dict[str, str] = {}
 _COMPACT_CACHE_ORDER: list[str] = []
 _COMPACT_CACHE_MAXSIZE = 256
+_DEFAULT_PROMPT_CONTEXT_MAX_CHARS = 32000
 
 
 def _max_chars(config: dict[str, Any] | None, key: str, default: int) -> int:
     if not config:
         return default
-    er = config.get("equity_research", {})
+    er = config.get("equity_research", {}) or {}
     return int(er.get(key, default))
+
+
+def resolve_prompt_context_max_chars(
+    config: dict[str, Any] | None,
+    *,
+    max_chars: int | None = None,
+) -> int:
+    """Resolve the unified prompt context budget.
+
+    Prefer explicit ``max_chars``, then ``prompt_context_max_chars``, then legacy
+    ``consensus_context_max_chars`` / ``executor_context_max_chars``.
+    """
+    if max_chars is not None:
+        return int(max_chars)
+    if not config:
+        return _DEFAULT_PROMPT_CONTEXT_MAX_CHARS
+    er = config.get("equity_research", {}) or {}
+    if "prompt_context_max_chars" in er:
+        return int(er["prompt_context_max_chars"])
+    if "consensus_context_max_chars" in er:
+        return int(er["consensus_context_max_chars"])
+    if "executor_context_max_chars" in er:
+        return int(er["executor_context_max_chars"])
+    return _DEFAULT_PROMPT_CONTEXT_MAX_CHARS
 
 
 def _cache_maxsize(config: dict[str, Any] | None) -> int:
@@ -63,11 +87,7 @@ def compact_if_needed(
     max_chars: int | None = None,
 ) -> str:
     config = getattr(deps, "config", None)
-    limit = max_chars or _max_chars(
-        config,
-        "consensus_context_max_chars",
-        6000,
-    )
+    limit = resolve_prompt_context_max_chars(config, max_chars=max_chars)
     if len(text) <= limit:
         return text
 
@@ -107,4 +127,42 @@ def compact_prompt_block(
     """Thin wrapper for prompt injection blocks."""
     if not text:
         return text
-    return compact_if_needed(deps, text, purpose=purpose, max_chars=max_chars, compact_prompt_block=summarize_prompt)
+    return compact_if_needed(
+        deps,
+        text,
+        purpose=purpose,
+        max_chars=max_chars,
+        compact_prompt_block=summarize_prompt,
+    )
+
+
+def assemble_context_block(sections: Mapping[str, str]) -> str:
+    """Join labeled non-empty sections into one context block (no compaction)."""
+    parts: list[str] = []
+    for label, text in sections.items():
+        body = (text or "").strip()
+        if not body:
+            continue
+        parts.append(f"### {label}\n{body}")
+    return "\n\n".join(parts)
+
+
+def assemble_and_compact_context(
+    deps: Any,
+    sections: Mapping[str, str],
+    *,
+    purpose: str,
+    max_chars: int | None = None,
+    compact_prompt_block: str | None = None,
+) -> str:
+    """Assemble labeled sections, then compact at most once if over budget."""
+    assembled = assemble_context_block(sections)
+    if not assembled:
+        return ""
+    return compact_if_needed(
+        deps,
+        assembled,
+        purpose=purpose,
+        max_chars=max_chars,
+        compact_prompt_block=compact_prompt_block,
+    )

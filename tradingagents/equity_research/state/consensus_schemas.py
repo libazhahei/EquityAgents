@@ -340,14 +340,18 @@ def get_consensus_summary(state: dict[str, Any], max_length: int = 4000) -> str:
 
 
 def get_consensus_view_for_prompt(state: dict[str, Any]) -> str:
-    return get_consensus_summary(state, max_length=6000)
-    # view = state.get("consensus_view") or {}
-    # if isinstance(view, list):
-    #     return json.dumps(view[:2], default=str)
-    # if not view:
-    #     return "{}"
-    # try:
-    #     validated = StructuredConsensusView.model_validate(view)
-    #     return json.dumps(validated.model_dump(), default=str)[:6000]
-    # except Exception:
-    #     return json.dumps(view, default=str)[:6000]
+    """Full consensus view text for prompts (no field-level hard chops).
+
+    Callers should fold the result into ``assemble_and_compact_context``.
+    """
+    from tradingagents.equity_research.tasks.consensus.prompts import format_consensus_view
+
+    view = state.get("consensus_view") or {}
+    if isinstance(view, list):
+        view = view[0] if view else {}
+    if not view:
+        return ""
+    try:
+        return format_consensus_view(StructuredConsensusView.model_validate(view))
+    except Exception:
+        return str(view)

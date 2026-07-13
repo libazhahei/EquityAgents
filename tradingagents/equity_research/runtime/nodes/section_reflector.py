@@ -230,9 +230,8 @@ def create_section_reflector_node(deps: EquityResearchDeps, task_profile: TaskPr
             search_memory = state.get("search_memory", [])
             memory_summary = ""
             if search_memory:
-                memory_summary = (
-                    f"\nSearch history:\n"
-                    f"{build_search_memory_for_prompt(deps, search_memory)}\n"
+                memory_summary = build_search_memory_for_prompt(
+                    deps, search_memory, compact=False,
                 )
 
             executor_context = state.get("executor_context_snapshot") or format_executor_messages(

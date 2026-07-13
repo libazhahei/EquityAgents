@@ -11,7 +11,10 @@ from tradingagents.equity_research.state.blackboard import format_blackboard_for
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
-from tradingagents.equity_research.runtime.utils.executor_context import format_executor_messages
+from tradingagents.equity_research.runtime.utils.executor_context import (
+    format_executor_messages,
+    slim_tool_message_content,
+)
 from tradingagents.equity_research.runtime.utils.messages import clear_messages_update
 from tradingagents.equity_research.runtime.utils.llm_invoke import invoke_llm_with_retry
 from tradingagents.equity_research.runtime.utils.llm_resolve import resolve_research_llm
@@ -43,12 +46,63 @@ def _question_id_from_state(state: dict[str, Any]) -> str:
 
 def _parse_tool_content(content: str | Any) -> dict[str, Any] | None:
     if isinstance(content, dict):
-        return content
-    try:
-        data = json.loads(str(content))
-    except (json.JSONDecodeError, TypeError):
+        data = content
+    else:
+        try:
+            data = json.loads(str(content))
+        except (json.JSONDecodeError, TypeError):
+            return None
+    if not isinstance(data, dict):
         return None
-    return data if isinstance(data, dict) else None
+    # Already slimmed for dialogue — full payload lives in pending_evidence.
+    if data.get("slimmed"):
+        return None
+    return data
+
+
+def _is_slimmed_tool_content(content: str | Any) -> bool:
+    data = None
+    if isinstance(content, dict):
+        data = content
+    else:
+        try:
+            data = json.loads(str(content))
+        except (json.JSONDecodeError, TypeError):
+            return False
+    return isinstance(data, dict) and bool(data.get("slimmed"))
+
+
+def _ingest_and_slim_tool_messages(
+    messages: list,
+    state: dict[str, Any],
+) -> tuple[list, list[dict], dict[str, Any]]:
+    """Extract evidence from full tool payloads, then slim dialogue messages.
+
+    Slimmed ToolMessages keep the original message ``id`` so LangGraph
+    ``add_messages`` replaces the full payload in state.
+    """
+    new_evidence, tool_updates = _normalize_tool_messages_to_evidence(messages, state)
+    slimmed: list = []
+    replaced: list = []
+    for message in messages:
+        if isinstance(message, ToolMessage) and not _is_slimmed_tool_content(message.content):
+            name = getattr(message, "name", None) or "tool"
+            kwargs: dict[str, Any] = {
+                "content": slim_tool_message_content(str(message.content), tool_name=name),
+                "tool_call_id": message.tool_call_id,
+                "name": name,
+            }
+            msg_id = getattr(message, "id", None)
+            if msg_id is not None:
+                kwargs["id"] = msg_id
+            replacement = ToolMessage(**kwargs)
+            slimmed.append(replacement)
+            replaced.append(replacement)
+        else:
+            slimmed.append(message)
+    # Attach replacements for callers that need to emit add_messages updates.
+    tool_updates["_slimmed_tool_messages"] = replaced
+    return slimmed, new_evidence, tool_updates
 
 
 def _make_evidence(
@@ -473,6 +527,32 @@ def create_section_executor_dispatch_node(
         step_calls = int(state.get("_executor_step_calls", 0))
 
         working_state = {**state, "active_task": active_task, "active_step": active_step}
+
+        pending = list(state.get("pending_evidence") or [])
+        evidence_ledger = list(state.get("evidence_ledger") or [])
+        evidence_fragments = list(state.get("evidence_fragments") or [])
+        calc_store = list(state.get("calculation_store") or [])
+        buffer = list(state.get("evidence_buffer") or [])
+        tool_updates: dict[str, Any] = {}
+
+        # Dialogue slim-down: ingest full tool payloads into evidence, keep summaries in messages.
+        if messages and isinstance(messages[-1], ToolMessage):
+            messages, new_evidence, tool_updates = _ingest_and_slim_tool_messages(
+                messages, working_state,
+            )
+            if tool_updates.get("research_todo_list"):
+                working_state["research_todo_list"] = tool_updates["research_todo_list"]
+            if tool_updates.get("evidence_ledger"):
+                evidence_ledger.extend(tool_updates["evidence_ledger"])
+            if tool_updates.get("evidence_fragments"):
+                evidence_fragments.extend(tool_updates["evidence_fragments"])
+            for calc in tool_updates.get("_calculations_added") or []:
+                calc_store.append(calc)
+            for ev in new_evidence:
+                eid = ev.get("evidence_id") or f"ev_{uuid.uuid4().hex[:8]}"
+                ev["evidence_id"] = eid
+                buffer.append(ev)
+                pending.append(ev)
         
         # PRIMARY: use step action for group selection
         step_action = (active_step.get("action") or "").lower()
@@ -488,7 +568,9 @@ def create_section_executor_dispatch_node(
             # Inject blackboard context for executor
             bb = state.get("blackboard") or []
             if bb:
-                bb_text = format_blackboard_for_prompt(bb, max_items=6, max_chars=1000, section_id=state.get("section_id"))
+                bb_text = format_blackboard_for_prompt(
+                    bb, max_items=6, section_id=state.get("section_id"),
+                )
                 if bb_text:
                     system = (system + "\n\n" + bb_text) if system else bb_text
             
@@ -524,8 +606,13 @@ def create_section_executor_dispatch_node(
                 agent_name="section_executor",
             )
             new_calls = step_calls + (1 if isinstance(response, AIMessage) and response.tool_calls else 0)
-            outbound = invoke_messages + [response] if not messages else [response]
-            return {
+            replaced = list(tool_updates.get("_slimmed_tool_messages") or [])
+            if not messages:
+                outbound = invoke_messages + [response]
+            else:
+                # Replace full tool payloads in-place (same message ids) then append AI turn.
+                outbound = [*replaced, response]
+            updates: dict[str, Any] = {
                 "messages": outbound,
                 "active_task": active_task,
                 "active_step": active_step,
@@ -533,7 +620,15 @@ def create_section_executor_dispatch_node(
                 "_executor_tool_node": tool_group_node_name(tool_group),
                 "_executor_max_calls": max_calls,
                 "_executor_step_calls": new_calls,
+                "pending_evidence": pending,
+                "evidence_buffer": buffer,
+                "evidence_ledger": evidence_ledger,
+                "evidence_fragments": evidence_fragments,
+                "calculation_store": calc_store,
             }
+            if tool_updates.get("research_todo_list"):
+                updates["research_todo_list"] = tool_updates["research_todo_list"]
+            return updates
 
         if messages and isinstance(messages[-1], AIMessage):
             return {
@@ -566,7 +661,7 @@ def create_section_executor_apply_node(deps: EquityResearchDeps, task_profile: T
         evidence_ledger = list(state.get("evidence_ledger", []))
         evidence_fragments = list(state.get("evidence_fragments", []))
 
-        new_evidence, tool_updates = _normalize_tool_messages_to_evidence(messages, state)
+        messages, new_evidence, tool_updates = _ingest_and_slim_tool_messages(messages, state)
         if tool_updates.get("research_todo_list"):
             todo_list = tool_updates["research_todo_list"]
         if tool_updates.get("evidence_ledger"):
@@ -603,6 +698,8 @@ def create_section_executor_apply_node(deps: EquityResearchDeps, task_profile: T
             if not isinstance(message, ToolMessage):
                 continue
             content = str(message.content)
+            if _is_slimmed_tool_content(content):
+                continue
             for doc_id in _doc_ids_from_tool(content):
                 if not any(d.get("doc_id") == doc_id for d in documents):
                     documents.append({"doc_id": doc_id})

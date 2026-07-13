@@ -75,7 +75,18 @@ def queries_from_memory(records: list[dict]) -> list[str]:
     return [str(r.get("query", "")) for r in records if r.get("query")]
 
 
-def format_search_memory(records: list[dict], *, max_records: int = 20) -> str:
+def format_search_memory(
+    records: list[dict],
+    *,
+    max_records: int = 20,
+    prefer_full_answer: bool = True,
+) -> str:
+    """Format search memory for injection.
+
+    Prompt paths should prefer the full ``answer`` (``prefer_full_answer=True``).
+    Dialogue slim-down / fallbacks may pass ``prefer_full_answer=False`` to use
+    ``answer_summary`` when present.
+    """
     if not records:
         return "- No prior searches recorded."
     lines: list[str] = []
@@ -84,25 +95,32 @@ def format_search_memory(records: list[dict], *, max_records: int = 20) -> str:
         query = record.get("query", "")
         mode = record.get("mode", "")
         iteration = record.get("iteration", 0)
-        answer = record.get("answer_summary") or record.get("answer", "")
-        # citations = record.get("citations") or []
+        if prefer_full_answer:
+            answer = record.get("answer") or record.get("answer_summary") or ""
+        else:
+            answer = record.get("answer_summary") or record.get("answer") or ""
         lines.append(f"Search (iteration {iteration}, dimension: {dim}, mode: {mode})")
         lines.append(f"Query: {query}")
         if answer:
             lines.append(f"Findings: {answer}")
-        # if citations:
-        #     lines.append("Citations:")
-        #     for url in citations:
-        #         lines.append(f"  - {url}")
     return "\n\n".join(lines)
+
 
 def build_search_memory_for_prompt(
     deps: Any,
     records: list[dict],
     *,
     max_chars: int | None = None,
+    compact: bool = True,
 ) -> str:
-    formatted = format_search_memory(records)
+    """Format search memory for prompts, preferring full answers.
+
+    When ``compact`` is False, return the formatted block as-is so callers can
+    fold it into a single ``assemble_and_compact_context`` call.
+    """
+    formatted = format_search_memory(records, prefer_full_answer=True)
+    if not compact:
+        return formatted
     return compact_if_needed(deps, formatted, purpose="search memory", max_chars=max_chars)
 
 
@@ -133,7 +151,14 @@ def build_evidence_for_prompt(
     records: list[dict],
     *,
     max_chars: int | None = None,
+    compact: bool = True,
 ) -> str:
-    """Format evidence items for inclusion in prompts."""
+    """Format evidence items for inclusion in prompts.
+
+    When ``compact`` is False, return the formatted block as-is so callers can
+    fold it into a single ``assemble_and_compact_context`` call.
+    """
     formatted = format_evidence_items(records)
+    if not compact:
+        return formatted
     return compact_if_needed(deps, formatted, purpose="evidence", max_chars=max_chars)

@@ -140,7 +140,7 @@ def create_section_planner_node(
                     # Inject blackboard context
                     bb = state.get("blackboard") or []
                     if bb:
-                        bb_text = format_blackboard_for_prompt(bb, max_items=8, max_chars=1200, section_id=state.get("section_id"))
+                        bb_text = format_blackboard_for_prompt(bb, max_items=8, section_id=state.get("section_id"))
                         if bb_text:
                             prompt = prompt + "\n\n" + bb_text
                     llm_out = invoke_structured_with_retry(
@@ -197,7 +197,7 @@ def create_section_planner_node(
                 # Inject blackboard context
                 bb = state.get("blackboard") or []
                 if bb:
-                    bb_text = format_blackboard_for_prompt(bb, max_items=8, max_chars=1200, section_id=state.get("section_id"))
+                    bb_text = format_blackboard_for_prompt(bb, max_items=8, section_id=state.get("section_id"))
                     if bb_text:
                         prompt = prompt + "\n\n" + bb_text
                 llm = resolve_research_llm(deps, "deep")

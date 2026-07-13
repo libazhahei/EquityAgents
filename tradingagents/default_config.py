@@ -159,9 +159,11 @@ DEFAULT_CONFIG = _apply_env_overrides({
         "quick_research": os.getenv("TRADINGAGENTS_QUICK_RESEARCH", "true").strip().lower()
         in ("true", "1", "yes", "on"),
         "compact_cache_size": 256,
-        "executor_context_max_chars": 6000,
+        # Unified prompt context budget (info-preserving; compact only when over).
+        "prompt_context_max_chars": 32000,
+        "executor_context_max_chars": 32000,
         "section_research_recursion_limit": 250,
-        "consensus_context_max_chars": 6000,
+        "consensus_context_max_chars": 32000,
         "max_hypotheses_per_section": 5,
         "max_hypothesis_iterations": 3,
         "max_recur_limit": 200,

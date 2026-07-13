@@ -25,7 +25,6 @@ def _inject_blackboard_into_prompt(prompt: str, state: dict[str, Any]) -> str:
     bb_text = format_blackboard_for_prompt(
         blackboard,
         max_items=8,
-        max_chars=1200,
         section_id=state.get("section_id"),
     )
     if not bb_text:

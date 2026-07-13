@@ -1,18 +1,27 @@
 # Equity Research Context 控制方案
 
 > 语言：[中文](context.md) | [English](../../README.md) · [中文主文档](../../README.zh-CN.md) · [文档索引](../zh/README.md)  
-> 模块路径：`tradingagents/equity_research/agents/shared/`、`agents/consensus/`、`prompts/`  
+> 模块路径：`tradingagents/equity_research/runtime/utils/context_compact.py`、`tasks/*/prompts.py`  
 > 相关文档：[文件结构](file-structure.md) · [Memory](memory.md) · [Skills & Tools](skills-and-tools.md) · [Storage](storage.md)
 
 ## 设计原则
 
-Context 在本模块中经历四个显式阶段，避免 prompt 无限膨胀：
+Context 在本模块中经历四个显式阶段，避免**信息在层层硬切中丢失**，同时控制极端超长：
 
 ```
-状态字段 → 选择/加载 → 格式化 → 预算压缩 → LLM
+状态字段 → 选择/加载 → 格式化（条数策展） → 拼装 context_block →（超预算才）一次 soft compact → LLM
 ```
 
-各子图（外层研究循环、共识子图、撰写阶段）共享同一套模式，但注入内容与上限不同。本文描述**谁构建 context、何时注入、限制多少**。
+原则摘要：
+
+| 类别 | 策略 |
+|------|------|
+| Category A（控长字符串 `[:N]`） | **删除**；全文进入 `context_block` |
+| Category B（条数 top-N） | **保留**（KPI top-5、search memory 最近 20 条等）；条目内容不再二次硬切 |
+| Category C（工具/RAG `max_chars`） | **本轮不动**（检索结果预算，与 prompt 组装正交） |
+| Soft compact | 同一 LLM 调用对动态材料 **至多一次** `compact_if_needed`；默认预算 **32000** 字符 |
+
+各子图（共识、假设、section planner、section research）共享同一套模式，但注入内容不同。本文描述**谁构建 context、何时注入、限制多少**。
 
 ---
 
@@ -80,17 +89,15 @@ flowchart LR
 
 变量替换由 [`skills/loader.py`](../../tradingagents/equity_research/skills/loader.py) 的 `format_skill_prompt()` 完成，支持 `{ticker}`、`{sector}`、`{report_type}`、`{instrument_context}` 等占位符。
 
-### 2.3 共识子图 Prompt 组装
+### 2.3 共识 / 假设 Prompt 组装
 
-[`agents/consensus/nodes.py`](../../tradingagents/equity_research/agents/consensus/nodes.py) 在各 planner / synthesizer 节点中拼接：
+[`tasks/consensus/prompts.py`](../../tradingagents/equity_research/tasks/consensus/prompts.py) 与 [`tasks/assumption/prompts.py`](../../tradingagents/equity_research/tasks/assumption/prompts.py) 在各 planner / synthesizer / reflector / finalizer 中：
 
-- ticker / sector 上下文
-- `active_skills` + `active_skill_context`（经 `format_skill_context()`）
-- `consensus_search_memory`（经 `format_search_memory()`）
-- `consensus_view`（经 `format_consensus_view()`）
-- 覆盖度报告（`format_coverage_gaps()`）
+1. 用 formatter 生成 view / memory / evidence 等**全文**块（仅做 Category B 条数策展）
+2. 交给 [`assemble_and_compact_context`](../../tradingagents/equity_research/runtime/utils/context_compact.py) 拼成 labeled `context_block`
+3. 静态指令原样保留；仅当 `len(context_block) > budget` 时对整块做 **一次** soft compact
 
-格式化函数集中于 [`agents/consensus/prompt_format.py`](../../tradingagents/equity_research/agents/consensus/prompt_format.py)。
+`format_search_memory(..., prefer_full_answer=True)`（默认）优先注入完整 `answer`；`answer_summary` 仅用于对话瘦身 / fallback。
 
 ---
 
@@ -120,7 +127,7 @@ Research loop 第 ⑧ 步全量开发时，按 `strategy.skills_to_run` 调用 `
 
 | 节点 | Context 来源 |
 |------|-------------|
-| `consensus_agents` gap_finder | `consensus_view` + `compact_if_needed()` 压缩后的共识报告 |
+| `consensus_agents` gap_finder | `consensus_view` + 超预算时 `compact_if_needed()` |
 | `writing_agents` | `claims`（verified）、`section_drafts`、报告模板约束 |
 | `final_qa` | 完整 `final_report` + compliance flags |
 | `lead_analyst` | 按 objective 调度 domain agent，各 agent 自带 skill 列表 |
@@ -131,40 +138,71 @@ Domain agent 通过 [`agents/domain/base.py`](../../tradingagents/equity_researc
 
 ## 5. 预算与压缩
 
-### 5.1 硬性上限
+### 5.1 统一预算（信息优先）
 
 | 机制 | 默认值 | 配置键 / 代码位置 |
 |------|--------|-------------------|
-| 共识 context 压缩阈值 | 6000 字符 | `equity_research.consensus_context_max_chars` |
-| 共识报告压缩阈值 | 6000 字符 | `equity_research.consensus_report_max_chars` |
+| **Prompt context 统一预算** | **32000 字符** | `equity_research.prompt_context_max_chars` |
+| 共识 context（legacy 对齐） | 32000 | `equity_research.consensus_context_max_chars`（回退读新 key） |
+| Executor / reflector context | 32000 | `equity_research.executor_context_max_chars` |
+| 共识报告字数软引导 | 6000 | `equity_research.consensus_report_max_chars`（**不硬截断输出**） |
 | Memory 检索条数上限 | 20 条 | `build_memory_context(max_items=20)` |
 | 技能加载上限 | 2 个 | `load_research_skills(max_skills=2)` |
-| 搜索记忆注入条数 | 20 条 | `format_search_memory(max_records=20)` |
-| instrument_context 截断 | 500 字符 | `skill_selector._skill_selection_prompt` |
-| 共识查询字符串截断 | 500 字符 | `agents/consensus/nodes.py` |
-| LangGraph 递归上限 | 200 | `equity_research.max_recur_limit`（[`graph/propagation.py`](../../tradingagents/equity_research/graph/propagation.py)） |
+| 搜索记忆注入条数 | 20 条 | `format_search_memory(max_records=20)`（Category B） |
+| Blackboard 注入条数 | 6–8 条 | `format_blackboard_for_prompt(max_items=…)`（**不再**按 `max_chars` 硬切） |
+| LangGraph 递归上限 | 200 | `equity_research.max_recur_limit` |
 
-### 5.2 LLM 压缩实现
+`resolve_prompt_context_max_chars(config)` 优先读 `prompt_context_max_chars`，再回退 legacy 键。
 
-[`agents/consensus/context_compact.py`](../../tradingagents/equity_research/agents/consensus/context_compact.py) 的 `compact_if_needed(deps, text, purpose, max_chars)`：
+### 5.2 单次拼装：`assemble_and_compact_context`
 
-1. 若 `len(text) <= limit`，原样返回
-2. 否则调用 `deps.quick_llm` 压缩，prompt 要求：
-   - 保留所有 citation URL
-   - 保留数字估计与维度标签
-   - 输出 bullet list 而非 JSON
-   - 目标长度低于 `limit`
+实现于 [`runtime/utils/context_compact.py`](../../tradingagents/equity_research/runtime/utils/context_compact.py)：
 
-**调用场景**：
+```mermaid
+flowchart TD
+  sources[Structured sources full text]
+  itemCaps[Category B item caps]
+  assemble[Assemble labeled context_block]
+  budget{"len > prompt_context_max_chars?"}
+  compact[Single LLM compact_if_needed]
+  prompt[Static instructions plus context]
+  sources --> itemCaps --> assemble --> budget
+  budget -->|no| prompt
+  budget -->|yes| compact --> prompt
+```
 
-- 共识 planner / synthesizer 中的 consensus view 文本
-- `consensus_search_memory` 格式化后的块
-- `consensus_agents` 缺口分析中的共识报告
-- 报告生成阶段的 `consensus_report`
+1. `assemble_context_block(sections)`：拼接非空 labeled sections
+2. `len <= budget` → 原样返回（**不调用 LLM**）
+3. 否则 `compact_if_needed`：用 nano LLM 压缩，保留 citation URL、数字与维度标签；结果带 LRU cache
 
-### 5.3 两阶段 Skill 加载的 Context 意义
+**禁止**：同一 prompt builder 内对 view / memory / evidence / executor 分别多次 compact。
 
-启动时仅将 skill **catalog**（frontmatter：`name`、`description`、`when_to_use`、`tags`）注入 LLM，完整 markdown 正文（Constraints、Prompt Template、Query Guidance）在 `read_skill()` 后才进入 `active_skill_context`。这从架构上分离了「发现成本」与「执行成本」，详见 [Skills & Tools 文档](skills-and-tools.md)。
+### 5.3 多轮工具对话（软硬结合）
+
+Section executor（[`runtime/nodes/section_executor.py`](../../tradingagents/equity_research/runtime/nodes/section_executor.py)）：
+
+```mermaid
+flowchart TD
+  toolCall[Tool call]
+  fullResult[Full tool result]
+  slimMsg["Message: call + result summary"]
+  evidence[pending_evidence / memory]
+  toolCall --> fullResult
+  fullResult --> slimMsg
+  fullResult --> evidence
+```
+
+- **硬**：对话 messages 只保留调用内容 + 结果摘要（`slim_tool_message_content`；同 message id 替换）
+- **全量**：全文写入 `pending_evidence` / memory
+- Reflector 的 `format_executor_messages`：摘要拼接后至多一次 compact（不再对每条 ToolMessage 分别 compact）
+
+### 5.4 Section planner 背景
+
+[`pack_background`](../../tradingagents/equity_research/tasks/section_planner/prompts.py) **不再** `[:20000]` 硬切；background_extractor / question_tree 各自对拼装块做一次 compact。
+
+### 5.5 两阶段 Skill 加载的 Context 意义
+
+启动时仅将 skill **catalog**（frontmatter）注入 LLM，完整正文在 `read_skill()` 后才进入 `active_skill_context`。详见 [Skills & Tools 文档](skills-and-tools.md)。
 
 ---
 
@@ -175,10 +213,10 @@ flowchart LR
     State[EquityResearchState] --> Select[skill_selector_agent]
     Select --> Load[load_research_skills]
     Load --> Apply[build_skill_context]
-    Apply --> Format[prompt_format / rd_agent]
-    Memory[build_memory_context] --> Format
-    Compact[compact_if_needed] --> Format
-    Format --> LLM[quick_llm / deep_llm]
+    Apply --> Format[task prompts / formatters]
+    Memory[format_search_memory full answer] --> Assemble
+    Format --> Assemble[assemble_and_compact_context]
+    Assemble --> LLM[quick_llm / deep_llm / nano compact]
 ```
 
 ---
@@ -190,11 +228,14 @@ flowchart LR
 ```python
 "equity_research": {
     "max_recur_limit": 200,
+    "prompt_context_max_chars": 32000,
+    "consensus_context_max_chars": 32000,
+    "executor_context_max_chars": 32000,
     "budget": {
         "max_search_queries": 5,
         "max_extraction_docs": 8,
     },
-    # consensus_context_max_chars / consensus_report_max_chars 可在运行时覆盖
+    # consensus_report_max_chars 仅作 finalizer 输出软引导
 }
 ```
 
@@ -207,8 +248,8 @@ Agent 级 skill 可见性可通过 `equity_research.agent_skills.{agent_id}` 覆
 | 场景 | 建议做法 |
 |------|----------|
 | 新子图需要 skill 注入 | 复用 `create_skill_selector_agent` + `create_skill_tools_node` + `create_skill_context_apply`，传入唯一 `graph_name` |
-| 新增 prompt 注入块 | 在对应 `prompt_format.py` 或 `rd_agent.py` 增加 formatter；超长块走 `compact_if_needed` |
-| 调整 context 预算 | 优先通过 config 键覆盖；硬编码上限应集中在 formatter 默认参数中 |
+| 新增 prompt 注入块 | 用 formatter 生成全文 → 并入 `assemble_and_compact_context` 的 sections；**不要**再单独 `compact_if_needed` |
+| 调整 context 预算 | 改 `prompt_context_max_chars`（或 legacy 键）；条数上限留在 formatter 的 `max_items` / `max_records` |
 | 自定义 skill 选择 prompt | 向 `create_skill_selector_agent` 传入 `prompt_builder` 回调 |
 
 ---
@@ -221,11 +262,10 @@ Session Blackboard 是单 section research session 内的跨节点共享笔记�
 
 | 节点 | 注入时机 | 注入内容 |
 |------|----------|----------|
-| Section Planner (initial) | `prompt_builder()` 之后 | 最近 8 条 blackboard entries（≤1200 字符） |
-| Section Planner (loop) | `prompt_builder()` 之后 | 同上 |
-| Section Executor | system prompt 构建后 | 最近 6 条 entries（≤1000 字符） |
-| Section Reflector | reflector prompt 构建后 | 最近 8 条 entries（≤1200 字符） |
-| Initial Planner (prior sessions) | prompt 构建时 | 前序 section 的 blackboard 摘要 |
+| Section Planner (initial / loop) | `prompt_builder()` 之后 | 最近 **8** 条 blackboard entries（全文；预算并入统一 compact） |
+| Section Executor | system prompt 构建后 | 最近 **6** 条 entries |
+| Section Reflector | reflector prompt 构建后 | 最近 **8** 条 entries |
+| Initial Planner (prior sessions) | prompt 构建时 | 前序 section 的 blackboard 摘要（条数 top-5；摘要全文，不再 `[:200]`） |
 
 ### 9.2 注入格式
 
@@ -235,8 +275,10 @@ Session Blackboard 是单 section research session 内的跨节点共享笔记�
 - [contradiction, iter=2] Gross margin: 10-K says 72%, call says ~73% (tags: margin)
 ```
 
+单条 content **不再**硬切到 200 字符；`max_chars` 参数保留兼容但忽略。
+
 ### 9.3 与前序 Session 摘要的关系
 
-后续 section 的 planner 会看到前序 section 的 blackboard 摘要（由 LLM 生成，≤500 字符/section），注入到 `build_initial_plan_prompt()` 的 "Prior section research summaries" 部分。这使 planner 能避免重复研究并利用前序发现。
+后续 section 的 planner 会看到前序 section 的 blackboard 摘要（由 LLM 生成），注入到 `build_initial_plan_prompt()` 的 "Prior section research summaries" 部分，并与 consensus / assumption 等一并进入一次 `assemble_and_compact_context`。
 
 详见 [Memory 文档 §5](memory.md#5-session-blackboard单-session-共享笔记板)。

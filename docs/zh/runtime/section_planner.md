@@ -98,7 +98,7 @@ flowchart TD
 | `api_calls` | `grounding_apply` | grounding 搜索次数累计 |
 | `errors`, `research_traces` | 各节点 | 错误与 trace |
 
-背景报告拼接上限：**20,000 字符**（`pack_background`）。
+背景报告由 `pack_background` **全文拼接**（不再 `[:20000]` 硬切）。`background_extractor` 与 `question_tree_generator` 各自对拼装后的动态材料做 **一次** soft compact（预算见 `prompt_context_max_chars`，默认 32000）。详见 [Context 文档](../../equity_research/context.md)。
 
 ---
 

@@ -14,6 +14,10 @@ from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.agents.section_planner.state import SectionPlannerState
 from tradingagents.equity_research.runtime.exploration_graph import ExplorationGraph
 from tradingagents.equity_research.runtime.utils.structured_invoke import invoke_structured_with_retry
+from tradingagents.equity_research.runtime.utils.context_compact import (
+    assemble_and_compact_context,
+    compact_if_needed,
+)
 from tradingagents.equity_research.tasks.section_planner.prompts import (
     build_background_extractor_prompt,
     build_question_tree_prompt,
@@ -85,7 +89,11 @@ def create_template_interpreter_node(deps: EquityResearchDeps):
 def create_background_extractor_node(deps: EquityResearchDeps):
     def background_extractor(state: SectionPlannerState) -> dict[str, Any]:
         req = _to_request(state)
-        background = pack_background(req.background_reports)
+        background = compact_if_needed(
+            deps,
+            pack_background(req.background_reports),
+            purpose="section planner background for extractor",
+        )
         errors = list(state.get("errors", []))
         extracted: dict[str, Any] = {}
 
@@ -195,17 +203,25 @@ def create_grounding_apply_node(deps: EquityResearchDeps):
 def create_question_tree_generator_node(deps: EquityResearchDeps):
     def question_tree_generator(state: SectionPlannerState) -> dict[str, Any]:
         req = _to_request(state)
-        background = pack_background(req.background_reports)
+        context = assemble_and_compact_context(
+            deps,
+            {
+                "BACKGROUND REPORTS": pack_background(req.background_reports),
+                "EXTRACTED BACKGROUND": json.dumps(
+                    state.get("extracted_background", {}),
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                "OPTIONAL LIGHT GROUNDING NOTES": state.get("grounding_notes", "") or "",
+            },
+            purpose="section planner question tree context",
+        )
         errors = list(state.get("errors", []))
         llm_data: dict[str, Any] = {}
 
         try:
-            prompt = build_question_tree_prompt(
-                req,
-                background,
-                state.get("extracted_background", {}),
-                state.get("grounding_notes", ""),
-            )
+            # Context already includes extracted/grounding sections; avoid double inject.
+            prompt = build_question_tree_prompt(req, context, {}, "")
 
             def _fallback() -> SectionPlannerLLMOutput:
                 return SectionPlannerLLMOutput(

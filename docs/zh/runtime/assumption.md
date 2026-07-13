@@ -84,8 +84,8 @@ flowchart TD
 Select equity research skills to probe assumptions behind market consensus on {ticker}.
 Sector: {sector}
 Report type: {report_type}
-Consensus context excerpt:
-{consensus_view 格式化文本[:800]}
+Consensus context:
+{consensus_view 格式化全文}
 
 Skill catalog:
 {catalog_table}
@@ -280,23 +280,15 @@ Produce up to 2 query items. Prioritize weak assumption dimensions.
 ```
 Write a concise assumption probe report for {ticker} (target 400-800 words, aim for roughly {report_max_chars} characters).
 
-Consensus report excerpt:
-{consensus_report[:1500]}
-
-Structured assumption view:
-{format_assumption_view(view)}
-
-Coverage evaluation:
-{coverage}
-
-Search memory summary: ...
-Active skills context: ...
+{assemble_and_compact_context: consensus_report + assumption_view + coverage + search_memory + skills}
 
 Include:
 - Key assumptions behind consensus
 - Research suggestions and directions for follow-up work
 - Data gaps and recommended next checks
 ```
+
+动态材料经 `assemble_and_compact_context` 一次拼装（`consensus_report` **不再** `[:1500]` 硬切）。
 
 **输出**：`final_report` → 映射为父 state 的 `assumption_report`；**不做硬截断**，`report_max_chars` 仅作为 prompt 软引导。
 
@@ -413,6 +405,7 @@ Assumption 的 planner 与 loop_planner 均追加 `COMPLIANCE_QUERY_SUFFIX`（`t
 
 | 配置路径 | 默认值 | 作用 |
 |----------|--------|------|
+| `equity_research.prompt_context_max_chars` | 32000 | 统一 prompt context 预算 |
 | `equity_research.structured_output_max_retries` | 3 | 结构化输出重试 |
 | `equity_research.batch_search_concurrency` | batch_size | 并发搜索数 |
 | profile `report_max_chars` | 4000 | finalizer prompt 软引导字数（不硬截断） |

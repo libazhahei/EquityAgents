@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from tradingagents.equity_research.runtime.utils.context_compact import compact_if_needed
+from tradingagents.equity_research.runtime.utils.context_compact import (
+    assemble_and_compact_context,
+)
 from tradingagents.equity_research.runtime.utils.prompt_helpers import (
     format_coverage_report_for_planner,
     format_dimension_list,
@@ -41,16 +43,7 @@ def _consensus_context(state: dict[str, Any]) -> str:
         view = StructuredConsensusView.model_validate(raw)
         return format_consensus_view(view)
     except Exception:
-        return str(raw)[:6000]
-
-
-def _dedupe_memory_block(deps: Any, search_memory: list) -> str:
-    if not search_memory:
-        return ""
-    return (
-        "\nAlready searched topics (for deduplication only — do not summarize these records):\n"
-        f"{build_search_memory_for_prompt(deps, search_memory)}\n"
-    )
+        return str(raw)
 
 
 def _parse_view(state: dict[str, Any]) -> AssumptionView:
@@ -69,13 +62,13 @@ def format_assumption_view(view: AssumptionView) -> str:
         f"- Research priorities: {', '.join(view.top_research_priorities[:5])}",
     ]
     for item in view.assumption_map[:8]:
-        lines.append(f"- [{item.id or '?'}] ({item.category}) {item.statement[:280]}")
+        lines.append(f"- [{item.id or '?'}] ({item.category}) {item.statement}")
         if item.consensus_anchor:
-            lines.append(f"  anchor: {item.consensus_anchor[:200]}")
+            lines.append(f"  anchor: {item.consensus_anchor}")
         if item.falsification_tests:
-            lines.append(f"  falsification: {item.falsification_tests[0][:160]}")
+            lines.append(f"  falsification: {item.falsification_tests[0]}")
     for suggestion in view.research_suggestions[:5]:
-        lines.append(f"- Suggestion: {suggestion.direction} — {suggestion.rationale[:200]}")
+        lines.append(f"- Suggestion: {suggestion.direction} — {suggestion.rationale}")
     return "\n".join(lines)
 
 
@@ -84,7 +77,7 @@ def build_skill_prompt(state: dict[str, Any], catalog_table: str, ticker: str) -
         f"Select equity research skills to probe assumptions behind market consensus on {ticker}.\n"
         f"Sector: {state.get('sector', '')}\n"
         f"Report type: {state.get('report_type', '')}\n"
-        f"Consensus context excerpt:\n{_consensus_context(state)[:800]}\n\n"
+        f"Consensus context:\n{_consensus_context(state)}\n\n"
         f"Skill catalog:\n{catalog_table}\n\n"
         "Choose skill names from the catalog only. Return at most two skill names.\n"
         "Do not select broker_consensus_mining for assumption probing."
@@ -95,17 +88,22 @@ def build_initial_planner_prompt(deps: Any, state: dict[str, Any]) -> str:
     ticker = state.get("ticker", "")
     skill_ctx = state.get("active_skill_context", {})
     search_memory = state.get("search_memory", [])
-    memory_block = _dedupe_memory_block(deps, search_memory)
-    consensus_text = compact_if_needed(
-        deps, _consensus_context(state), purpose="consensus for assumption planning",
+    context = assemble_and_compact_context(
+        deps,
+        {
+            "Market consensus view (read-only anchor)": _consensus_context(state),
+            "Active skills": format_skill_names(skill_ctx.get("names", [])),
+            "Skill context": format_skill_context(skill_ctx),
+            "Already searched topics": build_search_memory_for_prompt(
+                deps, search_memory, compact=False,
+            ) if search_memory else "",
+        },
+        purpose="assumption initial planner context",
     )
     return (
         f"Generate an initial Perplexity search query queue to probe key implicit assumptions "
         f"behind market consensus on {ticker}.\n\n"
-        f"Market consensus view (read-only anchor — do not restate in queries):\n{consensus_text}\n\n"
-        f"Active skills:\n{format_skill_names(skill_ctx.get('names', []))}\n"
-        f"{format_skill_context(skill_ctx)}\n"
-        f"{memory_block}\n"
+        f"{context}\n\n"
         f"{PUBLIC_DATA_SOURCE_NOTE}\n"
         f"{COMPLIANCE_QUERY_SUFFIX}\n\n"
         "Produce 3-5 query items probing hidden assumptions. Each item must include:\n"
@@ -125,16 +123,25 @@ def build_loop_planner_prompt(deps: Any, state: dict[str, Any]) -> str:
     search_memory = state.get("search_memory", [])
     executed = queries_from_memory(search_memory) or state.get("executed_queries", [])
     view = _parse_view(state)
-    view_text = compact_if_needed(deps, format_assumption_view(view), purpose="assumption view for gap planning")
-
+    context = assemble_and_compact_context(
+        deps,
+        {
+            "Coverage evaluation": format_coverage_report_for_planner(
+                report, state, dimensions=ASSUMPTION_QUALITY_DIMENSIONS,
+            ),
+            "Current assumption view": format_assumption_view(view),
+            "Already searched topics": build_search_memory_for_prompt(
+                deps, search_memory, compact=False,
+            ) if search_memory else "",
+            "Executed queries": format_executed_queries(executed),
+            "Skill context": format_skill_context(skill_ctx),
+        },
+        purpose="assumption loop planner context",
+    )
     return (
         f"Generate up to 2 new Perplexity queries to fill assumption gaps for {ticker}.\n"
-        f"Last coverage evaluation (round {state.get('iterations', 0)}):\n"
-        f"{format_coverage_report_for_planner(report, state, dimensions=ASSUMPTION_QUALITY_DIMENSIONS)}\n\n"
-        f"Current assumption view:\n{view_text}\n\n"
-        f"{_dedupe_memory_block(deps, search_memory)}"
-        f"Executed queries:\n{format_executed_queries(executed)}\n\n"
-        f"{format_skill_context(skill_ctx)}\n"
+        f"Round: {state.get('iterations', 0)}\n\n"
+        f"{context}\n\n"
         f"{PUBLIC_DATA_SOURCE_NOTE}\n"
         f"{COMPLIANCE_QUERY_SUFFIX}\n\n"
         "Produce up to 2 query items. Prioritize weak assumption quality dimensions.\n"
@@ -164,31 +171,38 @@ Add research_suggestions and top_research_priorities for follow-up work.
 
 
 def build_synthesizer_prompt(deps: Any, state: dict[str, Any], view: AssumptionView, pending: list) -> str:
-    view_text = compact_if_needed(deps, format_assumption_view(view), purpose="assumption view")
-    consensus_text = compact_if_needed(
-        deps, _consensus_context(state), purpose="consensus for assumption synthesis",
-    )
-    evidence_text = build_search_memory_for_prompt(deps, pending, max_chars=None)
+    evidence_text = build_search_memory_for_prompt(deps, pending, compact=False)
     if not evidence_text or evidence_text == "- No prior searches recorded.":
-        evidence_text = format_search_memory(pending)
+        evidence_text = format_search_memory(pending, prefer_full_answer=True)
+    context = assemble_and_compact_context(
+        deps,
+        {
+            "Market consensus (read-only anchor)": _consensus_context(state),
+            "Current assumption view": format_assumption_view(view),
+            "New search evidence (this round only)": evidence_text,
+        },
+        purpose="assumption synthesizer context",
+    )
     return (
         f"Update the assumption research view for {state.get('ticker', '')} using new search evidence.\n\n"
-        f"Market consensus (read-only anchor):\n{consensus_text}\n\n"
-        f"Current assumption view:\n{view_text}\n\n"
-        f"New search evidence (this round only):\n{evidence_text}\n\n"
+        f"{context}\n\n"
         f"{_SYNTHESIZER_RULES}\n"
         "Merge incrementally into assumption_map. Update dimension_coverage for quality dimensions."
     )
 
 
 def build_reflector_prompt(deps: Any, view: AssumptionView, memory_summary: str) -> str:
-    view_text = compact_if_needed(
-        deps, format_assumption_view(view), purpose="assumption view for coverage evaluation",
+    context = assemble_and_compact_context(
+        deps,
+        {
+            "Assumption view": format_assumption_view(view),
+            "Search history": memory_summary,
+        },
+        purpose="assumption reflector context",
     )
     return (
         f"Evaluate whether the output is a true assumption map, not a consensus summary for {view.ticker}.\n"
-        f"Assumption view:\n{view_text}\n"
-        f"{memory_summary}\n"
+        f"{context}\n"
         "Score each quality dimension as empty, partial, sufficient, or strong:\n"
         f"{format_dimension_list(ASSUMPTION_QUALITY_DIMENSIONS)}\n"
         "Provide an overall_score between 0 and 1.\n"
@@ -211,17 +225,24 @@ def build_finalizer_prompt(deps: Any, ctx: dict[str, Any]) -> str:
     ticker = state.get("ticker", "")
     consensus_report = (state.get("parent_context") or {}).get("consensus_report", "")
 
-    view_text = compact_if_needed(deps, format_assumption_view(view), purpose="assumption final report")
-    memory_text = build_search_memory_for_prompt(deps, search_memory) if search_memory else ""
+    context = assemble_and_compact_context(
+        deps,
+        {
+            "Consensus report (context only — do not summarize again)": str(consensus_report or ""),
+            "Structured assumption map": format_assumption_view(view),
+            "Coverage evaluation": str(coverage or ""),
+            "Assumption search memory summary": build_search_memory_for_prompt(
+                deps, search_memory, compact=False,
+            ) if search_memory else "",
+            "Active skills context": format_skill_context(skill_ctx),
+        },
+        purpose="assumption finalizer context",
+    )
 
     return (
         f"Write a concise assumption probe report for {ticker} "
         f"(target 400-800 words, aim for roughly {report_max_chars} characters).\n\n"
-        f"Consensus report excerpt (context only — do not summarize again):\n{str(consensus_report)[:1500]}\n\n"
-        f"Structured assumption map:\n{view_text}\n\n"
-        f"Coverage evaluation:\n{coverage}\n\n"
-        f"Assumption search memory summary:\n{memory_text}\n\n"
-        f"Active skills context:\n{format_skill_context(skill_ctx)}\n\n"
+        f"{context}\n\n"
         "Include:\n"
         "- Key implicit assumptions (not consensus recap)\n"
         "- Falsification tests and next data to watch per major assumption\n"

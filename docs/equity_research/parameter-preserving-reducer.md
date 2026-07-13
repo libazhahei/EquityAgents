@@ -13,7 +13,7 @@
 | 问题 | 现象 | 根因 |
 |------|------|------|
 | **证据丢失** | filings_search 等工具返回的数据未被提取为证据 | 提取器未覆盖所有工具输出格式 |
-| **有损压缩** | synthesizer 看到的是空的 "Search" 条目而非实际内容 | `compact_prompt_block` 截断后信息丢失 |
+| **有损压缩** | synthesizer 看到的是空的 "Search" 条目而非实际内容 | 历史路径对多块分别 `compact_prompt_block`；现已改为全文进 evidence + 一次 `assemble_and_compact_context`（见 [Context](context.md)） |
 | **参数遗忘** | 跨多轮研究时，关键数字/指标在 compact 过程中丢失 | 无结构化参数注册表，依赖 LLM 记忆 |
 
 **ParameterPreservingReducer** 解决第三个问题，同时通过结构化参数提取间接缓解前两个问题。
@@ -223,7 +223,7 @@ if new_evidence and skill_context:
 
 ### reflector prompt
 
-`build_reflector_user_prompt()` 注入 `parameter_grid`（通过 `compact_prompt_block` 包装），使 reflector 可以评估参数覆盖度。
+`build_reflector_user_prompt()` 将 `parameter_grid` 与其它动态块一并交给 `assemble_and_compact_context`（同一调用至多一次 compact），使 reflector 可以评估参数覆盖度。
 
 ---
 
