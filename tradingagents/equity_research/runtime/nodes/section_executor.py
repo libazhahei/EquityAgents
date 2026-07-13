@@ -12,8 +12,11 @@ from tradingagents.equity_research.state.blackboard import format_blackboard_for
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
 from tradingagents.equity_research.runtime.task_profile import TaskProfile
 from tradingagents.equity_research.runtime.utils.executor_context import (
+    compact_tool_messages_if_needed,
     format_executor_messages,
-    slim_tool_message_content,
+)
+from tradingagents.equity_research.runtime.utils.context_compact import (
+    resolve_prompt_context_max_chars,
 )
 from tradingagents.equity_research.runtime.utils.messages import clear_messages_update
 from tradingagents.equity_research.runtime.utils.llm_invoke import invoke_llm_with_retry
@@ -29,14 +32,36 @@ from tradingagents.equity_research.tools.tool_sets import (
     route_tool_group_from_state,
     tool_group_node_name,
 )
+from tradingagents.equity_research.runtime.utils.step_payload import (
+    build_step_payload,
+    format_step_payload_for_prompt,
+)
 
 _SYNTHESIZER_HANDOFF_ACTIONS = frozenset({"synthesize"})
+_PAYLOAD_ACTIONS = frozenset({"verify", "compare", "calculate"})
+_VERIFY_SKIP_SUMMARY = "verify_skipped_by_config"
 
 
 def _is_synthesizer_handoff(step: dict[str, Any] | None) -> bool:
     if not step:
         return False
     return (step.get("action") or "").lower() in _SYNTHESIZER_HANDOFF_ACTIONS
+
+
+def _is_skip_verify_enabled(deps: EquityResearchDeps) -> bool:
+    config = getattr(deps, "config", None) or {}
+    er = config.get("equity_research") if isinstance(config, dict) else {}
+    if not isinstance(er, dict):
+        return False
+    return bool(er.get("skip_verify", False))
+
+
+def _should_skip_verify(deps: EquityResearchDeps, step: dict[str, Any] | None) -> bool:
+    if not step:
+        return False
+    if (step.get("action") or "").lower() != "verify":
+        return False
+    return _is_skip_verify_enabled(deps)
 
 
 def _question_id_from_state(state: dict[str, Any]) -> str:
@@ -75,32 +100,20 @@ def _is_slimmed_tool_content(content: str | Any) -> bool:
 def _ingest_and_slim_tool_messages(
     messages: list,
     state: dict[str, Any],
+    *,
+    deps: EquityResearchDeps | None = None,
 ) -> tuple[list, list[dict], dict[str, Any]]:
-    """Extract evidence from full tool payloads, then slim dialogue messages.
+    """Extract evidence from full tool payloads; slim only when over budget.
 
-    Slimmed ToolMessages keep the original message ``id`` so LangGraph
-    ``add_messages`` replaces the full payload in state.
+    ``findings_cache_write`` is always slimmed to summary \"ok\". Other ToolMessages
+    (including ``findings_cache_read``) stay full until dialogue exceeds
+    ``prompt_context_max_chars``.
     """
     new_evidence, tool_updates = _normalize_tool_messages_to_evidence(messages, state)
-    slimmed: list = []
-    replaced: list = []
-    for message in messages:
-        if isinstance(message, ToolMessage) and not _is_slimmed_tool_content(message.content):
-            name = getattr(message, "name", None) or "tool"
-            kwargs: dict[str, Any] = {
-                "content": slim_tool_message_content(str(message.content), tool_name=name),
-                "tool_call_id": message.tool_call_id,
-                "name": name,
-            }
-            msg_id = getattr(message, "id", None)
-            if msg_id is not None:
-                kwargs["id"] = msg_id
-            replacement = ToolMessage(**kwargs)
-            slimmed.append(replacement)
-            replaced.append(replacement)
-        else:
-            slimmed.append(message)
-    # Attach replacements for callers that need to emit add_messages updates.
+    max_chars = resolve_prompt_context_max_chars(
+        getattr(deps, "config", None) if deps is not None else None,
+    )
+    slimmed, replaced = compact_tool_messages_if_needed(messages, max_chars=max_chars)
     tool_updates["_slimmed_tool_messages"] = replaced
     return slimmed, new_evidence, tool_updates
 
@@ -292,12 +305,17 @@ def _evidence_from_financial_data(data: dict[str, Any], qid: str) -> list[dict]:
     """Extract evidence from financial_statement_fetch results."""
     evidence: list[dict] = []
     statement_keys = ("income_statement", "balance_sheet", "cash_flow", "cash_flow_statement")
-    found_any = False
     for sk in statement_keys:
         statement = data.get(sk)
+        if isinstance(statement, str) and statement.strip():
+            evidence.append(_make_evidence(
+                qid,
+                f"{sk}:\n{statement}",
+                source=f"financial_statement:{sk}",
+            ))
+            continue
         if not isinstance(statement, dict):
             continue
-        found_any = True
         lines = [f"{sk}:"]
         for period, values in statement.items():
             if isinstance(values, dict):
@@ -414,6 +432,9 @@ def section_executor_router(state: dict[str, Any]) -> str:
     if _is_synthesizer_handoff(active_step):
         return "apply"
 
+    if state.get("_verify_skipped"):
+        return "apply"
+
     messages = state.get("messages", [])
     if not messages:
         return "apply"
@@ -523,6 +544,15 @@ def create_section_executor_dispatch_node(
                 "_executor_step_calls": 0,
             }
 
+        if _should_skip_verify(deps, active_step):
+            return {
+                **clear_messages_update(),
+                "active_task": active_task,
+                "active_step": active_step,
+                "_executor_step_calls": 0,
+                "_verify_skipped": True,
+            }
+
         messages = list(state.get("messages") or [])
         step_calls = int(state.get("_executor_step_calls", 0))
 
@@ -535,10 +565,11 @@ def create_section_executor_dispatch_node(
         buffer = list(state.get("evidence_buffer") or [])
         tool_updates: dict[str, Any] = {}
 
-        # Dialogue slim-down: ingest full tool payloads into evidence, keep summaries in messages.
+        # Ingest full tool payloads; slim only when over context budget
+        # (findings_cache_write always ok; findings_cache_read keeps items).
         if messages and isinstance(messages[-1], ToolMessage):
             messages, new_evidence, tool_updates = _ingest_and_slim_tool_messages(
-                messages, working_state,
+                messages, working_state, deps=deps,
             )
             if tool_updates.get("research_todo_list"):
                 working_state["research_todo_list"] = tool_updates["research_todo_list"]
@@ -581,17 +612,41 @@ def create_section_executor_dispatch_node(
                 f"Available tools: {', '.join(t.name for t in tools)}."
             )
             # Add action-specific guidance
-            if step_action == "orient":
-                group_hint += "\nGuidance: Start with memory_retrieve to check prior research, then list_research_todos."
-            elif step_action == "fetch_primary":
-                group_hint += "\nGuidance: Prefer filings_search with SEC-style queries. Use financial_statement_fetch for structured data."
+            if step_action in ("fetch_primary", "search", "extract"):
+                group_hint += (
+                    "\nGuidance: Optionally call memory_retrieve first to reuse prior findings, "
+                    "then gather evidence with the retrieval tools for this step."
+                )
+            if step_action == "fetch_primary":
+                group_hint += " Prefer filings_search with SEC-style queries. Use financial_statement_fetch for structured data."
             elif step_action == "search":
-                group_hint += "\nGuidance: Use web_search for news, transcript_search for earnings calls."
+                group_hint += " Use web_search for news, transcript_search for earnings calls."
             elif step_action == "verify":
-                group_hint += "\nGuidance: Use citation_checker and claim_evidence_checker to validate evidence chain."
-            
+                group_hint += (
+                    "\nGuidance: Use citation_checker and claim_evidence_checker with "
+                    "urls/claims from the Step payload. If payload status is empty, do NOT "
+                    "call calculator with ritual expressions; record data availability as "
+                    "unavailable/gap. Optionally search_evidence/search_claims if payload is thin."
+                )
+            elif step_action == "compare":
+                group_hint += (
+                    "\nGuidance: Use conflict_detector and claim_evidence_checker against "
+                    "the Step payload evidence/claims."
+                )
+            elif step_action == "calculate":
+                group_hint += (
+                    "\nGuidance: Compute only from numeric fields in the Step payload "
+                    "(and calculation_store). Do not invent inputs."
+                )
+            group_hint += (
+                "\nWhen dialogue context grows large, call findings_cache_write to persist key "
+                "findings to the section cache file, then findings_cache_read later as needed."
+            )
             human_msg = f"Execute step: {active_step.get('description', '')}, expected output: {active_step.get('expected_output', '')}\n"
             human_msg += f"Current active task: {active_task.get('objective', '')} for question id {active_task.get('question_id', '')} and task ID: {active_task.get('task_id', '')}\n"
+            if step_action in _PAYLOAD_ACTIONS:
+                payload = build_step_payload(working_state, step_action)
+                human_msg += format_step_payload_for_prompt(payload)
             if not messages:
                 invoke_messages = [
                     SystemMessage(content=(system + group_hint) if system else group_hint.strip()),
@@ -661,7 +716,9 @@ def create_section_executor_apply_node(deps: EquityResearchDeps, task_profile: T
         evidence_ledger = list(state.get("evidence_ledger", []))
         evidence_fragments = list(state.get("evidence_fragments", []))
 
-        messages, new_evidence, tool_updates = _ingest_and_slim_tool_messages(messages, state)
+        messages, new_evidence, tool_updates = _ingest_and_slim_tool_messages(
+            messages, state, deps=deps,
+        )
         if tool_updates.get("research_todo_list"):
             todo_list = tool_updates["research_todo_list"]
         if tool_updates.get("evidence_ledger"):
@@ -712,6 +769,7 @@ def create_section_executor_apply_node(deps: EquityResearchDeps, task_profile: T
         active_step = state.get("active_step") or {}
         step_id = active_step.get("step_id")
         task_id = active_task.get("task_id")
+        verify_skipped = bool(state.get("_verify_skipped"))
 
         if plan_raw and step_id and task_id:
             plan = SectionResearchPlan.model_validate(plan_raw)
@@ -722,8 +780,12 @@ def create_section_executor_apply_node(deps: EquityResearchDeps, task_profile: T
                 all_done = True
                 for step in task.steps:
                     if step.step_id == step_id:
-                        step.status = "done"
-                        step.result_summary = "Step completed via executor"
+                        if verify_skipped:
+                            step.status = "skipped"
+                            step.result_summary = _VERIFY_SKIP_SUMMARY
+                        else:
+                            step.status = "done"
+                            step.result_summary = "Step completed via executor"
                     if step.status not in ("done", "skipped"):
                         all_done = False
                 if all_done:
@@ -815,6 +877,7 @@ def create_section_executor_apply_node(deps: EquityResearchDeps, task_profile: T
             "_executor_step_calls": 0,
             "_executor_tool_node": None,
             "_executor_tool_group": None,
+            "_verify_skipped": False,
         }
         if _is_synthesizer_handoff(active_step):
             result["_force_synthesize"] = True

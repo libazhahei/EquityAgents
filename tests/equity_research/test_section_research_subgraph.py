@@ -66,8 +66,9 @@ def test_expand_outline_to_plan():
     }
     plan = expand_outline_to_plan(outline, brief, section_id="section_3")
     assert len(plan.tasks) == 1
-    assert len(plan.tasks[0].steps) == 4
-    assert plan.tasks[0].steps[0].action == "orient"
+    assert len(plan.tasks[0].steps) == 3
+    assert plan.tasks[0].steps[0].action in ("search", "fetch_primary")
+    assert plan.tasks[0].steps[0].action != "orient"
     assert plan.tasks[0].steps[-2].action == "synthesize"
     assert plan.tasks[0].steps[-1].action == "verify"
 

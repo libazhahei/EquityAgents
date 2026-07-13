@@ -14,6 +14,7 @@ from tradingagents.equity_research.tools.lc import (
     data,
     document,
     finance,
+    findings_cache,
     human,
     memory,
     planner,
@@ -62,6 +63,9 @@ STATIC_LANGCHAIN_TOOLS: dict[str, BaseTool] = {
     # Artifact
     "markdown_writer": artifact.markdown_writer,
     "json_writer": artifact.json_writer,
+    # Findings cache (section run offload)
+    "findings_cache_write": findings_cache.findings_cache_write,
+    "findings_cache_read": findings_cache.findings_cache_read,
     # Quality
     "citation_checker": quality.citation_checker,
     "claim_evidence_checker": quality.claim_evidence_checker,

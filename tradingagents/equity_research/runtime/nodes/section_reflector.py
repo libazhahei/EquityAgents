@@ -93,9 +93,11 @@ def _questions_exhausted(state: dict[str, Any]) -> bool:
 
 
 def _increment_question_iterations(state: dict[str, Any]) -> dict[str, int]:
-    """Increment per-question counters for active questions. Returns updated dict."""
+    """Increment per-question counter for the currently active task only."""
     q_iters = _get_question_iterations(state)
-    for qid in _active_question_ids(state):
+    active_task = state.get("active_task") or {}
+    qid = str(active_task.get("question_id") or "").strip()
+    if qid:
         q_iters[qid] = q_iters.get(qid, 0) + 1
     return q_iters
 

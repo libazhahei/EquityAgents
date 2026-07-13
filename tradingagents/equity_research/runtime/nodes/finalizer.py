@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from tradingagents.equity_research.agents.deps import EquityResearchDeps
+from tradingagents.equity_research.runtime.task_profile import TaskProfile
 from tradingagents.equity_research.runtime.utils.llm_resolve import resolve_research_llm
 
 
@@ -40,6 +42,39 @@ def _build_unavailable_data_disclosure(state: dict[str, Any], view: Any) -> str:
     return "\n".join(lines)
 
 
+def _finalize_section_research_report(
+    deps: EquityResearchDeps,
+    state: dict[str, Any],
+    llm_report: str,
+) -> tuple[str, str]:
+    """Assemble complete report: LLM narrative (root + subs) + appendix + merged refs."""
+    del deps  # reserved for future compact/config hooks
+    from tradingagents.equity_research.tasks.section_research.articles import (
+        assemble_final_report,
+    )
+    from tradingagents.equity_research.tools.findings_cache_tools import (
+        resolve_section_artifact_dir,
+        section_run_dir,
+    )
+
+    artifact_dir = state.get("section_artifact_dir") or str(resolve_section_artifact_dir(state))
+    report, _refs = assemble_final_report(
+        llm_report=llm_report,
+        artifact_dir=artifact_dir,
+        include_article_appendix=True,
+    )
+    out_dir = Path(artifact_dir).parent
+    report_path = out_dir / "final_report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(report, encoding="utf-8")
+    narrative_path = out_dir / "section_narrative.md"
+    narrative_path.write_text(llm_report.strip() + "\n", encoding="utf-8")
+    section_run_dir(str(state.get("ticker") or ""), str(state.get("section_id") or "")).mkdir(
+        parents=True, exist_ok=True,
+    )
+    return report, str(report_path)
+
+
 def create_finalizer_node(deps: EquityResearchDeps, task_profile: TaskProfile):
     def finalizer(state: dict[str, Any]) -> dict[str, Any]:
         errors = list(state.get("errors", []))
@@ -66,6 +101,7 @@ def create_finalizer_node(deps: EquityResearchDeps, task_profile: TaskProfile):
                 "compliance_flags": state.get("compliance_flags", []),
                 "report_max_chars": report_max_chars,
             }
+            assert task_profile.build_finalizer_prompt is not None
             prompt = task_profile.build_finalizer_prompt(deps, ctx)
 
             report = ""
@@ -91,14 +127,30 @@ def create_finalizer_node(deps: EquityResearchDeps, task_profile: TaskProfile):
             if disclosure and "## Data Availability Limitations" not in report:
                 report = f"{report}\n\n{disclosure}".strip()
 
-            updates: dict[str, Any] = {
-                "final_report": report,
-                "consensus_report": report,
-            }
+            updates: dict[str, Any] = {}
+            if task_profile.task_id == "section_research":
+                llm_report = report
+                full_report, report_path = _finalize_section_research_report(
+                    deps, state, llm_report,
+                )
+                updates = {
+                    "final_report": full_report,
+                    "consensus_report": full_report,
+                    "executive_summary": llm_report,
+                    "final_report_path": report_path,
+                    "section_artifact_dir": state.get("section_artifact_dir")
+                    or str(Path(report_path).parent / "articles"),
+                }
+            else:
+                updates = {
+                    "final_report": report,
+                    "consensus_report": report,
+                }
+
             updates.update(deps.trace({**state, **updates}, f"{task_profile.task_id}_finalizer", {
                 "iterations": state.get("iterations", 0),
                 "evidence_count": len(state.get("evidence_buffer", [])),
-                "report_chars": len(report),
+                "report_chars": len(str(updates.get("final_report", ""))),
             }))
             return updates
         except Exception as exc:

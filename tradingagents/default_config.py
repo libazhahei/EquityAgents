@@ -158,6 +158,8 @@ DEFAULT_CONFIG = _apply_env_overrides({
         "time_horizon": "12m",
         "quick_research": os.getenv("TRADINGAGENTS_QUICK_RESEARCH", "true").strip().lower()
         in ("true", "1", "yes", "on"),
+        "skip_verify": os.getenv("TRADINGAGENTS_SKIP_VERIFY", "false").strip().lower()
+        in ("true", "1", "yes", "on"),
         "compact_cache_size": 256,
         # Unified prompt context budget (info-preserving; compact only when over).
         "prompt_context_max_chars": 32000,
@@ -210,7 +212,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
             "max_search_queries": 5,
             "max_extraction_docs": 8,
         },
-        "web_search_max_url_fetches": 3,
+        "web_search_max_url_fetches": 5,
         "human_tools_mode": "stub",
         "checkpoint_enabled": True,
         "checkpoint_dir": None,  # default: {data_cache}/checkpoints/equity_research

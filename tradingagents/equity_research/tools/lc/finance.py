@@ -28,7 +28,14 @@ def financial_statement_fetch(
     ticker: Annotated[str, "Ticker symbol"],
     period: Annotated[str, "annual or quarterly"] = "annual",
 ) -> dict[str, Any]:
-    """Fetch income statement, balance sheet, and cash flow."""
+    """Fetch income statement, balance sheet, and cash flow as markdown tables.
+
+    Returns ``{ticker, period, income_statement, balance_sheet, cash_flow}``.
+    Each statement is a wide markdown table: line items as rows; period columns
+    plus YoY (and QoQ when ``period=\"quarterly\"``). Growth cells are percentages
+    (e.g. ``+25.0%``). Annual uses up to 3 years; quarterly up to 12 quarters
+    (capped by vendor history).
+    """
     return finance_tools.financial_statement_fetch(ticker, period=period)
 
 

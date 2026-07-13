@@ -197,6 +197,13 @@ def main(argv: list[str] | None = None) -> int:
         "When on, consensus/assumption/section deep-tier calls use quick_llm.",
     )
     parser.add_argument(
+        "--skip-verify",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override equity_research.skip_verify (default: config / env). "
+        "When on, section verify steps are marked skipped without LLM/tool calls.",
+    )
+    parser.add_argument(
         "--visualize",
         action="store_true",
         help="After save, also write an HTML visualization next to the bundle",
@@ -206,15 +213,18 @@ def main(argv: list[str] | None = None) -> int:
     config = DEFAULT_CONFIG.copy()
     if args.quick_research is not None:
         config.setdefault("equity_research", {})["quick_research"] = bool(args.quick_research)
+    if args.skip_verify is not None:
+        config.setdefault("equity_research", {})["skip_verify"] = bool(args.skip_verify)
     graph = EquityResearchGraph(debug=args.debug, config=config, init_database=True)
     graph.subscribe_progress(stdout_progress_sink)
 
     logger.info(
-        "Starting E2E equity research for %s on %s (run_id=%s, quick_research=%s)",
+        "Starting E2E equity research for %s on %s (run_id=%s, quick_research=%s, skip_verify=%s)",
         args.ticker,
         args.date,
         args.run_id or "auto",
         config.get("equity_research", {}).get("quick_research"),
+        config.get("equity_research", {}).get("skip_verify"),
     )
     state, summary = graph.propagate(
         args.ticker,

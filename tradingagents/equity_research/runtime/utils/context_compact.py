@@ -11,6 +11,8 @@ _COMPACT_CACHE: dict[str, str] = {}
 _COMPACT_CACHE_ORDER: list[str] = []
 _COMPACT_CACHE_MAXSIZE = 256
 _DEFAULT_PROMPT_CONTEXT_MAX_CHARS = 32000
+# Hard ceiling for compact LLM input (OpenAI string limit is ~10MB; stay well below).
+_DEFAULT_COMPACT_LLM_MAX_INPUT_CHARS = 1_000_000
 
 
 def _max_chars(config: dict[str, Any] | None, key: str, default: int) -> int:
@@ -42,6 +44,30 @@ def resolve_prompt_context_max_chars(
     if "executor_context_max_chars" in er:
         return int(er["executor_context_max_chars"])
     return _DEFAULT_PROMPT_CONTEXT_MAX_CHARS
+
+
+def resolve_compact_llm_max_input_chars(config: dict[str, Any] | None) -> int:
+    return _max_chars(config, "compact_llm_max_input_chars", _DEFAULT_COMPACT_LLM_MAX_INPUT_CHARS)
+
+
+def _deterministic_pretruncate(text: str, max_chars: int) -> str:
+    """Shrink oversized text before sending to the compact LLM.
+
+    Prefer keeping headings, citation markers, and the leading portion of each section.
+    """
+    if len(text) <= max_chars:
+        return text
+    # Keep head + a small tail so structure/end matter survive.
+    head_budget = int(max_chars * 0.85)
+    tail_budget = max_chars - head_budget - 80
+    if tail_budget < 0:
+        return text[:max_chars]
+    omitted = len(text) - head_budget - max(tail_budget, 0)
+    return (
+        text[:head_budget]
+        + f"\n\n...[truncated {omitted} chars for compact LLM safety]...\n\n"
+        + (text[-tail_budget:] if tail_budget > 0 else "")
+    )
 
 
 def _cache_maxsize(config: dict[str, Any] | None) -> int:
@@ -99,18 +125,30 @@ def compact_if_needed(
     if cached is not None:
         return cached
 
+    # Hard guard: never send multi-MB raw blobs to the compact LLM.
+    llm_input_cap = resolve_compact_llm_max_input_chars(config)
+    safe_text = _deterministic_pretruncate(text, llm_input_cap)
+
     prompt = (
         f"Compress the following {purpose} for an equity research agent.\n"
         "Requirements:\n"
-        "- Keep ALL citation URLs verbatim\n"
+        "- Keep ALL citation markers like [1] and URLs verbatim when present\n"
         "- Keep numeric estimates and dimension labels\n"
         "- Use bullet lists, not JSON\n"
         "- If given a table, only compress the text content. Please preserve the table structure\n"
         f"- Target length: under {limit} characters\n"
         f"{compact_prompt_block or 'Use your best judgment to summarize and compress the content.'}\n"
         f"------\n\n"
-        f"{text}"
+        f"{safe_text}"
     )
+    # Also guard the full prompt size (instructions + text).
+    prompt_cap = llm_input_cap + 4000
+    if len(prompt) > prompt_cap:
+        # Fall back to deterministic truncation as the compact result.
+        result = _deterministic_pretruncate(text, limit)
+        _cache_set(cache_key, result, _cache_maxsize(config))
+        return result
+
     result = _invoke_compact_llm(llm, prompt)
     _cache_set(cache_key, result, _cache_maxsize(config))
     return result

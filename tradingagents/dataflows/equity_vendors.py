@@ -94,16 +94,9 @@ def company_profile_fmp(ticker: str, **_: Any) -> dict[str, Any]:
 
 
 def financial_statement_fetch_yfinance(ticker: str, period: str = "annual", **_: Any) -> dict[str, Any]:
-    from tradingagents.dataflows.interface import route_to_vendor
+    from tradingagents.dataflows.financial_statements import fetch_financial_statements_markdown
 
-    today = datetime.utcnow().strftime("%Y-%m-%d")
-    freq = "annual" if period == "annual" else "quarterly"
-    return {
-        "fundamentals": route_to_vendor("get_fundamentals", ticker, today),
-        "income_statement": route_to_vendor("get_income_statement", ticker, freq, today),
-        "balance_sheet": route_to_vendor("get_balance_sheet", ticker, freq, today),
-        "cashflow": route_to_vendor("get_cashflow", ticker, freq, today),
-    }
+    return fetch_financial_statements_markdown(ticker, period=period)
 
 
 def financial_statement_fetch_alpha_vantage(ticker: str, period: str = "annual", **_: Any) -> dict[str, Any]:

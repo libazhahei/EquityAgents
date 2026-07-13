@@ -19,6 +19,9 @@ from tradingagents.equity_research.tasks.section_research.merge import (
     collect_evidence_for_question,
     enforce_structured_answer_requirements,
 )
+from tradingagents.equity_research.tasks.section_research.articles import write_question_article
+from tradingagents.equity_research.tools.findings_cache_tools import resolve_section_artifact_dir
+
 
 
 def _max_retries(deps: EquityResearchDeps) -> int:
@@ -157,6 +160,32 @@ def create_synthesizer_node(deps: EquityResearchDeps, task_profile: TaskProfile)
                 )
             if task_profile.task_id == "consensus":
                 updates["consensus_view"] = view.model_dump()
+
+            # Persist per-question article + refs for section research
+            if task_profile.task_id == "section_research" and (force_synthesize or pending):
+                active_task = state.get("active_task") or {}
+                qid = str(active_task.get("question_id") or "")
+                cards = getattr(view, "answer_cards", None) or {}
+                card = cards.get(qid) if qid else None
+                if card is None and cards:
+                    # fall back to first updated card
+                    qid = next(iter(cards.keys()))
+                    card = cards[qid]
+                if card is not None and qid:
+                    brief = state.get("research_brief") or {}
+                    qtext = ""
+                    for q in brief.get("questions") or []:
+                        if str(q.get("id", "")) == qid:
+                            qtext = str(q.get("question") or "")
+                            break
+                    artifact_dir = resolve_section_artifact_dir(state)
+                    updates["section_artifact_dir"] = str(artifact_dir)
+                    write_question_article(
+                        {**state, "section_artifact_dir": str(artifact_dir)},
+                        qid,
+                        card,
+                        question_text=qtext or getattr(card, "question", "") or "",
+                    )
 
             # Auto-write blackboard entries from evidence
             if pending and task_profile.task_id == "section_research":

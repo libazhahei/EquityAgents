@@ -92,7 +92,8 @@ def test_format_search_memory_prefers_full_answer():
     assert "short summary" in slim
 
 
-def test_slim_tool_message_and_ingest_preserves_evidence():
+def test_ingest_keeps_full_tool_payload_under_budget():
+    import json
     full_payload = {
         "items": [{
             "evidence": {
@@ -101,37 +102,104 @@ def test_slim_tool_message_and_ingest_preserves_evidence():
                 "question_id": "q1",
             }
         }],
-        "answer": "Long answer that should not stay in dialogue",
+        "answer": "Long answer that should remain in dialogue under budget",
+        "statement_type": "income",
+        "period": "FY2024",
     }
-    import json
     msg = ToolMessage(
         content=json.dumps(full_payload),
         tool_call_id="call_1",
-        name="web_search",
+        name="financial_statement_fetch",
         id="msg-1",
     )
     state = {
         "active_task": {"question_id": "q1"},
         "research_todo_list": {"items": []},
     }
-    slimmed, evidence, updates = _ingest_and_slim_tool_messages([msg], state)
+    deps = MagicMock()
+    deps.config = {"equity_research": {"prompt_context_max_chars": 32000}}
+    kept, evidence, updates = _ingest_and_slim_tool_messages([msg], state, deps=deps)
     assert evidence, "full tool payload should become pending evidence"
     assert any("Revenue grew 20%" in str(ev.get("snippet") or ev.get("content") or "") for ev in evidence)
-    assert len(slimmed) == 1
+    assert len(kept) == 1
+    assert not _is_slimmed_tool_content(kept[0].content)
+    assert "Long answer that should remain in dialogue under budget" in str(kept[0].content)
+    assert updates.get("_slimmed_tool_messages") == []
+
+
+def test_ingest_slims_when_over_budget():
+    import json
+    big = "x" * 5000
+    msgs = []
+    for i in range(3):
+        msgs.append(ToolMessage(
+            content=json.dumps({"answer": big, "summary": f"chunk-{i}"}),
+            tool_call_id=f"call_{i}",
+            name="web_search",
+            id=f"msg-{i}",
+        ))
+    state = {"active_task": {"question_id": "q1"}, "research_todo_list": {"items": []}}
+    deps = MagicMock()
+    deps.config = {"equity_research": {"prompt_context_max_chars": 8000}}
+    slimmed, _evidence, updates = _ingest_and_slim_tool_messages(msgs, state, deps=deps)
+    assert updates.get("_slimmed_tool_messages")
+    assert any(_is_slimmed_tool_content(m.content) for m in slimmed)
+
+
+def test_findings_cache_write_always_slimmed_to_ok():
+    import json
+    msg = ToolMessage(
+        content=json.dumps({"status": "ok", "path": "/tmp/x", "items": [{"claim": "secret"}]}),
+        tool_call_id="call_fc",
+        name="findings_cache_write",
+        id="msg-fc",
+    )
+    state = {"active_task": {"question_id": "q1"}, "research_todo_list": {"items": []}}
+    deps = MagicMock()
+    deps.config = {"equity_research": {"prompt_context_max_chars": 32000}}
+    slimmed, _evidence, updates = _ingest_and_slim_tool_messages([msg], state, deps=deps)
     assert _is_slimmed_tool_content(slimmed[0].content)
     parsed = json.loads(str(slimmed[0].content))
-    assert parsed["slimmed"] is True
-    assert "summary" in parsed
-    assert "Long answer that should not stay in dialogue" not in parsed["summary"] or len(parsed["summary"]) < len(
-        full_payload["answer"]
-    ) + 50
+    assert parsed["summary"] == "ok"
     assert updates.get("_slimmed_tool_messages")
-    assert slimmed[0].id == "msg-1"
+
+
+def test_findings_cache_read_keeps_items_under_budget():
+    import json
+    payload = {
+        "status": "ok",
+        "path": "/tmp/x",
+        "items": [{"claim": "data center revenue grew 40% YoY", "source": "10-K"}],
+        "count": 1,
+        "summary": "count=1",
+    }
+    msg = ToolMessage(
+        content=json.dumps(payload),
+        tool_call_id="call_fcr",
+        name="findings_cache_read",
+        id="msg-fcr",
+    )
+    state = {"active_task": {"question_id": "q1"}, "research_todo_list": {"items": []}}
+    deps = MagicMock()
+    deps.config = {"equity_research": {"prompt_context_max_chars": 32000}}
+    slimmed, _evidence, updates = _ingest_and_slim_tool_messages([msg], state, deps=deps)
+    assert not _is_slimmed_tool_content(slimmed[0].content)
+    parsed = json.loads(str(slimmed[0].content))
+    assert parsed["items"][0]["claim"] == "data center revenue grew 40% YoY"
+    assert updates.get("_slimmed_tool_messages") == []
 
 
 def test_slim_tool_message_content_helper():
     import json
-    slim = slim_tool_message_content(json.dumps({"summary": "ok", "items": []}), tool_name="x")
+    slim = slim_tool_message_content(json.dumps({"summary": "hello", "items": []}), tool_name="x")
     data = json.loads(slim)
     assert data["slimmed"] is True
     assert data["tool"] == "x"
+    # findings_cache_write collapses to ok; read uses normal item preview when slimmed.
+    fc_write = slim_tool_message_content(json.dumps({"items": [1]}), tool_name="findings_cache_write")
+    assert json.loads(fc_write)["summary"] == "ok"
+    fc_read = slim_tool_message_content(
+        json.dumps({"items": [{"claim": "secret fact"}], "count": 1}),
+        tool_name="findings_cache_read",
+    )
+    assert "secret fact" in json.loads(fc_read)["summary"]

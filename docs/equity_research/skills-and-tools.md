@@ -314,7 +314,7 @@ flowchart TD
 | 组名 | 作用 | 对应 step action | 典型工具 |
 |------|------|------------------|----------|
 | **retrieval** | 读取 / 获取 / 搜索 | orient、fetch_primary、search | filings_search, web_search, transcript_search, financial_statement_fetch, filing_reader, memory_retrieve, search_evidence, search_claims, search_assumptions, search_consensus, search_conflicts, search_memory_timeline, search_research_context, table_extractor, document_chunker, reference_parser |
-| **computation** | 分析 / 验证 / 计算 | calculate、compare、verify | calculator, time_series_analyzer, conflict_detector, citation_checker, claim_evidence_checker |
+| **computation** | 分析 / 验证 / 计算 | calculate、compare、verify | calculator, time_series_analyzer, conflict_detector, citation_checker, claim_evidence_checker, search_evidence, search_claims, findings_cache_read |
 | **action** | 写入 / 持久化 / 管理 | synthesize | list_research_todos, add_research_todo, remove_research_todo, update_research_todo_status, get_next_research_todo, memory_write, store_evidence |
 
 ### 9.5.2 Action → Group 映射
@@ -356,9 +356,34 @@ ACTION_TO_GROUP = {
 - **orient** — Start with memory_retrieve to check prior research, then list_research_todos.
 - **fetch_primary** — Prefer filings_search with SEC-style queries. Use financial_statement_fetch for structured data.
 - **search** — Use web_search for news, transcript_search for earnings calls.
-- **verify** — Use citation_checker and claim_evidence_checker to validate evidence chain.
+- **verify** — Use citation_checker / claim_evidence_checker with urls/claims from the **Step payload**. If payload `status` is `empty`, do not call ritual `calculator` expressions; record unavailable/gap. Optionally `search_evidence` / `search_claims` if payload is thin.
+- **compare** — Use conflict_detector / checkers against Step payload evidence and claims.
+- **calculate** — Compute only from numeric fields in the Step payload (and `calculation_store`).
 
-### 9.5.6 允许名单过滤
+### 9.5.6 Step payload（verify / compare / calculate）
+
+当 `action ∈ {verify, compare, calculate}` 时，dispatch 在**首条** HumanMessage 末尾注入确定性 JSON payload（[`runtime/utils/step_payload.py`](../../tradingagents/equity_research/runtime/utils/step_payload.py)），避免步间 `clear_messages` 后模型看不到待验/待算对象。
+
+| 字段 / 行为 | 说明 |
+|-------------|------|
+| 过滤 | 优先 `question_id == 当前 qid` 的 evidence；若空则回退本 section **未标注 qid** 的条目（不跨其他 qid）。Claims 优先命中所选 evidence 的 `supporting_evidence_ids`，否则 section 近期 claims。 |
+| verify/compare | evidence 摘要、metadata 缺口表、claims、citation URLs、answer_card 切片（`quantified_claims` / `source_attributions` / `open_gaps`） |
+| calculate | 带 metric/value 的 numeric evidence + `calculation_store` 切片（不含完整 claim/URL 清单） |
+| metadata | 规范四字段 + 别名回填，状态区分 `present` / `derived` / `missing`（`source_type`←source/form；`fiscal_quarter_or_date`←period/date；`platform`←vendor；`traceable_ref`←url/doc_id/filing_url） |
+| 截断 | evidence ≤ 8（quote ≤ 240）、claims ≤ 15、URLs ≤ 20；超出写 `truncated` + `omitted_counts` |
+| 空态 | `status: "empty"` + `gaps`；禁止仪式性计算 |
+
+### 9.5.7 `skip_verify`
+
+| 来源 | 键 / 参数 |
+|------|-----------|
+| config | `equity_research.skip_verify`（默认 `false`） |
+| env | `TRADINGAGENTS_SKIP_VERIFY` |
+| CLI | `--skip-verify` / `--no-skip-verify`（[`demo_section_research.py`](../../demo_section_research.py)、[`demo_equity_research.py`](../../demo_equity_research.py)） |
+
+为 `true` 时：**执行期短路**——dispatch 不调 LLM/工具，设 `_verify_skipped`；apply 将 step 标为 `skipped`（`result_summary=verify_skipped_by_config`），对应 todo 标 `done`。规划仍可生成 verify 步；`nested` / research_loop 经 `deps.config` 继承，无需额外接线。
+
+### 9.5.8 允许名单过滤
 
 `resolve_executor_tool_names()` 通过 `TaskProfile.extra_config["executor_langchain_tool_names"]` 过滤各组工具。允许名单见 [`profile.py`](../../tradingagents/equity_research/tasks/section_research/profile.py)。
 

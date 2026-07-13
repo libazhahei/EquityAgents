@@ -91,6 +91,9 @@ class AgentState(TypedDict, total=False):
     bfs_levels: list[list[str]]
     executor_context_snapshot: str
     question_iterations: dict[str, int]  # per-question reflector cycle counts
+    section_artifact_dir: str
+    executive_summary: str
+    final_report_path: str
 
     # Parameter registry (ParameterPreservingReducer)
     parameter_registry: dict[str, Any]

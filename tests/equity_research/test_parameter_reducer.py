@@ -34,12 +34,16 @@ from tradingagents.equity_research.runtime.skill_parameter_parser import (
 
 # ── Reducer imports ─────────────────────────────────────────────────────
 from tradingagents.equity_research.runtime.reducers import (
+    calculation_store_reducer,
     documents_reducer,
     errors_reducer,
     evidence_buffer_reducer,
     fact_store_reducer,
+    merge_ledger_by_id,
     pending_evidence_reducer,
+    search_memory_reducer,
 )
+from tradingagents.equity_research.state.blackboard import blackboard_reducer
 
 # ── Extractor imports ───────────────────────────────────────────────────
 from tradingagents.equity_research.runtime.parameter_extractor import (
@@ -180,6 +184,13 @@ class TestLangGraphReducers:
         # Should deduplicate the identical snippet
         assert len(result) == 1
 
+    def test_evidence_buffer_dedup_by_evidence_id(self):
+        existing = [{"evidence_id": "ev_1", "snippet": "Alpha"}]
+        new = [{"evidence_id": "ev_1", "snippet": "Completely different wording"}]
+        result = evidence_buffer_reducer(existing, new)
+        assert len(result) == 1
+        assert result[0]["snippet"] == "Alpha"
+
     def test_evidence_buffer_append_different(self):
         existing = [{"snippet": "Gross margin was 75.2%", "source": "10-K"}]
         new = [{"snippet": "Revenue grew 20% year over year", "source": "earnings"}]
@@ -191,11 +202,15 @@ class TestLangGraphReducers:
         result = evidence_buffer_reducer(existing, [])
         assert result == existing
 
-    def test_pending_evidence_appends(self):
+    def test_pending_evidence_overwrites(self):
         result = pending_evidence_reducer(
-            [{"id": 1}], [{"id": 2}]
+            [{"id": 1}], [{"id": 1}, {"id": 2}]
         )
-        assert len(result) == 2
+        assert result == [{"id": 1}, {"id": 2}]
+
+    def test_pending_evidence_empty_clears(self):
+        result = pending_evidence_reducer([{"id": 1}, {"id": 2}], [])
+        assert result == []
 
     def test_documents_reducer_dedup_by_doc_id(self):
         existing = [{"doc_id": "d1", "title": "Doc 1"}]
@@ -211,17 +226,88 @@ class TestLangGraphReducers:
         result = documents_reducer(existing, new)
         assert len(result) == 2
 
-    def test_errors_reducer_appends(self):
-        result = errors_reducer(["err1"], ["err2"])
+    def test_documents_reducer_skips_empty_anonymous(self):
+        result = documents_reducer([], [{}])
+        assert result == []
+
+    def test_errors_reducer_dedupes_full_list_resubmit(self):
+        result = errors_reducer(["err1"], ["err1", "err2"])
         assert result == ["err1", "err2"]
 
-    def test_fact_store_reducer_appends(self):
-        result = fact_store_reducer([{"a": 1}], [{"b": 2}])
+    def test_fact_store_reducer_no_double_on_resubmit(self):
+        existing = [{"evidence_id": "ev_1", "text": "Margin expanded", "question_id": "q1"}]
+        new = [
+            {"evidence_id": "ev_1", "text": "Margin expanded", "question_id": "q1"},
+            {"evidence_id": "ev_2", "text": "Revenue grew", "question_id": "q1"},
+        ]
+        result = fact_store_reducer(existing, new)
+        assert len(result) == 2
+        assert [r["evidence_id"] for r in result] == ["ev_1", "ev_2"]
+
+    def test_fact_store_reducer_jaccard_near_dup(self):
+        existing = [{"text": "Gross margin was 75.2% in FY2025 driven by mix", "question_id": "q1"}]
+        new = [{"text": "Gross margin was 75.2% in FY2025 driven by mix shift", "question_id": "q1"}]
+        result = fact_store_reducer(existing, new)
+        assert len(result) == 1
+
+    def test_calculation_store_reducer_keyed(self):
+        existing = [{"question_id": "q1", "expression": "1+1", "metric": "x"}]
+        new = [
+            {"question_id": "q1", "expression": "1+1", "metric": "x"},
+            {"question_id": "q1", "expression": "2+2", "metric": "y"},
+        ]
+        result = calculation_store_reducer(existing, new)
         assert len(result) == 2
 
-    def test_calculation_store_reducer_appends(self):
-        from tradingagents.equity_research.runtime.reducers import calculation_store_reducer
-        result = calculation_store_reducer([{"expr": "1+1"}], [{"expr": "2+2"}])
+    def test_search_memory_reducer_keyed(self):
+        existing = [{"query": "NVDA margin", "target_dimension": "m", "mode": "targeted"}]
+        new = [
+            {"query": "NVDA margin", "target_dimension": "m", "mode": "targeted"},
+            {"query": "NVDA revenue", "target_dimension": "m", "mode": "targeted"},
+        ]
+        result = search_memory_reducer(existing, new)
+        assert len(result) == 2
+
+    def test_merge_ledger_by_id_upserts_without_doubling(self):
+        existing = [{"evidence_id": "e1", "quote": "old"}]
+        incoming = [
+            {"evidence_id": "e1", "quote": "new"},
+            {"evidence_id": "e2", "quote": "extra"},
+        ]
+        # Simulate buggy extend payload: existing rows + new
+        doubled = existing + incoming
+        result = merge_ledger_by_id(existing, doubled, "evidence_id")
+        assert len(result) == 2
+        assert result[0]["quote"] == "new"
+        assert result[1]["evidence_id"] == "e2"
+
+    def test_blackboard_jaccard_skips_near_dup_different_ids(self):
+        existing = [{
+            "entry_id": "bb_1",
+            "entry_type": "finding",
+            "content": "Gross margin expanded on Blackwell mix and packaging costs in FY2026",
+        }]
+        new = [{
+            "entry_id": "bb_2",
+            "entry_type": "finding",
+            "content": "Gross margin expanded on Blackwell mix and packaging costs in FY2026 quarter",
+        }]
+        result = blackboard_reducer(existing, new)
+        assert len(result) == 1
+        assert result[0]["entry_id"] == "bb_1"
+
+    def test_blackboard_keeps_different_content(self):
+        existing = [{
+            "entry_id": "bb_1",
+            "entry_type": "finding",
+            "content": "Gross margin expanded on product mix",
+        }]
+        new = [{
+            "entry_id": "bb_2",
+            "entry_type": "finding",
+            "content": "Customer concentration remains undisclosed in filings",
+        }]
+        result = blackboard_reducer(existing, new)
         assert len(result) == 2
 
 

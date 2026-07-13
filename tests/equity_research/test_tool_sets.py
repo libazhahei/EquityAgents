@@ -12,8 +12,7 @@ from tradingagents.equity_research.tools.tool_sets import (
 
 
 def test_step_action_maps_to_group():
-    """Test all 5 action → group mappings."""
-    assert infer_tool_group(step_action="orient") == "retrieval"
+    """Test action → group mappings."""
     assert infer_tool_group(step_action="fetch_primary") == "retrieval"
     assert infer_tool_group(step_action="search") == "retrieval"
     assert infer_tool_group(step_action="verify") == "computation"
@@ -41,12 +40,22 @@ def test_route_from_active_step():
 
 
 def test_executor_tool_sets_partition_catalog():
-    """No tool should appear in more than one group."""
-    all_tools = set()
-    for names in EXECUTOR_TOOL_SETS.values():
-        overlap = all_tools.intersection(names)
-        assert not overlap, f"duplicate tools across groups: {overlap}"
-        all_tools.update(names)
+    """No unexpected tool should appear in more than one group."""
+    allowed_overlap = {
+        "list_research_todos",
+        "get_next_research_todo",
+        "update_research_todo_status",
+        "findings_cache_write",
+        "findings_cache_read",
+        "search_evidence",
+        "search_claims",
+    }
+    all_tools: dict[str, str] = {}
+    for group, names in EXECUTOR_TOOL_SETS.items():
+        for name in names:
+            if name in all_tools and name not in allowed_overlap:
+                raise AssertionError(f"duplicate tool {name} in {all_tools[name]} and {group}")
+            all_tools[name] = group
 
 
 def test_no_batch_perplexity_in_section_executor():
@@ -102,9 +111,9 @@ def test_keyword_routing_priority():
 def test_action_to_group_dict():
     """Verify ACTION_TO_GROUP dict has all expected mappings."""
     expected = {
-        "orient": "retrieval",
         "fetch_primary": "retrieval",
         "search": "retrieval",
+        "extract": "retrieval",
         "calculate": "computation",
         "compare": "computation",
         "verify": "computation",
@@ -112,3 +121,10 @@ def test_action_to_group_dict():
     }
     for action, group in expected.items():
         assert ACTION_TO_GROUP[action] == group
+    assert "orient" not in ACTION_TO_GROUP
+
+
+def test_computation_group_includes_readonly_memory():
+    assert "search_evidence" in EXECUTOR_TOOL_SETS["computation"]
+    assert "search_claims" in EXECUTOR_TOOL_SETS["computation"]
+    assert "findings_cache_read" in EXECUTOR_TOOL_SETS["computation"]

@@ -58,6 +58,8 @@ EXECUTOR_LANGCHAIN_TOOL_NAMES: tuple[str, ...] = (
     "search_research_context",
     "memory_write",
     "store_evidence",
+    "findings_cache_write",
+    "findings_cache_read",
 )
 
 

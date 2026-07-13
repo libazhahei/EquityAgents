@@ -114,13 +114,25 @@ def apply_evidence_heuristic(view: SectionResearchView, pending: list[dict]) -> 
             card = AnswerCard(question_id=qid, question=ev.get("query", qid))
             view.answer_cards[qid] = card
         snippet = str(ev.get("snippet") or ev.get("content") or "")[:500]
-        if snippet:
-            card.verified_facts.append({
-                "text": snippet,
-                "source": ev.get("source", ""),
-                "evidence_id": ev.get("evidence_id", ""),
-            })
-            card.evidence_ids.append(str(ev.get("evidence_id", "")))
+        if not snippet:
+            continue
+        eid = str(ev.get("evidence_id") or "")
+        if eid:
+            already = eid in {str(x) for x in card.evidence_ids if x} or any(
+                str(f.get("evidence_id") or "") == eid for f in card.verified_facts
+            )
+        else:
+            key = snippet[:80]
+            already = any(str(f.get("text") or "")[:80] == key for f in card.verified_facts)
+        if already:
+            continue
+        card.verified_facts.append({
+            "text": snippet,
+            "source": ev.get("source", ""),
+            "evidence_id": eid,
+        })
+        if eid:
+            card.evidence_ids.append(eid)
         card.confidence = min(0.9, card.confidence + 0.1)
 
 

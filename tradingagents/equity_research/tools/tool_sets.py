@@ -45,6 +45,9 @@ EXECUTOR_TOOL_SETS: dict[ToolGroupId, tuple[str, ...]] = {
         "list_research_todos",
         "get_next_research_todo",
         "update_research_todo_status",
+        # Findings cache
+        "findings_cache_read",
+        "findings_cache_write",
     ),
     "computation": (
         "calculator",
@@ -52,6 +55,10 @@ EXECUTOR_TOOL_SETS: dict[ToolGroupId, tuple[str, ...]] = {
         "conflict_detector",
         "citation_checker",
         "claim_evidence_checker",
+        # Read-only memory fallback when step payload is thin
+        "search_evidence",
+        "search_claims",
+        "findings_cache_read",
     ),
     "action": (
         # Todo management
@@ -63,6 +70,9 @@ EXECUTOR_TOOL_SETS: dict[ToolGroupId, tuple[str, ...]] = {
         # Memory write
         "memory_write",
         "store_evidence",
+        # Findings cache
+        "findings_cache_write",
+        "findings_cache_read",
     ),
 }
 
@@ -73,9 +83,9 @@ for group_id, names in EXECUTOR_TOOL_SETS.items():
 
 # Deterministic action → group mapping (replaces _STEP_ACTION_DEFAULT_GROUP)
 ACTION_TO_GROUP: dict[str, ToolGroupId] = {
-    "orient": "retrieval",       # orient starts with memory_retrieve
     "fetch_primary": "retrieval",
     "search": "retrieval",
+    "extract": "retrieval",
     "calculate": "computation",
     "compare": "computation",
     "verify": "computation",
@@ -186,20 +196,21 @@ def build_tools_for_group(
     tools: list[BaseTool] = []
     names = resolve_executor_tool_names(task_profile, group_id)
     
-    if group_id == "retrieval":
-        # Build dynamic tools that need deps
+    if group_id in ("retrieval", "computation"):
+        # Dynamic deps-aware tools (memory search; retrieval also gets web/filings)
         dynamic = {t.name: t for t in make_memory_search_tools(deps)}
-        dynamic["web_search"] = make_web_search_tool(deps)
-        dynamic["filings_search"] = make_filings_search_tool(deps)
-        
+        if group_id == "retrieval":
+            dynamic["web_search"] = make_web_search_tool(deps)
+            dynamic["filings_search"] = make_filings_search_tool(deps)
+
         for name in names:
             if name in dynamic:
                 tools.append(dynamic[name])
             elif name in STATIC_LANGCHAIN_TOOLS:
                 tools.append(STATIC_LANGCHAIN_TOOLS[name])
         return tools
-    
-    # For computation and action groups, use static tools
+
+    # Action group: static tools only
     for name in names:
         if name in STATIC_LANGCHAIN_TOOLS:
             tools.append(STATIC_LANGCHAIN_TOOLS[name])

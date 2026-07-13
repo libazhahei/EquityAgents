@@ -19,6 +19,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from tradingagents.equity_research.memory.similarity import text_similarity
+
 
 # Core tags for filtering — can be extended with free-form tags
 BLACKBOARD_CORE_TAGS: frozenset[str] = frozenset({
@@ -65,7 +67,9 @@ class BlackboardEntry(BaseModel):
 
 
 def blackboard_reducer(existing: list[dict], new: list[dict]) -> list[dict]:
-    """Append-only reducer with entry_id dedup and in-place update support."""
+    """Append-only reducer with entry_id upsert and Jaccard near-dup skip on content."""
+    _jaccard = 0.85
+
     if not new:
         return list(existing) if existing else []
     result = list(existing) if existing else []
@@ -78,10 +82,18 @@ def blackboard_reducer(existing: list[dict], new: list[dict]) -> list[dict]:
                 if e.get("entry_id") == eid:
                     result[i] = {**e, **entry}
                     break
-        else:
-            result.append(entry)
-            if eid:
-                existing_ids.add(eid)
+            continue
+        content = str(entry.get("content") or "")
+        entry_type = str(entry.get("entry_type") or "finding")
+        if content and any(
+            str(e.get("entry_type") or "finding") == entry_type
+            and text_similarity(content, str(e.get("content") or "")) >= _jaccard
+            for e in result
+        ):
+            continue  # near-dup — first-seen wins
+        result.append(entry)
+        if eid:
+            existing_ids.add(eid)
     return result
 
 

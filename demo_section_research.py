@@ -179,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Run consensus + assumption subgraphs live (optional; prefer --background-json)",
     )
-    parser.add_argument("--max-iterations", type=int, default=3, help="Max PER iterations")
+    parser.add_argument("--max-iterations", type=int, default=5, help="Max PER iterations")
     parser.add_argument(
         "--max-sub-questions", type=int, default=None,
         help="Limit research to at most N sub-questions (truncates section plan nodes)",
@@ -199,15 +199,25 @@ def main(argv: list[str] | None = None) -> int:
         help="Override equity_research.quick_research (default: config / env). "
         "When on, deep-tier calls use quick_llm.",
     )
+    parser.add_argument(
+        "--skip-verify",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override equity_research.skip_verify (default: config / env). "
+        "When on, verify steps are marked skipped without LLM/tool calls.",
+    )
     args = parser.parse_args(argv)
 
     config = DEFAULT_CONFIG.copy()
     if args.quick_research is not None:
         config.setdefault("equity_research", {})["quick_research"] = bool(args.quick_research)
+    if args.skip_verify is not None:
+        config.setdefault("equity_research", {})["skip_verify"] = bool(args.skip_verify)
     deps = _build_deps(config)
     logger.info(
-        "quick_research=%s",
+        "quick_research=%s skip_verify=%s",
         config.get("equity_research", {}).get("quick_research"),
+        config.get("equity_research", {}).get("skip_verify"),
     )
 
     state = empty_equity_research_state()

@@ -195,6 +195,7 @@ flowchart TD
 - **硬**：对话 messages 只保留调用内容 + 结果摘要（`slim_tool_message_content`；同 message id 替换）
 - **全量**：全文写入 `pending_evidence` / memory
 - Reflector 的 `format_executor_messages`：摘要拼接后至多一次 compact（不再对每条 ToolMessage 分别 compact）
+- **Step payload**：当 `action` 为 `verify` / `compare` / `calculate` 时，首轮 HumanMessage 会附带确定性 JSON payload（见 [skills-and-tools §9.5.6](skills-and-tools.md)），计入 executor context，不单独做二次 compact
 
 ### 5.4 Section planner 背景
 

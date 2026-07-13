@@ -112,6 +112,45 @@ def _format_questions_context(brief: ResearchBrief) -> str:
     )
 
 
+def _current_wave_question_ids(state: dict[str, Any]) -> list[str]:
+    levels = state.get("bfs_levels") or []
+    wave_index = int(state.get("bfs_wave_index", 0) or 0)
+    if levels and 0 <= wave_index < len(levels):
+        return [str(qid) for qid in levels[wave_index]]
+    if levels:
+        return [str(qid) for qid in levels[0]]
+    return []
+
+
+def _format_wave_questions_checklist(
+    brief: ResearchBrief,
+    wave_qids: list[str],
+) -> str:
+    """Explicit per-wave checklist so the planner cannot omit a question_id."""
+    by_id = {str(q.get("id", "")): q for q in (brief.questions or [])}
+    if not wave_qids:
+        return "(no wave question ids — use priority questions from the full table)"
+    lines = [
+        f"Current BFS wave has exactly {len(wave_qids)} question(s). "
+        "You MUST emit exactly one task for each id below (no skipping, no merging):",
+    ]
+    for i, qid in enumerate(wave_qids, start=1):
+        q = by_id.get(qid) or {}
+        text = str(q.get("question") or qid)
+        expected = str(q.get("expected_output") or "")
+        priority = q.get("priority", "")
+        lines.append(
+            f"{i}. question_id=`{qid}` | priority={priority} | "
+            f"question={text}"
+            + (f" | expected_output={expected}" if expected else "")
+        )
+    lines.append(
+        f"REQUIRED: tasks.length == {len(wave_qids)}; "
+        f"every question_id in {{{', '.join(wave_qids)}}} appears exactly once."
+    )
+    return "\n".join(lines)
+
+
 def _build_active_skills_block(deps: EquityResearchDeps, skills: dict[str, Any]) -> str:
     if not skills:
         return "{}"
@@ -129,6 +168,10 @@ def build_initial_plan_prompt(deps: EquityResearchDeps, state: dict[str, Any]) -
     brief = ResearchBrief.model_validate(state.get("research_brief") or {})
     skills = state.get("active_skill_context") or {}
     bfs_levels_data = state.get("bfs_levels") or []
+    wave_qids = _current_wave_question_ids(state)
+    if not wave_qids and bfs_levels_data:
+        wave_qids = [str(qid) for qid in (bfs_levels_data[0] or [])]
+    wave_checklist = _format_wave_questions_checklist(brief, wave_qids)
     questions_block = _format_questions_context(brief)
     skills_block = _build_active_skills_block(deps, skills)
     prior_summaries = (state.get("parent_context") or {}).get("prior_session_summaries") or []
@@ -144,6 +187,7 @@ def build_initial_plan_prompt(deps: EquityResearchDeps, state: dict[str, Any]) -
     context = assemble_and_compact_context(
         deps,
         {
+            "CURRENT WAVE CHECKLIST (mandatory coverage)": wave_checklist,
             "Questions (from section planner)": questions_block,
             "BFS question waves": json.dumps(bfs_levels_data[:8]),
             "Consensus view (structured)": _raw_consensus_context(brief),
@@ -153,9 +197,10 @@ def build_initial_plan_prompt(deps: EquityResearchDeps, state: dict[str, Any]) -
         },
         purpose="section research initial planner context",
     )
+    n = len(wave_qids)
     return f"""
-You are a senior equity research planner. Build a concise research plan for one report section.
-    
+You are a senior equity research planner. Build a research plan for one report section.
+
 Ticker: {state.get("ticker", "")}
 Section: {brief.section_id} — {brief.section_title}
 Root question: {brief.root_question}
@@ -165,21 +210,69 @@ Data quality flags: {json.dumps(brief.data_quality_flags[:10])}
 
 {context}
 
-For each priority question in the current BFS wave, output a task with:
-- task_id, question_id
+CRITICAL OUTPUT RULES:
+1. Output exactly {n} tasks — one per CURRENT WAVE checklist question_id. Do not skip any.
+2. Each task must use an existing wave question_id from the checklist (do not invent ids).
+3. Do not merge multiple questions into one task.
+4. Do NOT list detailed steps — the system expands your outline.
+
+For each wave question, output a task with:
+- task_id (e.g. t_<question_id>)
+- question_id (must match checklist)
 - objective: what to learn (one clear goal)
 - approach: rough how to research it (1-2 sentences, tools/sources)
 
-Hard requirements (must be reflected through tasks tied to existing question_ids only):
-- Enforce quant coverage on core conclusions: each core answer needs numeric support with metric, value/range, unit, and period.
-- Enforce competition concreteness: include named threat-source validation tasks when related sub-questions exist.
-- Enforce source metadata completeness: collect source_type, fiscal_quarter_or_date, platform, traceable_ref.
-- Include a data-availability verification branch for any critical metric likely to be missing, with fallback proxy research.
+Hard requirements (via tasks tied to existing question_ids only):
+- Enforce quant coverage on core conclusions: numeric support with metric, value/range, unit, and period.
+- Enforce competition concreteness when related sub-questions exist.
+- Enforce source metadata completeness: source_type, fiscal_quarter_or_date, platform, traceable_ref.
+- Include data-availability verification thinking for metrics likely missing.
 - Do not introduce prior assumptions not implied by root/sub questions.
 
 Return JSON matching SectionResearchPlanOutlineLLMOutput: plan_rationale, tasks, execution_order.
-Prioritize priority=1 questions and those blocking coverage outputs.
-Limit to at most 6 tasks. Do NOT list detailed steps — the system expands your outline."""
+tasks.length MUST be {n}. execution_order must list every task_id once."""
+
+
+def build_wave_task_supplement_prompt(
+    deps: EquityResearchDeps,
+    state: dict[str, Any],
+    *,
+    missing_qids: list[str],
+    existing_task_qids: list[str] | None = None,
+) -> str:
+    """Second-round prompt: only create tasks for wave questions still missing."""
+    brief = ResearchBrief.model_validate(state.get("research_brief") or {})
+    checklist = _format_wave_questions_checklist(brief, missing_qids)
+    context = assemble_and_compact_context(
+        deps,
+        {
+            "Missing wave questions (create tasks ONLY for these)": checklist,
+            "Already covered question_ids (do NOT recreate)": json.dumps(
+                list(existing_task_qids or []),
+            ),
+            "Full question table": _format_questions_context(brief),
+        },
+        purpose="section research planner wave supplement",
+    )
+    n = len(missing_qids)
+    return f"""You are completing a partial section research plan.
+
+Ticker: {state.get("ticker", "")}
+Section: {brief.section_id} — {brief.section_title}
+
+A previous planning pass omitted some current-wave questions. Create ONLY the missing tasks.
+
+{context}
+
+CRITICAL:
+- Output exactly {n} tasks — one for each missing question_id: {json.dumps(missing_qids)}
+- Do not recreate tasks for already-covered question_ids.
+- Do not invent new question_ids.
+- Do NOT list detailed steps.
+
+Each task needs: task_id, question_id, objective, approach.
+Return JSON matching SectionResearchPlanOutlineLLMOutput: plan_rationale, tasks, execution_order.
+tasks.length MUST be {n}."""
 
 
 def build_replan_prompt(deps: EquityResearchDeps, state: dict[str, Any]) -> str:
@@ -189,6 +282,8 @@ def build_replan_prompt(deps: EquityResearchDeps, state: dict[str, Any]) -> str:
     wave_index = int(state.get("bfs_wave_index", 0))
     bfs_levels_data = state.get("bfs_levels") or []
     next_wave = bfs_levels_data[wave_index + 1] if wave_index + 1 < len(bfs_levels_data) else []
+    brief = ResearchBrief.model_validate(state.get("research_brief") or {})
+    next_wave_checklist = _format_wave_questions_checklist(brief, [str(q) for q in next_wave])
     answer_summary = {
         k: v.get("short_answer", "")
         for k, v in (state.get("answer_cards") or {}).items()
@@ -198,6 +293,7 @@ def build_replan_prompt(deps: EquityResearchDeps, state: dict[str, Any]) -> str:
         {
             "Critical gaps": json.dumps(gaps[:10], indent=2),
             "Answer cards summary": json.dumps(answer_summary, indent=2),
+            "Next wave checklist": next_wave_checklist if next_wave else "",
         },
         purpose="section research replan context",
     )
@@ -211,7 +307,7 @@ Next wave question ids (if advancing): {json.dumps(next_wave)}
 
 {context}
 
-If wave-advance: add tasks only for next-wave questions (objective + approach each).
+If wave-advance: add exactly one task per next-wave question_id (objective + approach each). Do not skip any.
 Otherwise add follow-up tasks ONLY for gaps. Do not replan completed work.
 Do not add new assumptions outside root/sub-question scope.
 When gaps are about missing numbers/sources/competition concreteness, prioritize tasks that:
@@ -395,19 +491,45 @@ def build_reflector_prompt(
 
 def build_finalizer_prompt(deps: EquityResearchDeps, ctx: dict[str, Any]) -> str:
     state = ctx.get("state") or {}
-    view: SectionResearchView | None = ctx.get("view")
     brief = state.get("research_brief") or {}
-    cards = view.answer_cards if view else {}
+    from tradingagents.equity_research.tasks.section_research.articles import (
+        concat_articles_for_prompt,
+    )
+    from tradingagents.equity_research.tools.findings_cache_tools import (
+        resolve_section_artifact_dir,
+    )
+
+    artifact_dir = state.get("section_artifact_dir") or str(resolve_section_artifact_dir(state))
+    articles_text = concat_articles_for_prompt(artifact_dir)
+    coverage = ctx.get("coverage") or {}
+    coverage_slim = {
+        "overall_score": coverage.get("overall_score"),
+        "critical_gaps": (coverage.get("critical_gaps") or [])[:10],
+        "question_scores": coverage.get("question_scores") or {},
+    }
+    questions = brief.get("questions") or []
+    sub_q_lines = []
+    for q in questions:
+        qid = q.get("id", "")
+        level = q.get("level", "")
+        text = q.get("question", "")
+        if qid:
+            sub_q_lines.append(f"- [{qid}] (level={level}) {text}")
+    sub_q_block = "\n".join(sub_q_lines) if sub_q_lines else "(see articles)"
+
     context = assemble_and_compact_context(
         deps,
         {
             "Intent": str(brief.get("intent_hint", "")),
-            "Answer cards": json.dumps({k: c.model_dump() for k, c in cards.items()}, indent=2),
-            "Coverage": json.dumps(ctx.get("coverage") or {}, indent=2),
+            "Planning thesis": str(brief.get("planning_thesis", "")),
+            "Question tree": sub_q_block,
+            "Per-question research articles (source material)": articles_text,
+            "Coverage": json.dumps(coverage_slim, indent=2),
         },
         purpose="section research finalizer context",
     )
-    return f"""Write the final section research report draft.
+    max_chars = ctx.get("report_max_chars", 8000)
+    return f"""Write a COMPLETE equity research section report that answers the root question and all sub-questions.
 
 Ticker: {state.get("ticker", "")}
 Section: {brief.get("section_title", "")} ({brief.get("section_id", "")})
@@ -415,10 +537,21 @@ Root question: {brief.get("root_question", "")}
 
 {context}
 
-Produce professional equity research prose with citations. Max {ctx.get("report_max_chars", 6000)} chars.
-Include executive summary at top.
-If any required metric/source is unavailable after retries, add a dedicated disclosure section
-that names missing datasets, attempted sources, and confidence impact."""
+Required report structure (markdown):
+1. # Executive Summary — concise synthesis answering the root question
+2. # Root Question Analysis — full answer to the root question, integrating evidence across sub-questions
+3. # Sub-Question Findings — one ## subsection per sub-question (use the question text as the heading). For each: short answer, key evidence, implications
+4. # Cross-Cutting Themes & Risks — what the sub-answers jointly imply
+5. # Open Gaps & Data Limitations — remaining unknowns / unavailable metrics
+
+Rules:
+- This must be a self-contained complete report about the root question AND every sub-question covered in the source articles — not a summary-only memo.
+- Synthesize from the per-question articles; do not ignore covered sub-questions.
+- Keep citation markers like [1] exactly as provided in the Global reference list; do not invent new URLs or reference numbers.
+- Do NOT include a References section — the system appends a merged References list algorithmically.
+- Professional equity-research prose. Soft target under {max_chars} chars (prefer completeness over brevity if needed).
+"""
+
 
 
 def build_skill_prompt(state: dict[str, Any], catalog_table: str, ticker: str) -> str:
@@ -450,6 +583,7 @@ Rules:
 5. Prefer primary sources (filings) over secondary when step action is fetch_primary or extract.
 6. Do NOT call tools when active step action is synthesize — that step is handled downstream.
 7. Always persist evidence and conclusions to memory before marking a todo item done.
+8. When context is large, call findings_cache_write to persist key findings; use findings_cache_read to recall them.
 
 ── Tool Usage Guide ──
 
