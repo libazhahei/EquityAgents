@@ -43,6 +43,7 @@ dependencies = [
     "e2b>=2.30.0",
     "tavily-python>=0.7.26",
     "psycopg>=3.3.4",
+    "langsmith>=0.3.45",
 ]
 
 [project.optional-dependencies]
@@ -76,7 +77,7 @@ equity-research = [
 tradingagents = "cli.main:app"
 
 [tool.setuptools.packages.find]
-include = ["tradingagents*", "cli*"]
+include = ["tradingagents*", "cli*", "evaluation*"]
 
 [tool.setuptools.package-data]
 cli = ["static/*"]

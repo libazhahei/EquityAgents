@@ -1,0 +1,12 @@
+{
+  "case_id": "nvda_3_business_model",
+  "ticker": "NVDA",
+  "section_id": "3_business_model",
+  "background_json": "fixtures/nvda_background_stub.json",
+  "planner_json": "fixtures/nvda_planner_stub.json",
+  "max_iterations": 5,
+  "mode": "wrapper",
+  "reference_notes": "Golden case for Business Model section. Prefer richer out/nvda5.json + out/nvda_planner.json when available by overriding paths.",
+  "expected_scores": {},
+  "rubric_breakdown": null
+}

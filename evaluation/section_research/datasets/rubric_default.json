@@ -1,0 +1,31 @@
+{
+  "dimensions": [
+    {
+      "name": "content_quality",
+      "weight": 0.25,
+      "meaning": "Section prose is coherent, investor-useful, and specific to the ticker/section.",
+      "fail_cues": "Generic filler, empty draft, off-topic content, or pure boilerplate."
+    },
+    {
+      "name": "coverage_vs_plan",
+      "weight": 0.25,
+      "meaning": "Answers the planned questions / todos; coverage report aligns with delivered artifacts.",
+      "fail_cues": "Plan questions ignored, no answer cards for key questions, coverage claims without substance."
+    },
+    {
+      "name": "faithfulness",
+      "weight": 0.30,
+      "meaning": "Factual claims and numbers are supported by evidence_ledger, citations, or tool outputs.",
+      "fail_cues": "Fabricated numbers, unsupported assertions, citations that do not match claims."
+    },
+    {
+      "name": "gaps_honesty",
+      "weight": 0.20,
+      "meaning": "Unresolved gaps and data-quality notes are candid; does not overclaim confidence.",
+      "fail_cues": "Hides known gaps, invents certainty, or silently omits contradictions."
+    }
+  ],
+  "max_delta_fail": 0.15,
+  "det_weight": 0.4,
+  "judge_weight": 0.6
+}

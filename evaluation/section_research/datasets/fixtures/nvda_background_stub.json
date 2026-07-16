@@ -1,0 +1,31 @@
+{
+  "ticker": "NVDA",
+  "structured_view": {
+    "ticker": "NVDA",
+    "as_of": "2024-01-15",
+    "coverage_score": 0.7,
+    "bull_case": {
+      "summary": "AI accelerator demand remains strong with data-center GPU leadership.",
+      "key_points": ["Data center growth", "CUDA ecosystem"],
+      "supporting_evidence": []
+    },
+    "bear_case": {
+      "summary": "Competition and customer concentration could pressure margins.",
+      "key_points": ["Custom ASIC risk", "Customer concentration"],
+      "supporting_evidence": []
+    },
+    "base_case": {
+      "summary": "Continued AI infrastructure spend with cyclical inventory digestion.",
+      "key_points": ["Hyperscaler capex", "Product cycle"],
+      "supporting_evidence": []
+    },
+    "key_debates": [],
+    "open_questions": ["How durable is GPU pricing power?"],
+    "evidence_gaps": []
+  },
+  "assumption_view": {
+    "ticker": "NVDA",
+    "assumption_map": []
+  },
+  "assumption_report": "Stub assumption report for evaluation fixtures."
+}

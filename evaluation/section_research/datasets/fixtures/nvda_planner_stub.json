@@ -1,0 +1,28 @@
+{
+  "ticker": "NVDA",
+  "section_plans": {
+    "3_business_model": {
+      "section_id": "3_business_model",
+      "section_title": "Business Model",
+      "root_question": "How does NVIDIA make money and what drives unit economics?",
+      "planning_thesis": "Map segments, customers, and monetization of the CUDA/platform stack.",
+      "nodes": [
+        {
+          "question_id": "q_segments",
+          "question": "What are the primary revenue segments and mix?",
+          "priority": 90
+        },
+        {
+          "question_id": "q_customers",
+          "question": "Who are the key customers and how concentrated is demand?",
+          "priority": 80
+        },
+        {
+          "question_id": "q_moat",
+          "question": "What switching costs and platform advantages support the model?",
+          "priority": 70
+        }
+      ]
+    }
+  }
+}

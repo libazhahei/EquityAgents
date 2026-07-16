@@ -839,6 +839,21 @@ LANGSMITH_TRACING=true LANGSMITH_PROJECT=equity-research \
   uv run python demo_consensus.py NVDA --mode subgraph --json -o out/nvda.json
 ```
 
+```
+# PR / 本地（无 LLM）
+uv run pytest tests/equity_research/test_section_research_eval.py -q
+
+# Live（会调 LLM）
+uv run python evaluation/section_research/run_eval.py --dataset nvda_3_business_model
+
+# LangSmith 回放
+uv run python evaluation/section_research/run_eval.py --run-id <id> --project finance
+
+# 固化金标 / 上报 Experiment
+uv run python evaluation/section_research/run_eval.py --dataset nvda_3_business_model --write-expected
+uv run python evaluation/section_research/run_eval.py --dataset nvda_3_business_model --upload --experiment section-research-v1
+```
+
 ---
 
 ## Examples
